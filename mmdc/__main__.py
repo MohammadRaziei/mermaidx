@@ -37,7 +37,7 @@ def main():
     )
 
     # Read the input file content
-    input_content = args.input.read_text()
+    input_content = args.input.read_text(encoding='utf-8')
 
     result = converter.convert(
         input=input_content,
