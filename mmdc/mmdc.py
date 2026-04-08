@@ -353,7 +353,7 @@ class MermaidConverter:
                 mermaid_code = input
             elif isinstance(input, Path):
                 # Path object - read the content
-                mermaid_code = input.read_text()
+                mermaid_code = input.read_text(encoding="utf-8")
             else:
                 # File-like object - read the content
                 mermaid_code = input.read()
