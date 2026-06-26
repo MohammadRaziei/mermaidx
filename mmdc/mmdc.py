@@ -110,15 +110,15 @@ class MermaidConverter:
     Use as an async context manager (recommended):
 
         async with MermaidConverter() as m:
-            svg = await m.to_svg("graph TD\\nA-->B")
-            png = await m.to_png("sequenceDiagram\\nA->>B: Hello", scale=2.0)
-            await m.to_pdf("graph LR\\nA-->B", output="out.pdf")
+            svg = await m.to_svg("graph TD\\\\nA-->B")
+            png = await m.to_png("sequenceDiagram\\\\nA->>B: Hello", scale=2.0)
+            await m.to_pdf("graph LR\\\\nA-->B", output="out.pdf")
 
     Or manage lifecycle manually:
 
         m = MermaidConverter()
         await m.start()
-        svg = await m.to_svg("graph TD\\nA-->B")
+        svg = await m.to_svg("graph TD\\\\nA-->B")
         await m.close()
     """
 
@@ -371,4 +371,64 @@ class MermaidConverter:
             return await self.to_pdf(source, output, scale=scale, **common, **kwargs)
         else:
             raise ValueError(f"Unsupported output format: {ext!r}. Use .svg, .png, or .pdf")
-        
+
+
+# ── module-level singleton ────────────────────────────────────────────────────
+
+import atexit as _atexit
+
+_default: Optional[MermaidConverter] = None
+
+
+def _get_default() -> MermaidConverter:
+    """Return the module-level singleton, creating it if needed."""
+    global _default
+    if _default is None:
+        _default = MermaidConverter()
+    return _default
+
+
+def _shutdown_default() -> None:
+    """Called at interpreter exit — closes the singleton if it was started."""
+    global _default
+    if _default is not None and _default._browser is not None:
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                loop.create_task(_default.close())
+            else:
+                loop.run_until_complete(_default.close())
+        except Exception:
+            pass
+        _default = None
+
+
+_atexit.register(_shutdown_default)
+
+
+async def _ensure_started() -> MermaidConverter:
+    """Return the singleton, starting it on first use."""
+    m = _get_default()
+    if m._browser is None:
+        await m.start()
+    return m
+
+
+async def to_svg(source: Union[str, Path], output=None, **kwargs) -> bytes:
+    """Module-level to_svg — uses a shared persistent session."""
+    return await (await _ensure_started()).to_svg(source, output, **kwargs)
+
+
+async def to_png(source: Union[str, Path], output=None, **kwargs) -> bytes:
+    """Module-level to_png — uses a shared persistent session."""
+    return await (await _ensure_started()).to_png(source, output, **kwargs)
+
+
+async def to_pdf(source: Union[str, Path], output=None, **kwargs) -> bytes:
+    """Module-level to_pdf — uses a shared persistent session."""
+    return await (await _ensure_started()).to_pdf(source, output, **kwargs)
+
+
+async def convert(source: Union[str, Path], output=None, **kwargs) -> bytes:
+    """Module-level convert — uses a shared persistent session."""
+    return await (await _ensure_started()).convert(source, output, **kwargs)
