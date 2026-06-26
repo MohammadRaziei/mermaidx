@@ -74,12 +74,12 @@ jobs:
       - name: Install wheel
         run: |
           ls dist
-          pip install pip pytest-cov
+          pip install pip pytest-cov pytest-xdist 
           pip install --upgrade --find-links ./dist/ mmdc
 
       - name: Run tests
         run: |
-          python -m pytest --cov -v
+          python -m pytest --cov -v -n auto
 
   release:
     name: Release Assets and Upload to PyPI
