@@ -103,6 +103,7 @@ filterwarnings = [
     # "error",
     "ignore:(ast.Str|Attribute s|ast.NameConstant|ast.Num) is deprecated:DeprecationWarning:_pytest",  # Python 3.12
 ]
+asyncio_mode = "auto"
 testpaths = ["tests"]
 pythonpath = [
   "."

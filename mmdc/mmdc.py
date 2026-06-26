@@ -1,428 +1,378 @@
-#!/usr/bin/env python3
 """
-Mermaid Diagram Converter using PhantomJS (phasma) with runtime template replacement.
-Supports SVG, PNG, PDF output.
+mmdc — Mermaid diagram converter backed by a persistent PhantomJS session.
+
+One MermaidConverter instance = one PhantomJS process, reused across all
+conversions. Supports SVG, PNG, and PDF output. Works fully offline — the
+Mermaid JS library is bundled inside the package.
+
+Usage
+-----
+    import asyncio
+    from mmdc import MermaidConverter
+
+    async def main():
+        async with MermaidConverter() as m:
+            svg = await m.to_svg("graph TD\\nA-->B")
+            png = await m.to_png("graph TD\\nA-->B", scale=2.0)
+            await m.to_pdf("graph TD\\nA-->B", output="diagram.pdf")
+
+    asyncio.run(main())
 """
 
+from __future__ import annotations
+
+import asyncio
 import json
-import logging
+import re
+import tempfile
 from pathlib import Path
-from typing import Optional, Tuple, Union, TextIO
+from typing import Optional, Union
 
-from phasma.driver import Driver
-# import cairosvg
+import phasma.browser as _browser
 
+# Assets bundled inside the package
+_ASSETS_DIR = Path(__file__).parent / "assets"
+_RENDER_HTML = _ASSETS_DIR / "render.html"
+
+
+# ── helpers ───────────────────────────────────────────────────────────────────
+
+def _read_input(source: Union[str, Path]) -> str:
+    """Accept a Mermaid string, a .mermaid/.md file path string, or a Path."""
+    if isinstance(source, Path):
+        return source.read_text(encoding="utf-8")
+    p = Path(source)
+    if p.suffix.lower() in (".mermaid", ".md", ".txt") and p.is_file():
+        return p.read_text(encoding="utf-8")
+    return source  # raw mermaid string
+
+
+def _escape_js(s: str) -> str:
+    """Escape a string for safe embedding in a JS string literal."""
+    return (
+        s.replace("\\", "\\\\")
+         .replace("'", "\\'")
+         .replace("\n", "\\n")
+         .replace("\r", "\\r")
+    )
+
+
+def _parse_svg_dimensions(svg_text: str):
+    """
+    Extract width/height from SVG string.
+    Falls back to viewBox if width/height are missing or non-numeric (e.g. "100%").
+    Returns (w, h) as integers or (None, None).
+    """
+    if isinstance(svg_text, bytes):
+        svg_text = svg_text.decode("utf-8", errors="ignore")
+
+    m = re.search(r'<svg[^>]*>', svg_text, re.DOTALL)
+    if not m:
+        return None, None
+
+    tag = m.group(0)
+
+    def _attr_int(name: str):
+        am = re.search(rf'{name}\s*=\s*["\']([^"\']+)["\']', tag)
+        if not am:
+            return None
+        val = am.group(1).strip().rstrip("px").strip()
+        try:
+            v = int(float(val))
+            return v if v > 0 else None
+        except ValueError:
+            return None  # "100%" etc.
+
+    w = _attr_int("width")
+    h = _attr_int("height")
+
+    # fallback: parse viewBox="x y w h"
+    if w is None or h is None:
+        vb = re.search(r'viewBox\s*=\s*["\']([^"\']+)["\']', tag)
+        if vb:
+            parts = vb.group(1).strip().split()
+            if len(parts) == 4:
+                try:
+                    w = w or int(float(parts[2]))
+                    h = h or int(float(parts[3]))
+                except ValueError:
+                    pass
+
+    return w, h
+
+
+# ── MermaidConverter ──────────────────────────────────────────────────────────
 
 class MermaidConverter:
-    def __init__(self, timeout: int = 30):
-        self.logger = logging.getLogger(__name__)
-        # Determine assets directory relative to this file
-        self.assets_dir = (Path(__file__).parent / "assets").resolve()
-        self.render_js = "render.js"
-        self.render_html = "render.html"
-        self.timeout = timeout
+    """
+    Persistent Mermaid diagram converter backed by a single PhantomJS process.
 
-        self.driver = Driver()
-    
-    def to_svg(self, input: Union[str, TextIO], output_file: Optional[Path] = None,
-               css: Optional[str] = None, theme: Optional[str] = None,
-               background: Optional[str] = None, width: Optional[int] = None,
-               height: Optional[int] = None, config_file: Optional[Path] = None,
-               css_file: Optional[Path] = None) -> Optional[str]:
+    Use as an async context manager (recommended):
+
+        async with MermaidConverter() as m:
+            svg = await m.to_svg("graph TD\\nA-->B")
+            png = await m.to_png("sequenceDiagram\\nA->>B: Hello", scale=2.0)
+            await m.to_pdf("graph LR\\nA-->B", output="out.pdf")
+
+    Or manage lifecycle manually:
+
+        m = MermaidConverter()
+        await m.start()
+        svg = await m.to_svg("graph TD\\nA-->B")
+        await m.close()
+    """
+
+    def __init__(self, theme: str = "default", background: str = "white") -> None:
         """
-        Convert Mermaid diagram (text or file-like object) to SVG string or file.
-
-        Args:
-            input: Mermaid code as string, or a file-like object with .read() method
-            output_file: Optional path to save SVG file. If None, returns string.
-            css: Inline CSS to apply to the diagram
-            theme: Theme to use for the diagram (default, forest, dark, neutral)
-            background: Background color (default: white)
-            width: Width of the diagram (default: 800)
-            height: Height of the diagram (default: 600)
-            config_file: Path to JSON config file for Mermaid
-            css_file: Path to CSS file to apply to the diagram
-
-        Returns:
-            SVG content as string if output_file is None, otherwise None
-
-        Raises:
-            RuntimeError: If conversion fails
+        Parameters
+        ----------
+        theme:      Default Mermaid theme: "default", "forest", "dark", "neutral".
+        background: Default page background color.
         """
-        # Determine if input is a string or file-like object
-        if isinstance(input, str):
-            # String
-            mermaid_code = input
-        else:
-            # File-like object
-            mermaid_code = input.read()
+        self._default_theme = theme
+        self._default_background = background
+        self._browser: Optional[_browser.Browser] = None
+        self._page: Optional[_browser.Page] = None
 
-        # Use default values or provided parameters
-        theme = theme or "default"
-        background = background or "white"
-        # Use the explicitly provided width/height, otherwise None (will use natural size)
-        config_file = config_file
-        css_file = css_file
+    # ── lifecycle ─────────────────────────────────────────────────────────────
 
-        # Build command arguments for render.js
-        args = [str(self.render_js), "-", "svg"]
+    async def start(self) -> "MermaidConverter":
+        """Launch PhantomJS and load the Mermaid render page."""
+        self._browser = await _browser.launch()
+        self._page = await self._browser.new_page()
+        # load the bundled render.html (includes mermaid.min.js offline)
+        await self._page.goto(_RENDER_HTML.as_uri(), wait_ms=200)
+        return self
 
-        # Add theme
-        args.extend(["--theme", theme])
+    async def close(self) -> None:
+        """Shut down the PhantomJS process."""
+        if self._browser:
+            await self._browser.close()
+            self._browser = None
+            self._page = None
 
-        # Add background
-        args.extend(["--background", background])
+    async def __aenter__(self) -> "MermaidConverter":
+        return await self.start()
 
-        # Add dimensions only if explicitly provided (not None)
-        if width is not None:
-            args.extend(["--width", str(width)])
-        if height is not None:
-            args.extend(["--height", str(height)])
+    async def __aexit__(self, *_) -> None:
+        await self.close()
 
-        # Add config file if provided
-        if config_file is not None and config_file.exists():
-            args.extend(["--configFile", str(config_file)])
+    # ── internal render ───────────────────────────────────────────────────────
 
-        # Add CSS file if provided
-        if css_file is not None and css_file.exists():
-            args.extend(["--cssFile", str(css_file)])
+    async def _render_svg(
+        self,
+        code: str,
+        theme: str,
+        config: Optional[dict],
+        css: Optional[str],
+    ) -> str:
+        """Render Mermaid code to SVG string using the loaded page."""
+        if self._page is None:
+            raise RuntimeError(
+                "MermaidConverter is not started. Use 'async with' or call start() first."
+            )
 
-        # Add inline CSS if provided
-        if css is not None:
-            args.extend(["--css", css])
+        config_json = json.dumps(config) if config else "null"
+        css_escaped = _escape_js(css) if css else ""
 
-        # Run phantomjs via phasma driver, read from stdin ("-") and output to stdout ("svg")
-        result = self.driver.exec(
-            args,
-            capture_output=True,
-            timeout=self.timeout,
-            ssl=False,
-            cwd=self.assets_dir,
-            input=mermaid_code.encode()
-        )
+        svg = await self._page.evaluate(f"""
+            (function() {{
+                var code   = '{_escape_js(code)}';
+                var theme  = '{_escape_js(theme)}';
+                var config = {config_json};
+                var css    = '{css_escaped}';
+                return window.renderMermaidSync(code, theme, config, css);
+            }})()
+        """)
 
-        stdout = result.stdout.decode() if result.stdout else ""
-        stderr = result.stderr.decode() if result.stderr else ""
+        if not svg or svg == "__notfound__":
+            raise RuntimeError("Mermaid rendering failed — no SVG returned.")
+        return svg
 
-        self.logger.debug(f"stdout length: {len(stdout)} chars")
-        self.logger.debug(f"stderr: {stderr}")
+    async def _render(
+        self,
+        source: Union[str, Path],
+        output: Optional[Union[str, Path]],
+        fmt: str,
+        theme: Optional[str],
+        background: Optional[str],
+        scale: float,
+        config: Optional[dict],
+        css: Optional[str],
+        pdf_format: Optional[str],
+        pdf_landscape: bool,
+        pdf_margin: str,
+    ) -> bytes:
+        code = _read_input(source)
+        theme = theme or self._default_theme
+        background = background or self._default_background
 
-        # Check for errors in stderr (errors are written to stderr)
-        if "ERROR:" in stderr or "ReferenceError" in stderr:
-            raise RuntimeError(f"PhantomJS error: {stderr}")
+        svg = await self._render_svg(code, theme, config, css)
 
-        if result.returncode != 0:
-            error = stderr if stderr else "Unknown error"
-            raise RuntimeError(f"PhantomJS exited with code {result.returncode}: {error}")
+        if fmt == "svg":
+            data = svg.encode("utf-8")
+            if output:
+                Path(output).write_bytes(data)
+            return data
 
-        # If stdout is empty but no error, something went wrong
-        if not stdout.strip():
-            raise RuntimeError("No SVG content generated")
+        # PNG / PDF — hand off SVG to a dedicated SvgRenderer
+        # (keeps the mermaid page intact for subsequent renders)
+        from phasma.svg import SvgRenderer
 
-        # Success: stdout contains SVG
-        if output_file:
-            output_file.parent.mkdir(parents=True, exist_ok=True)
-            output_file.write_text(stdout)
-            self.logger.debug(f"SVG written to {output_file}")
-            return None
-        else:
-            return stdout
-    
-    def _render_to_file(self, input: Union[str, TextIO], output_file: Optional[Path],
-                        file_extension: str, width: Optional[int] = None,
-                        height: Optional[int] = None, resolution: int = 96,
-                        background: Optional[str] = None, css: Optional[str] = None,
-                        theme: Optional[str] = None, config_file: Optional[Path] = None,
-                        css_file: Optional[Path] = None, scale: float = 1.0) -> Optional[bytes]:
-        """
-        Internal helper to render Mermaid to a file (PNG or PDF).
+        # pass the raw SVG string — SvgRenderer handles _make_responsive internally
+        svg_str = svg.decode("utf-8") if isinstance(svg, bytes) else svg
 
-        Args:
-            input: Mermaid code as string or file-like object
-            output_file: Optional path to save file. If None, uses temp file.
-            file_extension: '.png' or '.pdf'
-            width: Output width in pixels
-            height: Output height in pixels
-            resolution: DPI resolution
-            background: Background color
-            css: Custom CSS
-            theme: Theme to use for the diagram (default, forest, dark, neutral)
-            config_file: Path to JSON config file for Mermaid
-            css_file: Path to CSS file to apply to the diagram
-            scale: Scale factor for output
-
-        Returns:
-            File bytes if output_file is None, otherwise None
-        """
-        import tempfile
-
-        # Determine if input is a string or file-like object
-        if isinstance(input, str):
-            mermaid_code = input
-        else:
-            mermaid_code = input.read()
-
-        # Use default values or provided parameters
-        theme = theme or "default"
-        background = background or "white"
-        # Use the explicitly provided width/height, otherwise None (will use natural size)
-        config_file = config_file
-        css_file = css_file
-
-        # If output_file is None, use a temporary file
-        temp_file = None
-        if output_file is None:
-            temp_file = Path(tempfile.mktemp(suffix=file_extension))
-            output_target = temp_file
-        else:
-            output_target = output_file
-
-        # Build command arguments for render.js with named flags
-        args = [str(self.render_js), "-", str(output_target)]
-
-        # Add theme
-        args.extend(["--theme", theme])
-
-        # Add background
-        args.extend(["--background", background])
-
-        # Add dimensions only if explicitly provided (not None)
-        if width is not None:
-            args.extend(["--width", str(width)])
-        if height is not None:
-            args.extend(["--height", str(height)])
-
-        # Add resolution if not default
-        if resolution != 96:
-            args.extend(["--resolution", str(resolution)])
-
-        # Add scale if not default
-        if scale != 1.0:
-            args.extend(["--scale", str(scale)])
-
-        # Add config file if specified
-        if config_file is not None and config_file.exists():
-            args.extend(["--configFile", str(config_file)])
-
-        # Add CSS file if specified
-        if css_file is not None and css_file.exists():
-            args.extend(["--cssFile", str(css_file)])
-
-        # Add CSS if specified
-        if css is not None:
-            args.extend(["--css", css])
-
-        # Run phantomjs via phasma driver
-        result = self.driver.exec(
-            args,
-            capture_output=True,
-            timeout=self.timeout,
-            ssl=False,
-            cwd=self.assets_dir,
-            input=mermaid_code.encode()
-        )
-
-        stdout = result.stdout if result.stdout else b""
-        stderr = result.stderr.decode() if result.stderr else ""
-
-        self.logger.debug(f"stdout length: {len(stdout)} bytes")
-        self.logger.debug(f"stderr: {stderr}")
-
-        # Check for errors
-        if "ERROR:" in stderr or "ReferenceError" in stderr:
-            raise RuntimeError(f"PhantomJS error: {stderr}")
-
-        if result.returncode != 0:
-            error = stderr if stderr else "Unknown error"
-            raise RuntimeError(f"PhantomJS exited with code {result.returncode}: {error}")
-
-        # If we used a temp file, read it and delete
-        if temp_file:
-            if temp_file.exists():
-                file_bytes = temp_file.read_bytes()
-                temp_file.unlink()
-                return file_bytes
+        async with SvgRenderer() as r:
+            if fmt == "png":
+                return await r.to_png(svg_str, output, scale=scale, background=background)
             else:
-                raise RuntimeError(f"{file_extension.upper()} file was not created")
-        else:
-            # output_file was provided, no bytes to return
-            return None
-    
-    def to_png(self, input: Union[str, TextIO], output_file: Optional[Path] = None,
-               scale: float = 1.0, width: Optional[int] = None,
-               height: Optional[int] = None, resolution: int = 96,
-               background: Optional[str] = None, css: Optional[str] = None,
-               theme: Optional[str] = None, config_file: Optional[Path] = None,
-               css_file: Optional[Path] = None) -> Optional[bytes]:
-        """
-        Convert Mermaid diagram (text or file-like) to PNG bytes or file using PhantomJS.
-
-        Args:
-            input: Mermaid code as string, or a file-like object with .read() method
-            output_file: Optional path to save PNG file. If None, returns bytes.
-            scale: Scale factor for output (default 1.0) - overridden by width/height
-            width: Output width in pixels (overrides scale)
-            height: Output height in pixels (overrides scale)
-            resolution: DPI resolution (default 96)
-            background: Background color (default: white)
-            css: Inline CSS to apply to the diagram
-            theme: Theme to use for the diagram (default, forest, dark, neutral)
-            config_file: Path to JSON config file for Mermaid
-            css_file: Path to CSS file to apply to the diagram
-
-        Returns:
-            PNG bytes if output_file is None, otherwise None
-
-        Raises:
-            RuntimeError: If conversion fails
-        """
-        # Note: scale parameter is kept for backward compatibility but overridden by width/height
-        return self._render_to_file(
-            input=input,
-            output_file=output_file,
-            file_extension='.png',
-            width=width,
-            height=height,
-            resolution=resolution,
-            background=background,
-            css=css,
-            theme=theme,
-            config_file=config_file,
-            css_file=css_file,
-            scale=scale
-        )
-    
-    def to_pdf(self, input: Union[str, TextIO], output_file: Optional[Path] = None,
-               scale: float = 1.0, width: Optional[int] = None,
-               height: Optional[int] = None, resolution: int = 96,
-               background: Optional[str] = None, css: Optional[str] = None,
-               theme: Optional[str] = None, config_file: Optional[Path] = None,
-               css_file: Optional[Path] = None) -> Optional[bytes]:
-        """
-        Convert Mermaid diagram (text or file-like) to PDF bytes or file using PhantomJS.
-
-        Args:
-            input: Mermaid code as string, or a file-like object with .read() method
-            output_file: Optional path to save PDF file. If None, returns bytes.
-            scale: Scale factor for output (default 1.0) - overridden by width/height
-            width: Output width in pixels (overrides scale)
-            height: Output height in pixels (overrides scale)
-            resolution: DPI resolution (default 96)
-            background: Background color (e.g., '#FFFFFF', 'transparent')
-            css: Custom CSS to inject
-            theme: Theme to use for the diagram (default, forest, dark, neutral)
-            config_file: Path to JSON config file for Mermaid
-            css_file: Path to CSS file to apply to the diagram
-
-        Returns:
-            PDF bytes if output_file is None, otherwise None
-
-        Raises:
-            RuntimeError: If conversion fails
-        """
-        # Note: scale parameter is kept for backward compatibility but overridden by width/height
-        return self._render_to_file(
-            input=input,
-            output_file=output_file,
-            file_extension='.pdf',
-            width=width,
-            height=height,
-            resolution=resolution,
-            background=background,
-            css=css,
-            theme=theme,
-            config_file=config_file,
-            css_file=css_file,
-            scale=scale
-        )
-    
-    def convert(self, input: Union[str, TextIO], output_file: Optional[Path] = None,
-                theme: Optional[str] = None, background: Optional[str] = None,
-                width: Optional[int] = None, height: Optional[int] = None,
-                config_file: Optional[Path] = None, css_file: Optional[Path] = None,
-                scale: float = 1.0) -> Optional[Union[str, bytes]]:
-        """
-        Convert Mermaid diagram to SVG, PNG, or PDF based on output file extension.
-        If output_file is None, returns the content as string (for SVG) or bytes (for PNG/PDF).
-        If output_file is provided, writes to the file and returns None.
-        """
-        try:
-            # Determine if input is a string or Path object
-            if isinstance(input, str):
-                # String input
-                mermaid_code = input
-            elif isinstance(input, Path):
-                # Path object - read the content
-                mermaid_code = input.read_text(encoding="utf-8")
-            else:
-                # File-like object - read the content
-                mermaid_code = input.read()
-
-            # Convert output_file to absolute path if it's provided
-            if output_file is not None:
-                output_file = output_file.absolute()
-
-            # Determine output format from the output_file extension
-            if output_file is None:
-                # If no output file is specified, default to SVG
-                output_ext = ".svg"
-            else:
-                output_ext = output_file.suffix.lower()
-
-            if output_ext == ".svg":
-                result = self.to_svg(
-                    input=mermaid_code,
-                    output_file=output_file,
-                    theme=theme,
-                    background=background,
-                    width=width,
-                    height=height,
-                    config_file=config_file,
-                    css_file=css_file
+                return await r.to_pdf(
+                    svg_str, output,
+                    scale=scale, background=background,
+                    pdf_format=pdf_format,
+                    pdf_landscape=pdf_landscape,
+                    pdf_margin=pdf_margin,
                 )
-                if output_file is None:
-                    self.logger.debug("SVG content generated")
-                else:
-                    self.logger.debug(f"SVG written to {output_file}")
-                return result
-            elif output_ext == ".png":
-                result = self.to_png(
-                    input=mermaid_code,
-                    output_file=output_file,
-                    theme=theme,
-                    background=background,
-                    width=width,
-                    height=height,
-                    config_file=config_file,
-                    css_file=css_file,
-                    scale=scale
-                )
-                if output_file is None:
-                    self.logger.debug("PNG bytes generated")
-                else:
-                    self.logger.debug(f"PNG written to {output_file}")
-                return result
-            elif output_ext == ".pdf":
-                result = self.to_pdf(
-                    input=mermaid_code,
-                    output_file=output_file,
-                    theme=theme,
-                    background=background,
-                    width=width,
-                    height=height,
-                    config_file=config_file,
-                    css_file=css_file,
-                    scale=scale
-                )
-                if output_file is None:
-                    self.logger.debug("PDF bytes generated")
-                else:
-                    self.logger.debug(f"PDF written to {output_file}")
-                return result
-            else:
-                self.logger.error(f"Unsupported output format: {output_ext}. Use .svg, .png, or .pdf")
-                return None
 
-        except Exception as e:
-            self.logger.error(f"Exception: {e}")
-            return None
+    # ── public API ────────────────────────────────────────────────────────────
+
+    async def to_svg(
+        self,
+        source: Union[str, Path],
+        output: Optional[Union[str, Path]] = None,
+        *,
+        theme: Optional[str] = None,
+        background: Optional[str] = None,
+        config: Optional[dict] = None,
+        css: Optional[str] = None,
+    ) -> bytes:
+        """
+        Render Mermaid diagram to SVG.
+
+        Parameters
+        ----------
+        source:     Mermaid string, file path string, or Path object.
+        output:     Optional file path to write the result.
+        theme:      Mermaid theme override ("default", "forest", "dark", "neutral").
+        background: CSS background color.
+        config:     Mermaid config dict (merged with defaults).
+        css:        Inline CSS injected into the diagram.
+
+        Returns SVG bytes.
+        """
+        return await self._render(
+            source, output, "svg",
+            theme, background, 1.0,
+            config, css, None, False, "0",
+        )
+
+    async def to_png(
+        self,
+        source: Union[str, Path],
+        output: Optional[Union[str, Path]] = None,
+        *,
+        scale: float = 1.0,
+        theme: Optional[str] = None,
+        background: Optional[str] = None,
+        config: Optional[dict] = None,
+        css: Optional[str] = None,
+    ) -> bytes:
+        """
+        Render Mermaid diagram to PNG.
+
+        Parameters
+        ----------
+        source:     Mermaid string, file path string, or Path object.
+        output:     Optional file path to write the result.
+        scale:      Size multiplier (e.g. 2.0 for 2× resolution).
+        theme:      Mermaid theme override.
+        background: CSS background color.
+        config:     Mermaid config dict.
+        css:        Inline CSS.
+
+        Returns PNG bytes.
+        """
+        return await self._render(
+            source, output, "png",
+            theme, background, scale,
+            config, css, None, False, "0",
+        )
+
+    async def to_pdf(
+        self,
+        source: Union[str, Path],
+        output: Optional[Union[str, Path]] = None,
+        *,
+        scale: float = 1.0,
+        theme: Optional[str] = None,
+        background: Optional[str] = None,
+        config: Optional[dict] = None,
+        css: Optional[str] = None,
+        pdf_format: Optional[str] = None,
+        pdf_landscape: bool = False,
+        pdf_margin: str = "0",
+    ) -> bytes:
+        """
+        Render Mermaid diagram to PDF.
+
+        Parameters
+        ----------
+        source:         Mermaid string, file path string, or Path object.
+        output:         Optional file path to write the result.
+        scale:          Size multiplier.
+        theme:          Mermaid theme override.
+        background:     CSS background color.
+        config:         Mermaid config dict.
+        css:            Inline CSS.
+        pdf_format:     Paper format e.g. "A4". None = fit to diagram size.
+        pdf_landscape:  Landscape orientation (only with pdf_format).
+        pdf_margin:     CSS margin string (e.g. "0", "1cm").
+
+        Returns PDF bytes.
+        """
+        return await self._render(
+            source, output, "pdf",
+            theme, background, scale,
+            config, css, pdf_format, pdf_landscape, pdf_margin,
+        )
+
+    async def convert(
+        self,
+        source: Union[str, Path],
+        output: Optional[Union[str, Path]] = None,
+        *,
+        scale: float = 1.0,
+        theme: Optional[str] = None,
+        background: Optional[str] = None,
+        config: Optional[dict] = None,
+        css: Optional[str] = None,
+        pdf_format: Optional[str] = None,
+        pdf_landscape: bool = False,
+        pdf_margin: str = "0",
+    ) -> bytes:
+        """
+        Convert Mermaid diagram to SVG/PNG/PDF based on output file extension.
+        Falls back to SVG if no output is given.
+        """
+        common = dict(theme=theme, background=background, config=config, css=css)
+
+        if output is None:
+            return await self.to_svg(source, **common)
+
+        ext = Path(output).suffix.lower()
+        if ext == ".svg":
+            return await self.to_svg(source, output, **common)
+        elif ext == ".png":
+            return await self.to_png(source, output, scale=scale, **common)
+        elif ext == ".pdf":
+            return await self.to_pdf(
+                source, output,
+                scale=scale,
+                pdf_format=pdf_format,
+                pdf_landscape=pdf_landscape,
+                pdf_margin=pdf_margin,
+                **common,
+            )
+        else:
+            raise ValueError(f"Unsupported output format: {ext!r}. Use .svg, .png, or .pdf")
+        
