@@ -1,65 +1,140 @@
+"""
+mmdc CLI — python -m mmdc
+
+Convert Mermaid diagrams to SVG, PNG, or PDF.
+
+Examples:
+    mmdc -i diagram.mermaid -o diagram.svg
+    mmdc -i diagram.mermaid -o diagram.png --scale 2.0
+    mmdc -i diagram.mermaid -o diagram.pdf --theme dark
+    mmdc -i diagram.mermaid -o diagram.pdf --pdf-format A4 --landscape
+    cat diagram.mermaid | mmdc -i - -o diagram.svg
+"""
+
 import argparse
+import asyncio
+import json
 import sys
-import logging
 from pathlib import Path
-from . import MermaidConverter
 
-def main():
+from mmdc import MermaidConverter
+
+
+def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Convert mermaid diagrams to SVG, PNG, or PDF using PhantomJS (phasma)"
-    )
-    parser.add_argument("-i", "--input", type=Path, required=True, help="Input mermaid file")
-    parser.add_argument("-o", "--output", type=Path, required=True, help="Output file (SVG, PNG, or PDF)")
-    parser.add_argument("-w", "--width", type=int, help="Width of the generated diagram")
-    parser.add_argument("-H", "--height", type=int, help="Height of the generated diagram")
-    parser.add_argument("-s", "--scale", type=float, default=1.0, help="Scale factor for the output (default: 1.0)")
-    parser.add_argument("-b", "--backgroundColor", dest="background", default="white", help="Background color (default: white)")
-    parser.add_argument("-t", "--theme", default="default", choices=["default", "forest", "dark", "neutral"], help="Theme to use (default: default)")
-    parser.add_argument("-c", "--configFile", type=Path, help="JSON configuration file for Mermaid")
-    parser.add_argument("--cssFile", type=Path, help="CSS file to inject")
-    parser.add_argument("--timeout", type=int, default=30, help="Timeout in seconds")
-    parser.add_argument("--verbose", "-v", action="store_true", help="Enable verbose logging")
-
-    args = parser.parse_args()
-
-    # Configure logging
-    log_level = logging.DEBUG if args.verbose else logging.INFO
-    logging.basicConfig(
-        level=log_level,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.StreamHandler(sys.stderr)
-        ]
+        prog="mmdc",
+        description="Convert Mermaid diagrams to SVG, PNG, or PDF — fully offline.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+examples:
+  mmdc -i diagram.mermaid -o diagram.svg
+  mmdc -i diagram.mermaid -o diagram.png --scale 2.0
+  mmdc -i diagram.mermaid -o diagram.pdf
+  mmdc -i diagram.mermaid -o diagram.pdf --pdf-format A4 --landscape
+  mmdc -i diagram.mermaid -o diagram.svg --theme dark --background "#f5f5f5"
+  cat diagram.mermaid | mmdc -i - -o diagram.svg
+        """,
     )
 
-    converter = MermaidConverter(
-        timeout=args.timeout
+    parser.add_argument(
+        "--version", "-V",
+        action="version",
+        version=_get_version(),
+    )
+    parser.add_argument(
+        "-i", "--input", required=True, metavar="FILE",
+        help="Input Mermaid file, or '-' to read from stdin",
+    )
+    parser.add_argument(
+        "-o", "--output", required=True, metavar="FILE",
+        help="Output file — format inferred from extension (.svg, .png, .pdf)",
+    )
+    parser.add_argument(
+        "-s", "--scale", type=float, default=1.0, metavar="N",
+        help="Scale factor for PNG/PDF output (default: 1.0)",
+    )
+    parser.add_argument(
+        "-t", "--theme",
+        choices=["default", "forest", "dark", "neutral"],
+        default="default",
+        help="Mermaid theme (default: default)",
+    )
+    parser.add_argument(
+        "-b", "--background", default="white", metavar="COLOR",
+        help="CSS background color (default: white)",
+    )
+    parser.add_argument(
+        "-c", "--config", metavar="FILE",
+        help="JSON config file for Mermaid",
+    )
+    parser.add_argument(
+        "--css", metavar="FILE",
+        help="CSS file to inject into the diagram",
+    )
+    parser.add_argument(
+        "--pdf-format", default=None, metavar="FORMAT",
+        help="PDF paper format e.g. A4, Letter. Omit to fit paper to diagram size.",
+    )
+    parser.add_argument(
+        "--landscape", action="store_true",
+        help="Landscape orientation (PDF only)",
+    )
+    parser.add_argument(
+        "--margin", default="0", metavar="MARGIN",
+        help="PDF margin e.g. '1cm', '10px' (default: 0)",
     )
 
-    # Read the input file content
-    input_content = args.input.read_text(encoding="utf-8")
+    return parser
 
-    result = converter.convert(
-        input=input_content,
-        output_file=args.output,
-        theme=args.theme,
-        background=args.background,
-        width=args.width,
-        height=args.height,
-        config_file=args.configFile,
-        css_file=args.cssFile,
-        scale=args.scale
-    )
-    # If output file is specified, result will be None on success
-    # If output file is not specified, result will be the content on success
-    success = (args.output is not None and result is None) or (args.output is None and result is not None)
-    if success:
-        logging.info(f"Successfully converted to {args.output}")
-        sys.exit(0)
+
+def _get_version() -> str:
+    try:
+        import importlib.metadata
+        return importlib.metadata.version("mmdc")
+    except Exception:
+        return "unknown"
+
+
+async def _run(args) -> None:
+    # read input
+    if args.input == "-":
+        source = sys.stdin.read()
     else:
-        logging.error("Conversion failed")
-        sys.exit(1)
+        source = args.input  # MermaidConverter handles file vs string
+
+    # read optional config
+    config = None
+    if args.config:
+        config = json.loads(Path(args.config).read_text(encoding="utf-8"))
+
+    # read optional CSS
+    css = None
+    if args.css:
+        css = Path(args.css).read_text(encoding="utf-8")
+
+    output = Path(args.output)
+
+    async with MermaidConverter(theme=args.theme, background=args.background) as m:
+        data = await m.convert(
+            source,
+            output,
+            scale=args.scale,
+            config=config,
+            css=css,
+            pdf_format=args.pdf_format,
+            pdf_landscape=args.landscape,
+            pdf_margin=args.margin,
+        )
+
+    print(f"saved to {output}  ({len(data):,} bytes)")
+
+
+def main() -> None:
+    parser = _build_parser()
+    args = parser.parse_args()
+    asyncio.run(_run(args))
 
 
 if __name__ == "__main__":
     main()
+    
