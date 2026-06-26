@@ -1,6 +1,12 @@
-from .__about__ import __version__
-
 # Export the main converter class
-from .mmdc import MermaidConverter
+from .__about__ import __version__
+from .mmdc import MermaidConverter, to_svg, to_png, to_pdf, convert
 
-__all__ = ['__version__', 'MermaidConverter']
+__all__ = [
+    "__version__",
+    "MermaidConverter",
+    "to_svg",
+    "to_png",
+    "to_pdf",
+    "convert",
+]
