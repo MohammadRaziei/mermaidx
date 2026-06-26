@@ -12,9 +12,9 @@ Usage
 
     async def main():
         async with MermaidConverter() as m:
-            svg = await m.to_svg("graph TD\\nA-->B")
-            png = await m.to_png("graph TD\\nA-->B", scale=2.0)
-            await m.to_pdf("graph TD\\nA-->B", output="diagram.pdf")
+            svg = await m.to_svg("graph TD\\\\nA-->B")
+            png = await m.to_png("graph TD\\\\nA-->B", scale=2.0)
+            await m.to_pdf("graph TD\\\\nA-->B", output="diagram.pdf")
 
     asyncio.run(main())
 """
@@ -324,9 +324,9 @@ class MermaidConverter:
         background:     CSS background color.
         config:         Mermaid config dict.
         css:            Inline CSS.
-        pdf_format:     Paper format e.g. "A4". None = fit to diagram size.
-        pdf_landscape:  Landscape orientation (only with pdf_format).
-        pdf_margin:     CSS margin string (e.g. "0", "1cm").
+        pdf_format:     Paper format e.g. "A4", "Letter". None (default) = fit to diagram.
+        pdf_landscape:  Landscape orientation.
+        pdf_margin:     CSS margin e.g. "1cm" (default: "0").
 
         Returns PDF bytes.
         """
@@ -346,13 +346,16 @@ class MermaidConverter:
         background: Optional[str] = None,
         config: Optional[dict] = None,
         css: Optional[str] = None,
-        pdf_format: Optional[str] = None,
-        pdf_landscape: bool = False,
-        pdf_margin: str = "0",
+        **kwargs,
     ) -> bytes:
         """
         Convert Mermaid diagram to SVG/PNG/PDF based on output file extension.
         Falls back to SVG if no output is given.
+
+        Format-specific options can be passed via **kwargs and are forwarded
+        to the appropriate method:
+            PNG: scale (already a common param)
+            PDF: pdf_format, pdf_landscape, pdf_margin
         """
         common = dict(theme=theme, background=background, config=config, css=css)
 
@@ -365,14 +368,7 @@ class MermaidConverter:
         elif ext == ".png":
             return await self.to_png(source, output, scale=scale, **common)
         elif ext == ".pdf":
-            return await self.to_pdf(
-                source, output,
-                scale=scale,
-                pdf_format=pdf_format,
-                pdf_landscape=pdf_landscape,
-                pdf_margin=pdf_margin,
-                **common,
-            )
+            return await self.to_pdf(source, output, scale=scale, **common, **kwargs)
         else:
             raise ValueError(f"Unsupported output format: {ext!r}. Use .svg, .png, or .pdf")
         
