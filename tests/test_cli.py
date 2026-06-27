@@ -67,6 +67,12 @@ def test_help():
     assert "mmdc" in r.stdout
 
 
+def test_info():
+    r = run("--info")
+    assert r.returncode == 0
+    assert "mermaid" in r.stdout
+
+
 def test_no_args_exits_nonzero():
     assert run().returncode != 0
 
@@ -75,8 +81,11 @@ def test_missing_input_exits_nonzero():
     assert run("-o", "out.svg").returncode != 0
 
 
-def test_missing_output_exits_nonzero():
-    assert run("-i", str(BASIC_MERMAID)).returncode != 0
+def test_missing_output_writes_svg_to_stdout():
+    """No -o means SVG goes to stdout."""
+    r = run("-i", str(BASIC_MERMAID))
+    assert r.returncode == 0
+    assert r.stdout.lstrip().startswith("<svg")
 
 
 # ── SVG (via shared converter) ────────────────────────────────────────────────
@@ -247,4 +256,5 @@ def test_e2e_output_message(tmp_path):
     out = tmp_path / "result.svg"
     r = run("-i", str(BASIC_MERMAID), "-o", str(out))
     assert r.returncode == 0
-    assert "result.svg" in r.stdout
+    assert "result.svg" in r.stderr
+    

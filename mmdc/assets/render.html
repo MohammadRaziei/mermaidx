@@ -5,7 +5,19 @@
     <script src="./mermaid.min.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        html, body { overflow: hidden; }
+        html, body { width: 100%; height: 100%; overflow: hidden; }
+        #container {
+            display: inline-block;
+            line-height: 0;
+            width: 100%; height: 100%; 
+            align-items: center;
+        }
+        #container svg {
+            display: block;
+            width: 100% !important;
+            height: 100% !important;
+            align-items: center;
+        }
     </style>
 </head>
 <body>
@@ -36,20 +48,22 @@
         var id = "gd" + (++_renderCount);
         mermaid.initialize(_mergeConfig(theme, config));
         _injectCss(css);
-        var svg = null, done = false, errMsg = null;
+        var result = null, done = false;
         try {
-            mermaid.render(id, code, function(s) { svg = s; done = true; });
+            mermaid.render(id, code, function(svg) {
+                result = { svg: svg };
+                done = true;
+            });
         } catch(e) {
-            errMsg = e.message || String(e);
+            result = { error: e.message || String(e) };
             done = true;
         }
         var t = Date.now();
         while (!done && Date.now() - t < 5000) {}
-        if (!svg) return { error: errMsg || "render timed out or returned empty" };
-        return { svg: svg };
+        return result || { error: "render timed out" };
     }
 
-    function _viewBoxDims(svg) {
+    function _naturalDims(svg) {
         // try viewBox first
         var m = svg.match(/viewBox=["']([^"']+)["']/);
         if (m) {
@@ -59,9 +73,9 @@
                 if (w > 0 && h > 0) return { w: w, h: h };
             }
         }
-        // fallback: width/height attributes
-        var wm = svg.match(/\s+width=["']([^"']+)["']/);
-        var hm = svg.match(/\s+height=["']([^"']+)["']/);
+        // fallback to width/height attributes
+        var wm = svg.match(/\s+width=["']([0-9.]+)/);
+        var hm = svg.match(/\s+height=["']([0-9.]+)/);
         if (wm && hm) {
             var w = parseFloat(wm[1]), h = parseFloat(hm[1]);
             if (w > 0 && h > 0) return { w: w, h: h };
@@ -69,7 +83,7 @@
         return null;
     }
 
-    // ── API 1: return SVG string or null on error (to_svg) ───────────────────
+    // ── API 1: SVG string (to_svg) ────────────────────────────────────────────
     window.renderMermaidSync = function(code, theme, config, css) {
         var r = _doRender(code, theme, config, css);
         return r.svg || null;
@@ -80,7 +94,10 @@
         return r.error || null;
     };
 
-    // ── API 2: inject into page, resize html/body, return {width, height} ─────
+    // ── API 2: inject into page (to_png / to_pdf) ─────────────────────────────
+    // Does NOT touch the SVG markup at all.
+    // Sets container size via CSS, injects SVG as-is, SVG fills via CSS.
+    // Returns { width, height } so Python can set viewport once.
     window.renderMermaidToPage = function(code, theme, config, css, background, scale) {
         scale      = scale      || 1.0;
         background = background || "white";
@@ -88,25 +105,25 @@
         var r = _doRender(code, theme, config, css);
         if (!r.svg) return { error: r.error || "render failed" };
 
-        var dims = _viewBoxDims(r.svg);
-        if (!dims) return { error: "could not determine SVG dimensions" };
+        var dims = _naturalDims(r.svg);
+        if (!dims) return { error: "could not read SVG dimensions" };
 
         var w = Math.round(dims.w * scale);
         var h = Math.round(dims.h * scale);
 
-        // set explicit pixel size on SVG (keep viewBox for quality)
-        var sized = r.svg
-            .replace(/\s*width=["'][^"']*["']/g,  "")
-            .replace(/\s*height=["'][^"']*["']/g, "")
-            .replace("<svg", '<svg width="' + w + '" height="' + h + '"');
+        // size the container to exactly w×h — SVG fills it via CSS
+        var c = document.getElementById("container");
+        c.style.width  = w + "px";
+        c.style.height = h + "px";
 
-        // resize html/body to exact diagram size — zero whitespace
+        // size html/body to the same — no whitespace around the diagram
         document.documentElement.style.cssText =
             "width:" + w + "px;height:" + h + "px;overflow:hidden;";
         document.body.style.cssText =
             "width:" + w + "px;height:" + h + "px;overflow:hidden;background:" + background + ";";
 
-        document.getElementById("container").innerHTML = sized;
+        // inject SVG completely untouched
+        c.innerHTML = r.svg;
 
         return { width: w, height: h };
     };
