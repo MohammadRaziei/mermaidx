@@ -6,8 +6,6 @@
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         html, body { overflow: hidden; }
-        #container { line-height: 0; }
-        #container svg { display: block; }
     </style>
 </head>
 <body>
@@ -16,7 +14,6 @@
 <script>
     var _renderCount = 0;
 
-    // ── internal ──────────────────────────────────────────────────────────────
     function _mergeConfig(theme, config) {
         var base = { startOnLoad: false, theme: theme || "default" };
         if (config) {
@@ -29,74 +26,88 @@
 
     function _injectCss(css) {
         if (!css) return;
-        var style = document.getElementById("mmdc-custom-css")
-                    || document.createElement("style");
-        style.id = "mmdc-custom-css";
-        style.textContent = css;
-        document.head.appendChild(style);
+        var el = document.getElementById("mmdc-css") || document.createElement("style");
+        el.id = "mmdc-css";
+        el.textContent = css;
+        document.head.appendChild(el);
     }
 
-    function _renderToSvg(code, theme, config, css) {
-        var id = "graphDiv_" + (++_renderCount);
+    function _doRender(code, theme, config, css) {
+        var id = "gd" + (++_renderCount);
         mermaid.initialize(_mergeConfig(theme, config));
         _injectCss(css);
-
-        var svg = null, done = false;
-        mermaid.render(id, code, function(s) { svg = s; done = true; });
-
+        var svg = null, done = false, errMsg = null;
+        try {
+            mermaid.render(id, code, function(s) { svg = s; done = true; });
+        } catch(e) {
+            errMsg = e.message || String(e);
+            done = true;
+        }
         var t = Date.now();
         while (!done && Date.now() - t < 5000) {}
-        return svg || "";
+        if (!svg) return { error: errMsg || "render timed out or returned empty" };
+        return { svg: svg };
     }
 
     function _viewBoxDims(svg) {
+        // try viewBox first
         var m = svg.match(/viewBox=["']([^"']+)["']/);
-        if (!m) return null;
-        var p = m[1].trim().split(/\s+/);
-        if (p.length !== 4) return null;
-        return { w: parseFloat(p[2]), h: parseFloat(p[3]) };
+        if (m) {
+            var p = m[1].trim().split(/\s+/);
+            if (p.length === 4) {
+                var w = parseFloat(p[2]), h = parseFloat(p[3]);
+                if (w > 0 && h > 0) return { w: w, h: h };
+            }
+        }
+        // fallback: width/height attributes
+        var wm = svg.match(/\s+width=["']([^"']+)["']/);
+        var hm = svg.match(/\s+height=["']([^"']+)["']/);
+        if (wm && hm) {
+            var w = parseFloat(wm[1]), h = parseFloat(hm[1]);
+            if (w > 0 && h > 0) return { w: w, h: h };
+        }
+        return null;
     }
 
-    // ── API 1: SVG string (to_svg) ────────────────────────────────────────────
+    // ── API 1: return SVG string or null on error (to_svg) ───────────────────
     window.renderMermaidSync = function(code, theme, config, css) {
-        return _renderToSvg(code, theme, config, css);
+        var r = _doRender(code, theme, config, css);
+        return r.svg || null;
     };
 
-    // ── API 2: inject into DOM (to_png / to_pdf) ──────────────────────────────
-    // Clears the container, renders fresh, injects SVG with pixel dimensions,
-    // sizes html/body to match so there is zero whitespace around the diagram.
-    // Returns { width, height } for Python to set the viewport before screenshot.
+    window.renderMermaidError = function(code, theme, config, css) {
+        var r = _doRender(code, theme, config, css);
+        return r.error || null;
+    };
+
+    // ── API 2: inject into page, resize html/body, return {width, height} ─────
     window.renderMermaidToPage = function(code, theme, config, css, background, scale) {
         scale      = scale      || 1.0;
         background = background || "white";
 
-        // clear previous render so mermaid doesn't conflict
-        var container = document.getElementById("container");
-        container.innerHTML = "";
+        var r = _doRender(code, theme, config, css);
+        if (!r.svg) return { error: r.error || "render failed" };
 
-        var svg = _renderToSvg(code, theme, config, css);
-        if (!svg) return null;
-
-        var dims = _viewBoxDims(svg);
-        if (!dims) return null;
+        var dims = _viewBoxDims(r.svg);
+        if (!dims) return { error: "could not determine SVG dimensions" };
 
         var w = Math.round(dims.w * scale);
         var h = Math.round(dims.h * scale);
 
-        // set explicit pixel size on the SVG element
-        var sized = svg
-            .replace(/\s*width=["'][^"']*["']/, "")
-            .replace(/\s*height=["'][^"']*["']/, "")
+        // set explicit pixel size on SVG (keep viewBox for quality)
+        var sized = r.svg
+            .replace(/\s*width=["'][^"']*["']/g,  "")
+            .replace(/\s*height=["'][^"']*["']/g, "")
             .replace("<svg", '<svg width="' + w + '" height="' + h + '"');
 
-        // size html/body to exactly the diagram so no whitespace in screenshot
-        document.documentElement.style.width  = w + "px";
-        document.documentElement.style.height = h + "px";
-        document.body.style.width             = w + "px";
-        document.body.style.height            = h + "px";
-        document.body.style.background        = background;
+        // resize html/body to exact diagram size — zero whitespace
+        document.documentElement.style.cssText =
+            "width:" + w + "px;height:" + h + "px;overflow:hidden;";
+        document.body.style.cssText =
+            "width:" + w + "px;height:" + h + "px;overflow:hidden;background:" + background + ";";
 
-        container.innerHTML = sized;
+        document.getElementById("container").innerHTML = sized;
+
         return { width: w, height: h };
     };
 </script>

@@ -47,15 +47,6 @@ def _read_input(source: Union[str, Path]) -> str:
     return source  # raw mermaid string
 
 
-def _escape_js(s: str) -> str:
-    """Escape a string for safe embedding in a JS string literal."""
-    return (
-        s.replace("\\", "\\\\")
-         .replace("'", "\\'")
-         .replace("\n", "\\n")
-         .replace("\r", "\\r")
-    )
-
 
 def _parse_svg_dimensions(svg_text: str):
     """
@@ -166,27 +157,27 @@ class MermaidConverter:
         config: Optional[dict],
         css: Optional[str],
     ) -> str:
-        """Render Mermaid code to SVG string using the loaded page."""
         if self._page is None:
             raise RuntimeError(
                 "MermaidConverter is not started. Use 'async with' or call start() first."
             )
 
+        code_json   = json.dumps(code)
+        theme_json  = json.dumps(theme)
         config_json = json.dumps(config) if config else "null"
-        css_escaped = _escape_js(css) if css else ""
+        css_json    = json.dumps(css) if css else '""'
 
         svg = await self._page.evaluate(f"""
             (function() {{
-                var code   = '{_escape_js(code)}';
-                var theme  = '{_escape_js(theme)}';
-                var config = {config_json};
-                var css    = '{css_escaped}';
-                return window.renderMermaidSync(code, theme, config, css);
+                return window.renderMermaidSync({code_json}, {theme_json}, {config_json}, {css_json});
             }})()
         """)
 
-        if not svg or svg == "__notfound__":
-            raise RuntimeError("Mermaid rendering failed — no SVG returned.")
+        if not svg:
+            err = await self._page.evaluate(
+                f"window.renderMermaidError({code_json}, {theme_json}, {config_json}, {css_json})"
+            )
+            raise RuntimeError(f"Mermaid rendering failed: {err or 'unknown error'}")
         return svg
 
     async def _render(
@@ -221,23 +212,24 @@ class MermaidConverter:
 
         # PNG / PDF — inject SVG directly into the page DOM, then screenshot/pdf.
         # Single PhantomJS process — no SvgRenderer needed.
+        code_json   = json.dumps(code)
+        theme_json  = json.dumps(theme)
         config_json = json.dumps(config) if config else "null"
-        css_escaped = _escape_js(css) if css else ""
+        css_json    = json.dumps(css) if css else '""'
+        bg_json     = json.dumps(background)
 
         dims = await self._page.evaluate(f"""
             (function() {{
-                var code       = '{_escape_js(code)}';
-                var theme      = '{_escape_js(theme)}';
-                var config     = {config_json};
-                var css        = '{css_escaped}';
-                var background = '{_escape_js(background)}';
-                var scale      = {scale};
-                return window.renderMermaidToPage(code, theme, config, css, background, scale);
+                return window.renderMermaidToPage(
+                    {code_json}, {theme_json}, {config_json},
+                    {css_json}, {bg_json}, {scale}
+                );
             }})()
         """)
 
-        if not dims:
-            raise RuntimeError("Mermaid rendering failed — renderMermaidToPage returned null.")
+        if not dims or "error" in dims:
+            msg = dims.get("error") if dims else "unknown"
+            raise RuntimeError(f"Mermaid rendering failed: {msg}")
 
         w = int(dims["width"])
         h = int(dims["height"])
