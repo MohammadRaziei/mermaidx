@@ -12,9 +12,9 @@ Usage
 
     async def main():
         async with MermaidConverter() as m:
-            svg = await m.to_svg("graph TD\\\\nA-->B")
-            png = await m.to_png("graph TD\\\\nA-->B", scale=2.0)
-            await m.to_pdf("graph TD\\\\nA-->B", output="diagram.pdf")
+            svg = await m.to_svg("graph TD\\nA-->B")
+            png = await m.to_png("graph TD\\nA-->B", scale=2.0)
+            await m.to_pdf("graph TD\\nA-->B", output="diagram.pdf")
 
     asyncio.run(main())
 """
@@ -110,15 +110,15 @@ class MermaidConverter:
     Use as an async context manager (recommended):
 
         async with MermaidConverter() as m:
-            svg = await m.to_svg("graph TD\\\\nA-->B")
-            png = await m.to_png("sequenceDiagram\\\\nA->>B: Hello", scale=2.0)
-            await m.to_pdf("graph LR\\\\nA-->B", output="out.pdf")
+            svg = await m.to_svg("graph TD\\nA-->B")
+            png = await m.to_png("sequenceDiagram\\nA->>B: Hello", scale=2.0)
+            await m.to_pdf("graph LR\\nA-->B", output="out.pdf")
 
     Or manage lifecycle manually:
 
         m = MermaidConverter()
         await m.start()
-        svg = await m.to_svg("graph TD\\\\nA-->B")
+        svg = await m.to_svg("graph TD\\nA-->B")
         await m.close()
     """
 
@@ -203,36 +203,68 @@ class MermaidConverter:
         pdf_landscape: bool,
         pdf_margin: str,
     ) -> bytes:
-        code = _read_input(source)
-        theme = theme or self._default_theme
+        code       = _read_input(source)
+        theme      = theme      or self._default_theme
         background = background or self._default_background
 
-        svg = await self._render_svg(code, theme, config, css)
+        if self._page is None:
+            raise RuntimeError(
+                "MermaidConverter is not started. Use 'async with' or call start() first."
+            )
 
         if fmt == "svg":
+            svg = await self._render_svg(code, theme, config, css)
             data = svg.encode("utf-8")
             if output:
                 Path(output).write_bytes(data)
             return data
 
-        # PNG / PDF — hand off SVG to a dedicated SvgRenderer
-        # (keeps the mermaid page intact for subsequent renders)
-        from phasma.svg import SvgRenderer
+        # PNG / PDF — inject SVG directly into the page DOM, then screenshot/pdf.
+        # Single PhantomJS process — no SvgRenderer needed.
+        config_json = json.dumps(config) if config else "null"
+        css_escaped = _escape_js(css) if css else ""
 
-        # pass the raw SVG string — SvgRenderer handles _make_responsive internally
-        svg_str = svg.decode("utf-8") if isinstance(svg, bytes) else svg
+        dims = await self._page.evaluate(f"""
+            (function() {{
+                var code       = '{_escape_js(code)}';
+                var theme      = '{_escape_js(theme)}';
+                var config     = {config_json};
+                var css        = '{css_escaped}';
+                var background = '{_escape_js(background)}';
+                var scale      = {scale};
+                return window.renderMermaidToPage(code, theme, config, css, background, scale);
+            }})()
+        """)
 
-        async with SvgRenderer() as r:
-            if fmt == "png":
-                return await r.to_png(svg_str, output, scale=scale, background=background)
-            else:
-                return await r.to_pdf(
-                    svg_str, output,
-                    scale=scale, background=background,
-                    pdf_format=pdf_format,
-                    pdf_landscape=pdf_landscape,
-                    pdf_margin=pdf_margin,
+        if not dims:
+            raise RuntimeError("Mermaid rendering failed — renderMermaidToPage returned null.")
+
+        w = int(dims["width"])
+        h = int(dims["height"])
+        await self._page.set_viewport_size(w, h)
+
+        if output:
+            out_path = Path(output)
+        else:
+            suffix = ".pdf" if fmt == "pdf" else ".png"
+            tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
+            tmp.close()
+            out_path = Path(tmp.name)
+
+        if fmt == "pdf":
+            if pdf_format is None:
+                data = await self._page.pdf(
+                    out_path, width=f"{w}px", height=f"{h}px", margin=pdf_margin,
                 )
+            else:
+                data = await self._page.pdf(
+                    out_path, format=pdf_format,
+                    landscape=pdf_landscape, margin=pdf_margin,
+                )
+        else:
+            data = await self._page.screenshot(out_path)
+
+        return data
 
     # ── public API ────────────────────────────────────────────────────────────
 

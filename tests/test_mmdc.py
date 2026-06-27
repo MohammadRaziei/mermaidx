@@ -143,8 +143,8 @@ async def test_to_png_scale(m):
     png_2x = await m.to_png(SIMPLE, scale=2.0)
     w1, h1 = _png_dims(png_1x)
     w2, h2 = _png_dims(png_2x)
-    assert w2 == w1 * 2
-    assert h2 == h1 * 2
+    assert abs(w2 - w1 * 2) <= 1
+    assert abs(h2 - h1 * 2) <= 1
 
 
 async def test_to_png_theme(m):

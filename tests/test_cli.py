@@ -133,7 +133,8 @@ async def test_png_writes_file(m, tmp_path):
 async def test_png_scale(m):
     w1, h1 = _png_dims(await m.to_png(SIMPLE, scale=1.0))
     w2, h2 = _png_dims(await m.to_png(SIMPLE, scale=2.0))
-    assert w2 == w1 * 2 and h2 == h1 * 2
+    assert abs(w2 - w1 * 2) <= 1
+    assert abs(h2 - h1 * 2) <= 1
 
 
 async def test_png_theme(m):
@@ -247,4 +248,3 @@ def test_e2e_output_message(tmp_path):
     r = run("-i", str(BASIC_MERMAID), "-o", str(out))
     assert r.returncode == 0
     assert "result.svg" in r.stdout
-    

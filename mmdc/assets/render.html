@@ -3,6 +3,11 @@
 <head>
     <meta charset="utf-8">
     <script src="./mermaid.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body { overflow: hidden; }
+        #container svg { display: block; }
+    </style>
 </head>
 <body>
 <div id="container"></div>
@@ -10,21 +15,18 @@
 <script>
     var _renderCount = 0;
 
-    window.renderMermaidSync = function (code, theme, config, css) {
-        // use a unique id each call to avoid mermaid's internal id conflict
+    // ── internal: render mermaid code → SVG string ────────────────────────────
+    function _doRender(code, theme, config, css) {
         var id = "graphDiv_" + (++_renderCount);
 
-        var defaultConfig = { startOnLoad: false, theme: theme || "default" };
-
-        var finalConfig = {};
-        for (var k in defaultConfig) { if (defaultConfig.hasOwnProperty(k)) finalConfig[k] = defaultConfig[k]; }
+        var finalConfig = { startOnLoad: false, theme: theme || "default" };
         if (config) {
-            for (var k in config) { if (config.hasOwnProperty(k)) finalConfig[k] = config[k]; }
+            for (var k in config) {
+                if (config.hasOwnProperty(k)) finalConfig[k] = config[k];
+            }
         }
-
         mermaid.initialize(finalConfig);
 
-        // inject optional CSS
         if (css) {
             var style = document.getElementById("mmdc-custom-css") || document.createElement("style");
             style.id = "mmdc-custom-css";
@@ -39,11 +41,47 @@
             done = true;
         });
 
-        // busy-wait up to 5s
         var start = Date.now();
         while (!done && Date.now() - start < 5000) {}
-
         return svg || "";
+    }
+
+    // ── API 1: return SVG string (used by to_svg) ─────────────────────────────
+    window.renderMermaidSync = function (code, theme, config, css) {
+        return _doRender(code, theme, config, css);
+    };
+
+    // ── API 2: inject SVG into page + resize viewport (used by to_png/to_pdf) ─
+    // Returns {width, height} so Python can set the correct viewport before
+    // taking a screenshot or PDF — all in the same PhantomJS process.
+    window.renderMermaidToPage = function (code, theme, config, css, background, scale) {
+        scale = scale || 1.0;
+        background = background || "white";
+
+        var svg = _doRender(code, theme, config, css);
+        if (!svg) return null;
+
+        // parse viewBox to get natural dimensions
+        var vbMatch = svg.match(/viewBox=["']([^"']+)["']/);
+        var w = 1280, h = 960;
+        if (vbMatch) {
+            var parts = vbMatch[1].trim().split(/\s+/);
+            if (parts.length === 4) {
+                w = Math.round(parseFloat(parts[2]) * scale);
+                h = Math.round(parseFloat(parts[3]) * scale);
+            }
+        }
+
+        // make SVG fill the viewport exactly
+        var scaledSvg = svg
+            .replace(/width=["'][^"']*["']/, 'width="' + w + '"')
+            .replace(/height=["'][^"']*["']/, 'height="' + h + '"');
+
+        // inject into page
+        document.body.style.background = background;
+        document.getElementById("container").innerHTML = scaledSvg;
+
+        return { width: w, height: h };
     };
 </script>
 </body>
