@@ -266,7 +266,7 @@ All diagram types supported by Mermaid work out of the box:
 
 ## Requirements
 
-- Python 3.10+
+- Python 3.9+
 - [phasma](https://pypi.org/project/phasma/) (installed automatically)
 - No system packages, no Node.js, no npm
 
