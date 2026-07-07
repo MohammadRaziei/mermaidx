@@ -75,7 +75,7 @@ jobs:
         run: |
           ls dist
           pip install pip pytest-cov pytest-xdist pytest-asyncio
-          pip install --upgrade --find-links ./dist/ mmdc
+          pip install -e .
 
       - name: Run tests
         run: |
