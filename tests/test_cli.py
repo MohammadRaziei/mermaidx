@@ -15,6 +15,7 @@ import re
 import struct
 import subprocess
 import sys
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import pytest
@@ -72,6 +73,32 @@ def test_info():
     r = run("--info")
     assert r.returncode == 0
     assert re.match(r"^v?\d+\.\d+\.\d+", r.stdout.strip())
+
+
+def test_info_matches_rendering_info_diagram_directly():
+    """
+    `--info` extracts text from the rendered "info" diagram internally.
+    `echo "info" | mmdc -i -` renders that exact same diagram through the
+    normal (non-shortcut) code path and writes raw SVG to stdout. Both must
+    report the same Mermaid version.
+    """
+    info_flag = run("--info")
+    assert info_flag.returncode == 0
+    version_from_flag = info_flag.stdout.strip()
+
+    piped = run("-i", "-", input="info")
+    assert piped.returncode == 0
+    assert piped.stdout.lstrip().startswith("<svg")
+
+    root = ET.fromstring(piped.stdout)
+    texts = [
+        el.text.strip()
+        for el in root.iter()
+        if el.tag.split("}")[-1] == "text" and el.text and el.text.strip()
+    ]
+    version_from_pipe = " ".join(texts)
+
+    assert version_from_pipe == version_from_flag
 
 
 def test_no_args_exits_nonzero():

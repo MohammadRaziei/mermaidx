@@ -27,9 +27,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-test = [
-  "pytest-cov", "pytest-asyncio"
-]
+test  = [ "pytest-cov", "pytest-asyncio" ]
+rust  = [ "mmdr" ]
+all   = [ "mmdr" ]
 
 [project.scripts]
 mmdc = "mmdc.__main__:main"
