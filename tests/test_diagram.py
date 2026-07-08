@@ -103,7 +103,7 @@ def test_save_all_formats(tmp_path):
     d.save(str(svg_path))
     d.save(str(png_path))
     d.save(str(pdf_path))
-    assert svg_path.read_text().startswith("<svg")
+    assert svg_path.read_text(encoding='utf-8').startswith("<svg")
     assert png_path.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
     assert pdf_path.read_bytes()[:5] == b"%PDF-"
 
