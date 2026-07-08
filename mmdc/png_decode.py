@@ -3,10 +3,11 @@ mmdc.png_decode — just enough of the PNG spec to pull raw RGB(A) pixels back
 out of a PNG file, using only the standard library (`zlib`, `struct`).
 
 Why this exists: resvg only emits PNG bytes. To embed those pixels into a
-hand-written PDF (see mmdc.pdf) as an image XObject, the PDF needs raw
-samples, not a PNG container — and every mainstream "give me a raster image
-inside a PDF" library (Pillow, pikepdf, img2pdf, reportlab...) pulls in
-Pillow as a transitive dependency. This avoids that entirely.
+hand-written PDF (see mmdc.pdf_writer) as an image XObject, or to hand back
+raw RGBA8888 buffers (Diagram.raw() / .numpy()), we need actual samples, not
+a PNG container — and every mainstream "give me a raster image" library
+(Pillow, pikepdf, img2pdf, reportlab...) pulls in Pillow as a transitive
+dependency. This avoids that entirely.
 
 Supports exactly what resvg produces: 8-bit, non-interlaced, color type 2
 (RGB) or 6 (RGBA). That covers all resvg output; nothing else is handled.
@@ -113,3 +114,20 @@ def decode_png(data: bytes) -> DecodedPNG:
         rgb[p * 3:p * 3 + 3] = out[p * 4:p * 4 + 3]
         alpha[p] = out[p * 4 + 3]
     return DecodedPNG(width, height, True, bytes(rgb), bytes(alpha))
+
+
+def decode_png_rgba(data: bytes) -> tuple[bytes, int, int]:
+    """Like decode_png(), but returns interleaved RGBA8888 bytes directly —
+    convenient for APIs that want a single (bytes, width, height) tuple
+    (e.g. Diagram.raw() / .numpy())."""
+    d = decode_png(data)
+    rgba = bytearray(d.width * d.height * 4)
+    if d.has_alpha:
+        for p in range(d.width * d.height):
+            rgba[p * 4:p * 4 + 3] = d.rgb[p * 3:p * 3 + 3]
+            rgba[p * 4 + 3] = d.alpha[p]
+    else:
+        for p in range(d.width * d.height):
+            rgba[p * 4:p * 4 + 3] = d.rgb[p * 3:p * 3 + 3]
+            rgba[p * 4 + 3] = 255
+    return bytes(rgba), d.width, d.height

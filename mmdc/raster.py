@@ -15,6 +15,8 @@ from typing import Optional
 
 import resvg_py
 
+from mmdc.png_decode import decode_png_rgba
+
 _FONTS_DIR = Path(__file__).parent / "assets" / "fonts"
 _FONT_FILES = [
     str(_FONTS_DIR / "DejaVuSans.ttf"),
@@ -23,10 +25,20 @@ _FONT_FILES = [
 _FAMILY = "DejaVu Sans"
 
 
-def render_png(svg_text: str, *, scale: float = 1.0, background: Optional[str] = None) -> bytes:
-    data = resvg_py.svg_to_bytes(
+def render_png(
+    svg_text: str,
+    *,
+    scale: float = 1.0,
+    background: Optional[str] = None,
+    width: Optional[float] = None,
+    height: Optional[float] = None,
+) -> bytes:
+    return bytes(resvg_py.svg_to_bytes(
         svg_string=svg_text,
         background=background,
+        width=width,
+        height=height,
+        zoom=scale if not (width or height) else None,
         skip_system_fonts=True,
         font_files=_FONT_FILES,
         font_family=_FAMILY,
@@ -35,6 +47,25 @@ def render_png(svg_text: str, *, scale: float = 1.0, background: Optional[str] =
         cursive_family=_FAMILY,
         fantasy_family=_FAMILY,
         monospace_family=_FAMILY,
-        zoom=scale,
-    )
-    return bytes(data)
+    ))
+
+
+def svg_to_png(
+    svg: str,
+    width: Optional[float] = None,
+    height: Optional[float] = None,
+    background: Optional[str] = None,
+) -> bytes:
+    """Rasterize any SVG string to PNG bytes (doesn't have to come from mmdc)."""
+    return render_png(svg, background=background, width=width, height=height)
+
+
+def svg_to_raw(
+    svg: str,
+    width: Optional[float] = None,
+    height: Optional[float] = None,
+    background: Optional[str] = None,
+) -> tuple[bytes, int, int]:
+    """Rasterize any SVG string to raw RGBA8888 pixels: (bytes, width, height)."""
+    png_bytes = render_png(svg, background=background, width=width, height=height)
+    return decode_png_rgba(png_bytes)
