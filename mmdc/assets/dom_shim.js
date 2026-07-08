@@ -331,7 +331,7 @@ globalThis.SVGElement = Element;
 globalThis.Element = Element;
 globalThis.Node = Node;
 
-console.log("dom shim loaded ok");
+// console.log("dom shim loaded ok");
 
 globalThis.__resetDocument = function() {
   document_.body.childNodes = [];
