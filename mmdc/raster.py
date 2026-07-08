@@ -36,8 +36,8 @@ def render_png(
     return bytes(resvg_py.svg_to_bytes(
         svg_string=svg_text,
         background=background,
-        width=width,
-        height=height,
+        width=int(width) if width is not None else None,
+        height=int(height) if height is not None else None,
         zoom=scale if not (width or height) else None,
         skip_system_fonts=True,
         font_files=_FONT_FILES,

@@ -28,7 +28,7 @@ import xml.etree.ElementTree as ET
 
 import pytest
 
-from mmdc import MermaidConverter
+from mmdc import render
 from mmdc.png_decode import decode_png
 
 MERMAID_INK_TIMEOUT = 10  # seconds
@@ -83,13 +83,7 @@ def test_svg_labels_match_mermaid_ink(name):
     reference_svg = _fetch("https://mermaid.ink/svg/" + _mermaid_ink_b64(code))
     reference_texts = _svg_texts(reference_svg)
 
-    import asyncio
-
-    async def _render():
-        async with MermaidConverter() as m:
-            return await m.to_svg(code)
-
-    ours_svg = asyncio.run(_render())
+    ours_svg = render(code).svg()
     our_texts = _svg_texts(ours_svg)
 
     # Compare as multisets of *words* rather than exact tspan groupings:
@@ -111,13 +105,7 @@ def test_svg_aspect_ratio_close_to_mermaid_ink(name):
     reference_svg = _fetch("https://mermaid.ink/svg/" + _mermaid_ink_b64(code))
     reference_ratio = _svg_aspect_ratio(reference_svg)
 
-    import asyncio
-
-    async def _render():
-        async with MermaidConverter() as m:
-            return await m.to_svg(code)
-
-    ours_svg = asyncio.run(_render())
+    ours_svg = render(code).svg()
     our_ratio = _svg_aspect_ratio(ours_svg)
 
     # generous tolerance: different engines wrap/size labels slightly
@@ -139,13 +127,7 @@ def test_png_dimensions_close_to_mermaid_ink(name):
     ref = decode_png(reference_png)
     reference_ratio = ref.width / ref.height
 
-    import asyncio
-
-    async def _render():
-        async with MermaidConverter() as m:
-            return await m.to_png(code)
-
-    ours_png = asyncio.run(_render())
+    ours_png = render(code).png()
     ours = decode_png(ours_png)
     our_ratio = ours.width / ours.height
 

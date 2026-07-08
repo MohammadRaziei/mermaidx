@@ -11,15 +11,7 @@
 
 Convert Mermaid diagrams to SVG, PNG, and PDF — **fully offline and fast, just `pip install mmdc`**.
 
-No Node.js. No npm. No Chrome. No system packages. Powered by [Phasma](https://github.com/mohammadraziei/phasma/).
-
----
-
-## Why mmdc?
-
-The official Mermaid CLI (`@mermaid-js/mermaid-cli`) requires Node.js and npm. If you're working in a Python environment, that's a significant dependency just to render a diagram.
-
-`mmdc` brings the same functionality to Python with a single pip install. The Mermaid JS library and PhantomJS binary are both bundled inside the wheel — no network access needed after install.
+No Node.js. No npm. No Chrome. No system packages. Mermaid v11 runs inside a small embedded JS engine (QuickJS-ng), and every raster/PDF conversion goes through [resvg](https://github.com/RazrFalcon/resvg) — no Pillow, no Cairo, nothing to compile.
 
 ```bash
 pip install mmdc
@@ -27,26 +19,29 @@ pip install mmdc
 
 ---
 
+## Why mmdc?
+
+The official Mermaid CLI (`@mermaid-js/mermaid-cli`) drives a real headless Chrome via Puppeteer. That works, but it's slow to start, heavy to install (~170MB+ of Chromium), and awkward to embed in a pipeline.
+
+`mmdc` renders the actual, current Mermaid v11 JS library — not a reimplementation, not a subset — inside QuickJS-ng, a ~7MB embedded JS engine. Real text metrics (which a fake DOM can't fabricate on its own) come from a bundled font read directly via a small pure-Python TTF parser, and that *same* font is handed to resvg for final rendering — so layout and paint always agree, by construction.
+
+---
+
 ## Quick Start
 
 ```python
-import asyncio
-from mmdc import MermaidConverter
+import mmdc
 
-DIAGRAM = """
+d = mmdc.render("""
 graph TD
     A[Install] --> B[Import]
     B --> C[Convert]
     C --> D[Done]
-"""
+""")
 
-async def main():
-    async with MermaidConverter() as m:
-        await m.to_svg(DIAGRAM, "diagram.svg")
-        await m.to_png(DIAGRAM, "diagram.png", scale=2.0)
-        await m.to_pdf(DIAGRAM, "diagram.pdf")
-
-asyncio.run(main())
+d.save("diagram.svg")
+d.save("diagram.png", scale=2.0)
+d.save("diagram.pdf", pdf_format="A4")
 ```
 
 ```bash
@@ -60,99 +55,121 @@ cat diagram.mermaid | mmdc -i - -o diagram.pdf
 ## How It Works
 
 ```mermaid
-sequenceDiagram
-    participant P as Python
-    participant Ph as PhantomJS (single process)
-    participant M as Mermaid.js (bundled, offline)
+flowchart LR
+    A[Mermaid source] --> B[QuickJS-ng]
+    B -->|"mermaid.js v11 (bundled)"| C[SVG]
+    C --> D[resvg]
+    D --> E[PNG]
+    C --> F["hand-written PDF writer<br/>(stdlib only)"]
+    F --> G[PDF]
 
-    P->>Ph: launch once
-
-    loop each diagram
-        P->>Ph: renderMermaidSync(code) → SVG string
-        P->>Ph: renderMermaidToPage(code) → inject into DOM
-        Ph->>M: render diagram
-        M-->>Ph: SVG
-        Ph-->>P: screenshot / pdf
-    end
-
-    P->>Ph: close()
+    H[bundled DejaVu Sans] -.font metrics.-> B
+    H -.same font, forced.-> D
 ```
 
-One PhantomJS process handles everything — SVG rendering, PNG screenshots, and PDF export all happen inside the same process with no restarts between conversions.
+Everything happens in one process, no subprocess, no I/O:
+
+- **SVG** — mermaid.js runs inside QuickJS-ng against a minimal fake DOM/SVG implementation. The one thing a fake DOM can't fabricate — real text metrics (`getBBox`/`getComputedTextLength`) — is bridged back into Python, which reads real glyph widths from a bundled font.
+- **PNG** — the SVG is rasterized by [resvg](https://pypi.org/project/resvg_py/), forced to use that *same* bundled font, so what mermaid measured during layout is exactly what gets painted.
+- **PDF** — a small hand-written PDF writer (stdlib `zlib`/`struct` only) embeds the rendered pixels directly. No Pillow, no Cairo, no reportlab — every mainstream "put an image in a PDF" library pulls in Pillow as a transitive dependency; this avoids that entirely.
+
+Rendering is CPU-bound, synchronous, single-process — there's no browser or subprocess to wait on, so there's nothing for `async` to usefully overlap. See [`mmdc.render_many()`](#parallel-batch-rendering) below for real parallelism instead.
 
 ---
 
 ## Python API
 
-### `MermaidConverter`
+### `render(source, backend=None, **opts) -> Diagram`
 
 ```python
-# recommended — automatic lifecycle management
-async with MermaidConverter(theme="default", background="white") as m:
-    svg = await m.to_svg("graph TD\n    A-->B")
-
-# manual lifecycle
-m = MermaidConverter()
-await m.start()
-svg = await m.to_svg("graph TD\n    A-->B")
-await m.close()
-
-# module-level singleton — lazy start, closes at exit
 import mmdc
-svg = await mmdc.to_svg("graph TD\n    A-->B")
-png = await mmdc.to_png("graph TD\n    A-->B", scale=2.0)
+
+d = mmdc.render("flowchart LR; A-->B-->C")   # SVG is rendered immediately
 ```
 
-### Methods
+`Diagram` methods — SVG is already computed; everything else is derived from it on demand:
 
-#### `to_svg(source, output?, *, theme?, background?, config?, css?) → bytes`
+| Method | Returns | Notes |
+|---|---|---|
+| `.svg()` | `str` | Already computed at `render()` time |
+| `.png(width?, height?, scale?, background?)` | `bytes` | Aspect ratio always preserved |
+| `.pdf(pdf_format?, pdf_landscape?, pdf_margin?, width?, height?, scale?, background?)` | `bytes` | `pdf_format=None` (default) fits the page to the diagram |
+| `.raw(width?, height?, background?)` | `(bytes, w, h)` | Raw RGBA8888, no imaging library involved |
+| `.numpy(width?, height?, background?)` | `np.ndarray` | `(H, W, 4)` uint8; requires `numpy` |
+| `.save(path, ...)` | `None` | Format inferred from the extension: `.svg` / `.png` / `.pdf` |
+| `._repr_svg_()` | `str` | Automatic inline rendering in Jupyter/IPython |
 
 ```python
-svg = await m.to_svg("graph TD\n    A-->B")
-svg = await m.to_svg(Path("diagram.mermaid"), "out.svg", theme="dark")
+d.png(width=1200, background="#ffffff")
+d.raw()                 # (bytes, width, height) -- RGBA8888
+d.numpy()                # np.ndarray, no Pillow needed
+d.save("out.pdf", pdf_format="A4", pdf_margin="1cm")
 ```
 
-#### `to_png(source, output?, *, scale?, theme?, background?, config?, css?) → bytes`
+### Themes, config, CSS
 
 ```python
-png = await m.to_png("graph TD\n    A-->B", scale=2.0)
-await m.to_png(Path("diagram.mermaid"), "out.png", scale=3.0, theme="forest")
+mmdc.render(source, theme="dark")                    # "default" | "forest" | "dark" | "neutral"
+mmdc.render(source, config={"flowchart": {"curve": "basis"}})
+mmdc.render(source, css=".node rect { rx: 8; ry: 8; }")
 ```
 
-#### `to_pdf(source, output?, *, scale?, theme?, background?, config?, css?, pdf_format?, pdf_landscape?, pdf_margin?) → bytes`
+### Parallel batch rendering
+
+Rendering is pure CPU work — no I/O to overlap, so real concurrency means real processes, not `async`:
 
 ```python
-# fit paper to diagram size (default)
-pdf = await m.to_pdf("graph TD\n    A-->B")
-
-# standard paper
-await m.to_pdf("graph TD\n    A-->B", "out.pdf", pdf_format="A4", pdf_landscape=True)
+diagrams = mmdc.render_many(sources, workers=4, theme="dark")
+for d, name in zip(diagrams, output_names):
+    d.save(name)
 ```
 
-#### `convert(source, output?, ...) → bytes`
+Each worker process starts its own persistent engine once and reuses it for every diagram routed to it.
 
-Auto-detects format from file extension:
+### ASCII / terminal output (optional)
+
+```bash
+pip install mmdc[ascii]
+```
 
 ```python
-await m.convert(DIAGRAM, "out.svg")   # → SVG
-await m.convert(DIAGRAM, "out.png")   # → PNG
-await m.convert(DIAGRAM, "out.pdf")   # → PDF
+print(mmdc.render_ascii("graph LR; A-->B-->C"))
+```
+```
+┌───┐    ┌───┐    ┌───┐
+│ A ├───►│ B ├───►│ C │
+└───┘    └───┘    └───┘
 ```
 
-### Parameters
+Backed by [termaid](https://pypi.org/project/termaid/) — pure Python, zero dependencies.
 
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `source` | `str \| Path` | — | Mermaid string, `.mermaid` file path, or `Path` object |
-| `output` | `str \| Path \| None` | `None` | Output file. If omitted, returns bytes |
-| `scale` | `float` | `1.0` | Size multiplier for PNG/PDF |
-| `theme` | `str` | `"default"` | `"default"`, `"forest"`, `"dark"`, `"neutral"` |
-| `background` | `str` | `"white"` | CSS background color |
-| `config` | `dict \| None` | `None` | Mermaid config dict |
-| `css` | `str \| None` | `None` | CSS injected into the diagram |
-| `pdf_format` | `str \| None` | `None` | `"A4"`, `"Letter"`, etc. `None` = fit to diagram |
-| `pdf_landscape` | `bool` | `False` | Landscape orientation (PDF only) |
-| `pdf_margin` | `str` | `"0"` | CSS margin e.g. `"1cm"` |
+### Low-level utilities
+
+Rasterize any SVG string directly, without going through `render()`:
+
+```python
+from mmdc import svg_to_png, svg_to_raw
+
+svg = open("diagram.svg").read()
+png = svg_to_png(svg, width=1200, background="#ffffff")
+raw, w, h = svg_to_raw(svg)
+```
+
+### Additional backends (optional)
+
+```bash
+pip install mmdc[rust]
+```
+
+If [`mmdr`](https://github.com/mohammadraziei/mmdr) (a native-Rust Mermaid renderer) is installed, its backends become available too — same `Diagram` interface either way:
+
+```python
+mmdc.backends()
+# ['js']                                   # mmdr not installed
+# ['js', 'merman', 'mermaid-rs-renderer']   # mmdr installed
+
+mmdc.render(source, backend="merman")   # returns mmdr's own Diagram directly
+```
 
 ---
 
@@ -162,14 +179,14 @@ await m.convert(DIAGRAM, "out.pdf")   # → PDF
 # SVG to stdout (no -o needed)
 mmdc -i diagram.mermaid
 cat diagram.mermaid | mmdc -i -
-echo "graph TD\n    A-->B" | mmdc -i -
 
 # save to file (format from extension)
 mmdc -i diagram.mermaid -o diagram.svg
 mmdc -i diagram.mermaid -o diagram.png
 mmdc -i diagram.mermaid -o diagram.pdf
 
-# scale
+# size
+mmdc -i diagram.mermaid -o diagram.png -w 1200
 mmdc -i diagram.mermaid -o diagram.png --scale 2.0
 
 # theme & background
@@ -191,91 +208,26 @@ mmdc --version
 
 ---
 
-## Examples
-
-### Batch conversion
-
-```python
-import asyncio
-from pathlib import Path
-from mmdc import MermaidConverter
-
-async def main():
-    diagrams = list(Path("diagrams").glob("*.mermaid"))
-
-    async with MermaidConverter(theme="forest") as m:
-        for f in diagrams:
-            await m.to_png(f, f.with_suffix(".png"), scale=2.0)
-        
-    print(f"converted {len(diagrams)} diagrams")
-
-asyncio.run(main())
-```
-
-### Multiple formats from one diagram
-
-```python
-async with MermaidConverter() as m:
-    for fmt in ["svg", "png", "pdf"]:
-        await m.convert(DIAGRAM, f"output.{fmt}")
-```
-
-### Custom theme and config
-
-```python
-async with MermaidConverter(theme="dark", background="#1a1a2e") as m:
-    png = await m.to_png(
-        DIAGRAM,
-        scale=2.0,
-        config={"flowchart": {"curve": "basis"}},
-        css=".node rect { rx: 8; ry: 8; }",
-    )
-```
-
-### Module-level for scripts
-
-```python
-import asyncio
-import mmdc
-
-async def main():
-    # no context manager needed — session starts on first call
-    # and closes automatically when the script exits
-    svg = await mmdc.to_svg("graph TD\n    A-->B")
-    png = await mmdc.to_png("graph TD\n    A-->B", scale=2.0)
-
-asyncio.run(main())
-```
-
----
-
 ## Supported Diagram Types
 
-All diagram types supported by Mermaid work out of the box:
-
-- Flowcharts (`graph TD`, `graph LR`)
-- Sequence diagrams
-- Class diagrams
-- State diagrams
-- Entity relationship diagrams
-- Gantt charts
-- Pie charts
-- Git graphs
+Everything Mermaid v11 itself supports (this bundles the real library, not a subset):
+flowcharts, sequence diagrams, class diagrams, state diagrams, ER diagrams, Gantt charts,
+pie charts, git graphs, and more.
 
 ---
 
 ## Requirements
 
 - Python 3.9+
-- [phasma](https://pypi.org/project/phasma/) (installed automatically)
-- No system packages, no Node.js, no npm
+- `quickjs-ng`, `resvg_py` (installed automatically)
+- No system packages, no Node.js, no npm, no browser
 
 ---
 
 ## Testing
 
 ```bash
-pip install -e ".[dev]"
+pip install -e ".[test]"
 pytest tests/ -v
 ```
 
@@ -297,6 +249,5 @@ MIT — see [LICENSE](LICENSE) for details.
 ---
 
 <div align="center">
-Powered by <a href="https://pypi.org/project/phasma/">phasma</a> &nbsp;·&nbsp;
 Made by <a href="https://github.com/MohammadRaziei">Mohammad Raziei</a>
 </div>

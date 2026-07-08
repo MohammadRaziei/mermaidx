@@ -28,10 +28,11 @@ dependencies = [
 
 [project.optional-dependencies]
 test = [
-  "pytest-cov", "pytest-asyncio"
+  "pytest-cov"
 ]
-rust = [ "mmdr" ]
-all  = [ "mmdr", "numpy" ]
+rust  = [ "mmdr" ]
+ascii = [ "termaid" ]
+all   = [ "mmdr", "termaid", "numpy" ]
 
 [project.scripts]
 mmdc = "mmdc.__main__:main"
@@ -105,7 +106,6 @@ filterwarnings = [
     # "error",
     "ignore:(ast.Str|Attribute s|ast.NameConstant|ast.Num) is deprecated:DeprecationWarning:_pytest",  # Python 3.12
 ]
-asyncio_mode = "auto"
 testpaths = ["tests"]
 pythonpath = [
   "."

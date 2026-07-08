@@ -1,11 +1,11 @@
 """
 Tests for the mmdc CLI.
 
-Strategy:
-- Argument parsing / exit codes: subprocess (fast, no PhantomJS needed)
-- Actual conversion: module-scoped MermaidConverter (one PhantomJS process)
-  called directly, avoiding per-test subprocess overhead.
-- A small set of true end-to-end subprocess tests verify the __main__ wiring.
+Everything here is either a direct subprocess call (real end-to-end CLI
+wiring) or a direct call into mmdc.render() (conversion logic, without the
+subprocess overhead). There's no async fixture anymore -- rendering is
+CPU-bound and synchronous end to end, so a plain module-level helper is
+enough; no shared "session" object needs to be kept alive across tests.
 """
 
 from __future__ import annotations
@@ -19,15 +19,11 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import pytest
-import pytest_asyncio
 
-from mmdc import MermaidConverter
-
-
-# ── fixtures ──────────────────────────────────────────────────────────────────
+from mmdc import render
 
 BASIC_MERMAID = Path(__file__).parent / "basic.mermaid"
-SIMPLE   = "graph LR\n    A --> B"
+SIMPLE = "graph LR\n    A --> B"
 FLOWCHART = "graph TD\n    A[Start] --> B{Yes?}\n    B -->|Yes| C[OK]\n    B -->|No| D[Fail]"
 
 
@@ -39,18 +35,11 @@ def run(*args, input: str = None) -> subprocess.CompletedProcess:
 
 
 def _png_dims(data: bytes):
-    assert data[:4] == b"\x89PNG"
+    assert data[:8] == b"\x89PNG\r\n\x1a\n"
     return struct.unpack(">I", data[16:20])[0], struct.unpack(">I", data[20:24])[0]
 
 
-@pytest_asyncio.fixture(scope="module")
-async def m():
-    """One PhantomJS process shared across all conversion tests."""
-    async with MermaidConverter() as converter:
-        yield converter
-
-
-# ── argument parsing / exit codes (subprocess — fast) ────────────────────────
+# ── argument parsing / exit codes ────────────────────────────────────────────
 
 def test_version():
     r = run("--version")
@@ -96,9 +85,7 @@ def test_info_matches_rendering_info_diagram_directly():
         for el in root.iter()
         if el.tag.split("}")[-1] == "text" and el.text and el.text.strip()
     ]
-    version_from_pipe = " ".join(texts)
-
-    assert version_from_pipe == version_from_flag
+    assert " ".join(texts) == version_from_flag
 
 
 def test_no_args_exits_nonzero():
@@ -110,147 +97,140 @@ def test_missing_input_exits_nonzero():
 
 
 def test_missing_output_writes_svg_to_stdout():
-    """No -o means SVG goes to stdout."""
     r = run("-i", str(BASIC_MERMAID))
     assert r.returncode == 0
     assert r.stdout.lstrip().startswith("<svg")
 
 
-# ── SVG (via shared converter) ────────────────────────────────────────────────
-
-async def test_svg_from_string(m):
-    data = await m.to_svg(SIMPLE)
-    assert data.lstrip().startswith(b"<svg")
+def test_invalid_mermaid_exits_nonzero():
+    r = run("-i", "-", input="this is not valid mermaid {{{")
+    assert r.returncode != 0
 
 
-async def test_svg_from_file(m):
-    data = await m.to_svg(BASIC_MERMAID)
-    assert data.lstrip().startswith(b"<svg")
+# ── SVG (direct render() calls) ───────────────────────────────────────────────
+
+def test_svg_from_string():
+    assert render(SIMPLE).svg().startswith("<svg")
 
 
-async def test_svg_from_path_object(m):
-    data = await m.to_svg(Path(BASIC_MERMAID))
-    assert data.lstrip().startswith(b"<svg")
-
-
-async def test_svg_writes_file(m, tmp_path):
+def test_svg_writes_file(tmp_path):
     out = tmp_path / "out.svg"
-    data = await m.to_svg(SIMPLE, out)
-    assert out.exists() and data == out.read_bytes()
+    render(SIMPLE).save(str(out))
+    assert out.read_text().startswith("<svg")
 
 
-async def test_svg_theme_dark(m):
-    assert (await m.to_svg(SIMPLE, theme="dark")).lstrip().startswith(b"<svg")
+def test_svg_theme_dark():
+    assert render(SIMPLE, theme="dark").svg().startswith("<svg")
 
 
-async def test_svg_theme_forest(m):
-    assert (await m.to_svg(SIMPLE, theme="forest")).lstrip().startswith(b"<svg")
+def test_svg_theme_forest():
+    assert render(SIMPLE, theme="forest").svg().startswith("<svg")
 
 
-async def test_svg_theme_neutral(m):
-    assert (await m.to_svg(SIMPLE, theme="neutral")).lstrip().startswith(b"<svg")
+def test_svg_theme_neutral():
+    assert render(SIMPLE, theme="neutral").svg().startswith("<svg")
 
 
-# ── PNG (via shared converter) ────────────────────────────────────────────────
+# ── PNG ───────────────────────────────────────────────────────────────────────
 
-async def test_png_from_string(m):
-    assert (await m.to_png(SIMPLE))[:4] == b"\x89PNG"
-
-
-async def test_png_from_file(m):
-    assert (await m.to_png(BASIC_MERMAID))[:4] == b"\x89PNG"
+def test_png_from_string():
+    assert render(SIMPLE).png()[:8] == b"\x89PNG\r\n\x1a\n"
 
 
-async def test_png_writes_file(m, tmp_path):
+def test_png_writes_file(tmp_path):
     out = tmp_path / "out.png"
-    data = await m.to_png(SIMPLE, out)
-    assert out.exists() and data == out.read_bytes()
+    render(SIMPLE).save(str(out))
+    assert out.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
 
 
-async def test_png_scale(m):
-    w1, h1 = _png_dims(await m.to_png(SIMPLE, scale=1.0))
-    w2, h2 = _png_dims(await m.to_png(SIMPLE, scale=2.0))
+def test_png_scale():
+    w1, h1 = _png_dims(render(SIMPLE).png())
+    w2, h2 = _png_dims(render(SIMPLE).png(scale=2.0))
     assert abs(w2 - w1 * 2) <= 1
     assert abs(h2 - h1 * 2) <= 1
 
 
-async def test_png_theme(m):
-    assert (await m.to_png(SIMPLE, theme="dark"))[:4] == b"\x89PNG"
+def test_png_width():
+    w, h = _png_dims(render(SIMPLE).png(width=400))
+    assert w == 400
 
 
-async def test_png_background(m):
-    assert (await m.to_png(SIMPLE, background="#f0f0f0"))[:4] == b"\x89PNG"
+def test_png_theme():
+    assert render(SIMPLE, theme="dark").png()[:8] == b"\x89PNG\r\n\x1a\n"
 
 
-async def test_png_flowchart(m):
-    assert (await m.to_png(FLOWCHART))[:4] == b"\x89PNG"
+def test_png_background():
+    assert render(SIMPLE).png(background="#f0f0f0")[:8] == b"\x89PNG\r\n\x1a\n"
 
 
-# ── PDF (via shared converter) ────────────────────────────────────────────────
-
-async def test_pdf_from_string(m):
-    assert (await m.to_pdf(SIMPLE))[:4] == b"%PDF"
+def test_png_flowchart():
+    assert render(FLOWCHART).png()[:8] == b"\x89PNG\r\n\x1a\n"
 
 
-async def test_pdf_from_file(m):
-    assert (await m.to_pdf(BASIC_MERMAID))[:4] == b"%PDF"
+# ── PDF ───────────────────────────────────────────────────────────────────────
+
+def test_pdf_from_string():
+    assert render(SIMPLE).pdf()[:5] == b"%PDF-"
 
 
-async def test_pdf_writes_file(m, tmp_path):
+def test_pdf_writes_file(tmp_path):
     out = tmp_path / "out.pdf"
-    data = await m.to_pdf(SIMPLE, out)
-    assert out.exists() and data == out.read_bytes()
+    render(SIMPLE).save(str(out))
+    assert out.read_bytes()[:5] == b"%PDF-"
 
 
-async def test_pdf_fit_mode(m):
-    assert (await m.to_pdf(SIMPLE))[:4] == b"%PDF"
+def test_pdf_fit_mode():
+    assert render(SIMPLE).pdf()[:5] == b"%PDF-"
 
 
-async def test_pdf_a4(m):
-    assert (await m.to_pdf(SIMPLE, pdf_format="A4"))[:4] == b"%PDF"
+def test_pdf_a4():
+    assert render(SIMPLE).pdf(pdf_format="A4")[:5] == b"%PDF-"
 
 
-async def test_pdf_landscape(m):
-    assert (await m.to_pdf(SIMPLE, pdf_format="A4", pdf_landscape=True))[:4] == b"%PDF"
+def test_pdf_landscape():
+    assert render(SIMPLE).pdf(pdf_format="A4", pdf_landscape=True)[:5] == b"%PDF-"
 
 
-async def test_pdf_margin(m):
-    assert (await m.to_pdf(SIMPLE, pdf_margin="1cm"))[:4] == b"%PDF"
+def test_pdf_margin():
+    assert render(SIMPLE).pdf(pdf_margin="1cm")[:5] == b"%PDF-"
 
 
-# ── config / css (via shared converter) ───────────────────────────────────────
+# ── config / css ──────────────────────────────────────────────────────────────
 
-async def test_config_dict(m):
-    data = await m.to_svg(SIMPLE, config={"theme": "forest"})
-    assert data.lstrip().startswith(b"<svg")
-
-
-async def test_css_string(m):
-    data = await m.to_svg(SIMPLE, css=".node rect { fill: red; }")
-    assert data.lstrip().startswith(b"<svg")
+def test_config_dict():
+    assert render(SIMPLE, config={"theme": "forest"}).svg().startswith("<svg")
 
 
-# ── convert (via shared converter) ───────────────────────────────────────────
+def test_css_string():
+    assert render(SIMPLE, css=".node rect { fill: red; }").svg().startswith("<svg")
 
-async def test_convert_svg(m, tmp_path):
+
+# ── save() format dispatch ────────────────────────────────────────────────────
+
+def test_save_svg(tmp_path):
     out = tmp_path / "out.svg"
-    await m.convert(SIMPLE, out)
+    render(SIMPLE).save(str(out))
     assert out.read_bytes().lstrip().startswith(b"<svg")
 
 
-async def test_convert_png(m, tmp_path):
+def test_save_png(tmp_path):
     out = tmp_path / "out.png"
-    await m.convert(SIMPLE, out)
-    assert out.read_bytes()[:4] == b"\x89PNG"
+    render(SIMPLE).save(str(out))
+    assert out.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
 
 
-async def test_convert_pdf(m, tmp_path):
+def test_save_pdf(tmp_path):
     out = tmp_path / "out.pdf"
-    await m.convert(SIMPLE, out)
-    assert out.read_bytes()[:4] == b"%PDF"
+    render(SIMPLE).save(str(out))
+    assert out.read_bytes()[:5] == b"%PDF-"
 
 
-# ── end-to-end subprocess (just wiring — one per format) ─────────────────────
+def test_save_unknown_extension_raises(tmp_path):
+    with pytest.raises(ValueError, match="Unsupported|Cannot infer"):
+        render(SIMPLE).save(str(tmp_path / "out.xyz"))
+
+
+# ── end-to-end subprocess (CLI wiring) ────────────────────────────────────────
 
 def test_e2e_svg(tmp_path):
     out = tmp_path / "out.svg"
@@ -263,14 +243,29 @@ def test_e2e_png(tmp_path):
     out = tmp_path / "out.png"
     r = run("-i", str(BASIC_MERMAID), "-o", str(out))
     assert r.returncode == 0
-    assert out.read_bytes()[:4] == b"\x89PNG"
+    assert out.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+def test_e2e_png_width(tmp_path):
+    out = tmp_path / "out.png"
+    r = run("-i", str(BASIC_MERMAID), "-o", str(out), "-w", "500")
+    assert r.returncode == 0
+    w, _ = _png_dims(out.read_bytes())
+    assert w == 500
 
 
 def test_e2e_pdf(tmp_path):
     out = tmp_path / "out.pdf"
     r = run("-i", str(BASIC_MERMAID), "-o", str(out))
     assert r.returncode == 0
-    assert out.read_bytes()[:4] == b"%PDF"
+    assert out.read_bytes()[:5] == b"%PDF-"
+
+
+def test_e2e_pdf_a4_landscape(tmp_path):
+    out = tmp_path / "out.pdf"
+    r = run("-i", str(BASIC_MERMAID), "-o", str(out), "--pdf-format", "A4", "--landscape")
+    assert r.returncode == 0
+    assert out.read_bytes()[:5] == b"%PDF-"
 
 
 def test_e2e_stdin(tmp_path):
@@ -285,4 +280,19 @@ def test_e2e_output_message(tmp_path):
     r = run("-i", str(BASIC_MERMAID), "-o", str(out))
     assert r.returncode == 0
     assert "result.svg" in r.stderr
-    
+
+
+def test_e2e_config_file(tmp_path):
+    config_path = tmp_path / "config.json"
+    config_path.write_text(json.dumps({"theme": "forest"}))
+    r = run("-i", str(BASIC_MERMAID), "--config", str(config_path))
+    assert r.returncode == 0
+    assert r.stdout.lstrip().startswith("<svg")
+
+
+def test_e2e_css_file(tmp_path):
+    css_path = tmp_path / "style.css"
+    css_path.write_text(".node rect { fill: red; }")
+    r = run("-i", str(BASIC_MERMAID), "--css", str(css_path))
+    assert r.returncode == 0
+    assert r.stdout.lstrip().startswith("<svg")

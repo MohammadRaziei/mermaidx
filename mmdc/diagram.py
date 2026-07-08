@@ -101,6 +101,7 @@ class Diagram:
         self,
         width: Optional[float] = None,
         height: Optional[float] = None,
+        scale: Optional[float] = None,
         background: Optional[str] = None,
     ) -> bytes:
         """Return the diagram as PNG bytes.
@@ -108,6 +109,8 @@ class Diagram:
         Args:
             width:      Canvas width hint in pixels.
             height:     Canvas height hint in pixels.
+            scale:      Size multiplier, used only if width/height are both omitted
+                        (e.g. scale=2.0 for a "2x" render at the diagram's natural size).
             background: CSS color, e.g. ``"#ffffff"``. Transparent by default.
 
         Note:
@@ -115,23 +118,28 @@ class Diagram:
             If both width and height are given, width wins and height is
             derived from it -- this never stretches the diagram.
         """
-        return render_png(self._svg, background=background, width=width, height=height)
+        kwargs = dict(background=background, width=width, height=height)
+        if width is None and height is None and scale is not None:
+            kwargs["scale"] = scale
+        return render_png(self._svg, **kwargs)
 
     def raw(
         self,
         width: Optional[float] = None,
         height: Optional[float] = None,
+        scale: Optional[float] = None,
         background: Optional[str] = None,
     ) -> tuple[bytes, int, int]:
         """Return raw RGBA8888 pixels as ``(bytes, width, height)`` — no
         imaging library involved, just resvg's output decoded directly."""
-        png_bytes = self.png(width=width, height=height, background=background)
+        png_bytes = self.png(width=width, height=height, scale=scale, background=background)
         return decode_png_rgba(png_bytes)
 
     def numpy(
         self,
         width: Optional[float] = None,
         height: Optional[float] = None,
+        scale: Optional[float] = None,
         background: Optional[str] = None,
     ) -> "np.ndarray":
         """Return an ``(H, W, 4)`` uint8 RGBA array. Requires ``numpy``."""
@@ -142,12 +150,14 @@ class Diagram:
                 "numpy is required for .numpy(). Install it with:\n"
                 "    pip install numpy"
             ) from exc
-        raw, w, h = self.raw(width=width, height=height, background=background)
+        raw, w, h = self.raw(width=width, height=height, scale=scale, background=background)
         return np.frombuffer(raw, dtype=np.uint8).reshape(h, w, 4)
 
     def pdf(
         self,
         *,
+        width: Optional[float] = None,
+        height: Optional[float] = None,
         scale: float = 1.0,
         background: Optional[str] = None,
         pdf_format: Optional[str] = None,
@@ -159,13 +169,19 @@ class Diagram:
         writer embeds the resvg-rendered pixels directly).
 
         Args:
-            scale:         Resolution multiplier (only when pdf_format is None).
+            width, height: Canvas size in pixels (only when pdf_format is None --
+                            with a fixed pdf_format the paper size wins instead).
+            scale:         Resolution multiplier, used if width/height are omitted
+                           (only when pdf_format is None).
             background:    CSS color for the page background.
             pdf_format:    Paper format e.g. ``"A4"``, ``"Letter"``. None = fit to diagram.
             pdf_landscape: Landscape orientation.
             pdf_margin:    CSS-style margin e.g. ``"1cm"`` (only with pdf_format).
         """
-        png_bytes = render_png(self._svg, scale=scale, background=background)
+        render_kwargs = dict(background=background, width=width, height=height)
+        if width is None and height is None:
+            render_kwargs["scale"] = scale
+        png_bytes = render_png(self._svg, **render_kwargs)
         decoded = decode_png(png_bytes)
         return png_to_pdf(
             decoded, pdf_format=pdf_format, landscape=pdf_landscape,
@@ -181,6 +197,7 @@ class Diagram:
         output: str,
         width: Optional[float] = None,
         height: Optional[float] = None,
+        scale: Optional[float] = None,
         background: Optional[str] = None,
         **pdf_opts,
     ) -> None:
@@ -195,9 +212,12 @@ class Diagram:
         if suffix == ".svg":
             path.write_text(self.svg(), encoding="utf-8")
         elif suffix == ".png":
-            path.write_bytes(self.png(width=width, height=height, background=background))
+            path.write_bytes(self.png(width=width, height=height, scale=scale, background=background))
         elif suffix == ".pdf":
-            path.write_bytes(self.pdf(background=background, **pdf_opts))
+            path.write_bytes(self.pdf(
+                width=width, height=height, scale=scale or 1.0,
+                background=background, **pdf_opts,
+            ))
         else:
             raise ValueError(
                 f"Cannot infer output format from {output!r}. "
@@ -215,3 +235,41 @@ class Diagram:
     def _repr_svg_(self) -> str:
         """Jupyter/IPython rich display — renders inline SVG automatically."""
         return self._svg
+
+
+def render(source: str, backend: Optional[str] = None, **opts) -> "Diagram":
+    """
+    Render a Mermaid diagram.
+
+    Args:
+        source:  Mermaid source text.
+        backend: ``'js'`` (default — this package's own QuickJS + resvg
+                 engine, always available, zero extra dependencies) or, if
+                 the optional ``mmdr`` package is installed,
+                 ``'merman'`` / ``'mermaid-rs-renderer'``.
+        **opts:  Forwarded to the chosen backend.
+                 'js': theme, config, css
+                 mmdr backends: theme, node_spacing, rank_spacing, aspect_ratio
+
+    Returns:
+        A Diagram. SVG is rendered immediately; PNG/raw/numpy/PDF are
+        computed lazily from it on demand. When delegating to an ``mmdr``
+        backend, this returns *mmdr's own* Diagram object directly — its
+        API is identical by design, so no wrapping is needed.
+    """
+    if backend in (None, "js"):
+        return Diagram(source, **opts)
+
+    from .backends import backends
+
+    try:
+        import mmdr
+    except ImportError as exc:
+        raise ImportError(
+            f"backend={backend!r} requires the optional 'mmdr' package. "
+            "Install it with:\n    pip install mmdc[rust]"
+        ) from exc
+
+    if backend not in mmdr.backends():
+        raise ValueError(f"Unknown backend {backend!r}. Available: {backends()!r}")
+    return mmdr.render(source, backend=backend, **opts)

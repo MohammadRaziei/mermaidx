@@ -1,24 +1,25 @@
 """
 mmdc CLI — python -m mmdc
 
-Convert Mermaid diagrams to SVG, PNG, or PDF.
+Convert Mermaid diagrams to SVG, PNG, or PDF. Fully synchronous: rendering
+is CPU-bound (no browser process, no I/O to wait on), so there's no event
+loop here at all -- one less thing to start up.
 
 Examples:
     mmdc -i diagram.mermaid                    # SVG to stdout
     mmdc -i diagram.mermaid -o diagram.svg
-    mmdc -i diagram.mermaid -o diagram.png --scale 2.0
+    mmdc -i diagram.mermaid -o diagram.png -w 1200
     mmdc -i diagram.mermaid -o diagram.pdf --pdf-format A4
     cat diagram.mermaid | mmdc -i -
     mmdc --info
 """
 
 import argparse
-import asyncio
 import json
 import sys
 from pathlib import Path
 
-from mmdc import MermaidConverter
+from mmdc.diagram import Diagram
 
 
 def _get_version() -> str:
@@ -38,10 +39,11 @@ def _build_parser() -> argparse.ArgumentParser:
 examples:
   mmdc -i diagram.mermaid                         # SVG to stdout
   mmdc -i diagram.mermaid -o diagram.svg
+  mmdc -i diagram.mermaid -o diagram.png -w 1200
   mmdc -i diagram.mermaid -o diagram.png --scale 2.0
   mmdc -i diagram.mermaid -o diagram.pdf
   mmdc -i diagram.mermaid -o diagram.pdf --pdf-format A4 --landscape
-  mmdc -i diagram.mermaid -o diagram.svg --theme dark --background "#f5f5f5"
+  mmdc -i diagram.mermaid -o diagram.svg --theme dark
   cat diagram.mermaid | mmdc -i -
   mmdc --info
         """,
@@ -54,14 +56,18 @@ examples:
                         help="Input Mermaid file, or '-' to read from stdin")
     parser.add_argument("-o", "--output", default=None, metavar="FILE",
                         help="Output file (.svg/.png/.pdf). Omit to write SVG to stdout.")
-    parser.add_argument("-s", "--scale", type=float, default=1.0, metavar="N",
-                        help="Scale factor for PNG/PDF (default: 1.0)")
+    parser.add_argument("-w", "--width", type=float, default=None, metavar="N",
+                        help="Output width in pixels (PNG/PDF-fit)")
+    parser.add_argument("-H", "--height", type=float, default=None, metavar="N",
+                        help="Output height in pixels (PNG/PDF-fit)")
+    parser.add_argument("--scale", type=float, default=None, metavar="N",
+                        help="Size multiplier, used if -w/-H are omitted (e.g. 2.0)")
     parser.add_argument("-t", "--theme",
                         choices=["default", "forest", "dark", "neutral"],
                         default="default",
                         help="Mermaid theme (default: default)")
-    parser.add_argument("-b", "--background", default="white", metavar="COLOR",
-                        help="CSS background color (default: white)")
+    parser.add_argument("-b", "--background", default=None, metavar="COLOR",
+                        help="CSS background color (default: transparent)")
     parser.add_argument("-c", "--config", metavar="FILE",
                         help="JSON config file for Mermaid")
     parser.add_argument("--css", metavar="FILE",
@@ -76,38 +82,23 @@ examples:
     return parser
 
 
+def _read_source(input_arg: str) -> str:
+    if input_arg == "-":
+        return sys.stdin.read()
+    return Path(input_arg).read_text(encoding="utf-8")
 
-async def _run(args) -> None:
-    if args.input == "-":
-        source = sys.stdin.read()
-    else:
-        source = args.input
 
-    config = None
-    if args.config:
-        config = json.loads(Path(args.config).read_text(encoding="utf-8"))
+def _print_info() -> None:
+    import xml.etree.ElementTree as ET
 
-    css = None
-    if args.css:
-        css = Path(args.css).read_text(encoding="utf-8")
-
-    async with MermaidConverter(theme=args.theme, background=args.background) as m:
-        if args.output is None:
-            # no -o → render SVG and write to stdout
-            data = await m.to_svg(source, config=config, css=css)
-            sys.stdout.buffer.write(data)
-        else:
-            output = Path(args.output)
-            data = await m.convert(
-                source, output,
-                scale=args.scale,
-                config=config,
-                css=css,
-                pdf_format=args.pdf_format,
-                pdf_landscape=args.landscape,
-                pdf_margin=args.margin,
-            )
-            print(f"saved to {output}  ({len(data):,} bytes)", file=sys.stderr)
+    svg_str = Diagram("info").svg()
+    root = ET.fromstring(svg_str)
+    texts = [
+        el.text.strip()
+        for el in root.iter()
+        if el.tag.split("}")[-1] == "text" and el.text and el.text.strip()
+    ]
+    print(" ".join(texts))
 
 
 def main() -> None:
@@ -115,31 +106,34 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.info:
-        import xml.etree.ElementTree as ET
-
-        async def _info():
-            async with MermaidConverter() as m:
-                svg = await m.to_svg("info")
-            svg_str = svg.decode("utf-8") if isinstance(svg, bytes) else svg
-            root = ET.fromstring(svg_str)
-            # only <text> elements, skip <style> and <script>
-            ns = {"svg": "http://www.w3.org/2000/svg"}
-            texts = []
-            for el in root.iter():
-                tag = el.tag.split("}")[-1] if "}" in el.tag else el.tag
-                if tag == "text" and el.text and el.text.strip():
-                    texts.append(el.text.strip())
-            print(" ".join(texts))
-
-        asyncio.run(_info())
+        _print_info()
         return
 
     if not args.input:
         parser.error("the following arguments are required: -i/--input")
 
-    asyncio.run(_run(args))
+    source = _read_source(args.input)
+    config = json.loads(Path(args.config).read_text(encoding="utf-8")) if args.config else None
+    css = Path(args.css).read_text(encoding="utf-8") if args.css else None
+
+    d = Diagram(source, theme=args.theme, config=config, css=css)
+
+    if args.output is None:
+        sys.stdout.buffer.write(d.svg().encode("utf-8"))
+        return
+
+    output = Path(args.output)
+    raster_kwargs = dict(width=args.width, height=args.height, scale=args.scale, background=args.background)
+    suffix = output.suffix.lower()
+
+    if suffix == ".pdf":
+        d.save(str(output), **raster_kwargs, pdf_format=args.pdf_format,
+               pdf_landscape=args.landscape, pdf_margin=args.margin)
+    else:
+        d.save(str(output), **raster_kwargs)
+
+    print(f"saved to {output}  ({output.stat().st_size:,} bytes)", file=sys.stderr)
 
 
 if __name__ == "__main__":
     main()
-    
