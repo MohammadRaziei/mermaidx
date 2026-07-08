@@ -68,7 +68,7 @@ def _require_mermaid_ink():
     """Skip the whole module if mermaid.ink isn't reachable from here."""
     try:
         _fetch("https://mermaid.ink/svg/" + _mermaid_ink_b64("graph LR\nA-->B"))
-    except (urllib.error.URLError, socket.timeout, ConnectionError) as e:
+    except (urllib.error.URLError, urllib.error.HTTPError, socket.timeout, ConnectionError) as e:
         pytest.skip(f"mermaid.ink not reachable: {e}")
 
 
