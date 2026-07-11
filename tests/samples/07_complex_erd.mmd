@@ -1,0 +1,20 @@
+erDiagram
+    USER ||--o{ DIAGRAM : owns
+    DIAGRAM ||--|{ RENDER_LOG : generates
+    USER {
+        int id PK
+        string username
+        string email
+    }
+    DIAGRAM {
+        int id PK
+        int user_id FK
+        string raw_code
+        string current_version
+    }
+    RENDER_LOG {
+        int id PK
+        int diagram_id FK
+        string format
+        datetime rendered_at
+    }

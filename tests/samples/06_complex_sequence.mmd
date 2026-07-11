@@ -1,0 +1,12 @@
+sequenceDiagram
+    autonumber
+    loop Every Second
+        App->>Engine: Check Status
+    end
+    alt Engine is Free
+        App->>Engine: Send Job
+        Engine-->>App: Job Accepted
+    else Engine is Busy
+        Engine-->>App: Queue Full Error
+    end
+    
