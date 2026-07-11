@@ -56,6 +56,21 @@ cat diagram.mermaid | mermaidx -i - -o diagram.pdf
 
 ---
 
+## Jupyter
+
+A `Diagram` displays automatically as the last expression in a cell — no extra code needed, the same way a DataFrame or a matplotlib figure does:
+
+```python
+import mermaidx
+mermaidx.render("flowchart LR; A-->B-->C")   # just shows up
+```
+
+`.show()` displays it explicitly (e.g. inside a loop) — it always shows exactly what `.svg()` returns, so what you see is this package's own render output, not a separate re-render through some other engine.
+
+See [`examples/jupyter_demo.ipynb`](examples/jupyter_demo.ipynb) for a full walkthrough: display, PNG/PDF/ASCII export, themes, and batch rendering.
+
+---
+
 ## How It Works
 
 ```mermaid

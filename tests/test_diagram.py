@@ -146,6 +146,29 @@ def test_repr_svg_for_jupyter():
     assert d._repr_svg_() == d.svg()
 
 
+def test_show_does_not_raise():
+    pytest.importorskip("IPython")
+    d = mermaidx.render(FLOWCHART)
+    d.show()  # just needs to not raise; actual display is a no-op outside a kernel
+
+
+def test_show_without_ipython_raises_clear_error(monkeypatch):
+    import sys
+    monkeypatch.setitem(sys.modules, "IPython", None)
+    monkeypatch.setitem(sys.modules, "IPython.display", None)
+    d = mermaidx.render(FLOWCHART)
+    with pytest.raises(ImportError, match="pip install ipython"):
+        d.show()
+
+
+def test_show_is_backend_agnostic():
+    """show()/_repr_svg_() live entirely on DiagramBase and just display
+    self.svg() -- they don't care which backend produced it."""
+    pytest.importorskip("IPython")
+    d = mermaidx.render(FLOWCHART, backend="js")
+    d.show()  # exercises the same DiagramBase.show() a DiagramRust instance would use
+
+
 def test_repr():
     d = mermaidx.render(FLOWCHART)
     assert "backend='js'" in repr(d)

@@ -332,6 +332,31 @@ class DiagramBase:
             )
 
     # ------------------------------------------------------------------
+    # Jupyter / IPython display
+    # ------------------------------------------------------------------
+
+    def show(self) -> None:
+        """Display the diagram in a Jupyter/IPython cell (like `plt.show()`).
+
+        Typing a Diagram as a cell's last expression already displays it
+        automatically (via `_repr_svg_`) -- `.show()` is for when you want
+        to display it explicitly instead (e.g. inside a loop).
+
+        Displays exactly what `.svg()` returns -- whichever backend
+        produced it -- so what you see is always the actual output of this
+        package's own render pipeline, not a separate re-render through
+        some other engine.
+        """
+        try:
+            from IPython.display import SVG, display
+        except ImportError as exc:
+            raise ImportError(
+                "show() needs IPython (you're not in a Jupyter/IPython session?). "
+                "Install it with:\n    pip install ipython"
+            ) from exc
+        display(SVG(self.svg()))
+
+    # ------------------------------------------------------------------
     # Dunder helpers
     # ------------------------------------------------------------------
 
