@@ -116,3 +116,82 @@ def test_sample_png_and_pdf_also_work(name):
     d = mermaidx.render(source)
     assert d.png()[:8] == b"\x89PNG\r\n\x1a\n"
     assert d.pdf()[:5] == b"%PDF-"
+
+
+# --- Geometry/framing checks -------------------------------------------
+#
+# Everything above is structural (label words, viewBox aspect ratio) and,
+# as it turned out, completely blind to a whole class of real bugs: a
+# node's shape painting over its own label (z-order), getBBox() silently
+# returning zero for a shape so the layout engine placed nodes overlapping
+# each other, and diagram content actually clipped by too-tight a viewBox.
+# All of those rendered a structurally-valid SVG with the right words in
+# it and passed every test above anyway. These render to actual pixels and
+# check the geometry a person would notice at a glance.
+
+# Small opaque margin so the check isn't defeated by 1px antialiasing
+# fuzz at the very edge of a shape.
+_EDGE_TOUCH_TOLERANCE_PX = 2
+
+
+def _nonwhite_mask(rgba):
+    """True where a pixel is neither white nor fully transparent."""
+    import numpy as np
+
+    opaque = rgba[:, :, 3] > 0
+    nonwhite = np.any(rgba[:, :, :3] != 255, axis=2)
+    return opaque & nonwhite
+
+
+@pytest.mark.parametrize("name", [n for n in SAMPLE_NAMES if n not in KNOWN_UNSUPPORTED])
+def test_sample_content_not_clipped_by_canvas(name):
+    """Rendered content must not touch the PNG's own edge. If it does, the
+    viewBox mermaid computed was too tight and part of the diagram (a
+    label, an edge, a node) is being cut off -- exactly what happened when
+    getBBox() ignored child transforms / didn't understand <polygon>."""
+    pytest.importorskip("numpy")
+    source = (SAMPLES_DIR / f"{name}.mmd").read_text(encoding="utf-8")
+    arr = mermaidx.render(source).numpy()
+    mask = _nonwhite_mask(arr)
+    rows = mask.any(axis=1)
+    cols = mask.any(axis=0)
+    assert rows.any() and cols.any(), f"{name}: rendered PNG is blank"
+    y0, y1 = rows.argmax(), len(rows) - 1 - rows[::-1].argmax()
+    x0, x1 = cols.argmax(), len(cols) - 1 - cols[::-1].argmax()
+    h, w = mask.shape
+    assert y0 >= _EDGE_TOUCH_TOLERANCE_PX, f"{name}: content clipped at top edge"
+    assert x0 >= _EDGE_TOUCH_TOLERANCE_PX, f"{name}: content clipped at left edge"
+    assert y1 <= h - 1 - _EDGE_TOUCH_TOLERANCE_PX, f"{name}: content clipped at bottom edge"
+    assert x1 <= w - 1 - _EDGE_TOUCH_TOLERANCE_PX, f"{name}: content clipped at right edge"
+
+
+@pytest.mark.parametrize("name", [n for n in SAMPLE_NAMES if n not in KNOWN_UNSUPPORTED])
+def test_sample_node_shapes_drawn_before_labels(name):
+    """A node's own shape (rect/polygon/circle/...) must come before its
+    label in document order, so the label paints on top and stays
+    readable -- not the other way around, which silently hides every
+    node's text behind its own opaque fill (the very first bug in this
+    file's history) while every word-content test above kept passing."""
+    source = (SAMPLES_DIR / f"{name}.mmd").read_text(encoding="utf-8")
+    svg = mermaidx.render(source).svg()
+    root = ET.fromstring(svg)
+    ns_strip = lambda tag: tag.split("}")[-1]
+    shape_tags = {"rect", "polygon", "circle", "ellipse", "path"}
+    offenders = []
+    for node in root.iter():
+        if "node" not in (node.get("class") or "").split():
+            continue
+        children = list(node)
+        label_idx = next(
+            (i for i, c in enumerate(children) if "label" in (c.get("class") or "").split()),
+            None,
+        )
+        if label_idx is None:
+            continue
+        shape_idx = next(
+            (i for i, c in enumerate(children) if ns_strip(c.tag) in shape_tags),
+            None,
+        )
+        if shape_idx is not None and shape_idx > label_idx:
+            offenders.append(node.get("id"))
+    assert not offenders, f"{name}: node shape painted after (on top of) its label: {offenders}"

@@ -300,12 +300,52 @@ function __resolveTextAnchor(el) {
   return "start";
 }
 
+// Parses an SVG <length>, honoring a trailing "em" (relative to the given
+// font-size) since mermaid's own tspans position themselves with e.g.
+// y="-0.1em" dy="1.1em" rather than plain user-unit numbers.
+function __parseLen(str, fontSize) {
+  if (str === null || str === undefined) return null;
+  const m = /^\s*(-?[\d.]+(?:[eE][-+]?\d+)?)\s*(em)?\s*$/.exec(str);
+  if (!m) return null;
+  const v = parseFloat(m[1]);
+  return m[2] === "em" ? v * fontSize : v;
+}
+
+// Finds the effective x/y that will actually be used to paint this text
+// element. mermaid always writes its "real" position (y="-0.1em"
+// dy="1.1em", x="0") on the single positioning tspan wrapping the actual
+// runs, and puts a vestigial, unrelated y (plain user units, no dy) on the
+// outer <text> that gets overridden the moment that tspan is reached.
+// Reading the outer element's own y/x directly (as if it were the one SVG
+// actually uses) silently disagreed with resvg's real paint position by
+// exactly that difference -- which is what put backgrounds and text out of
+// alignment. This walks down through single-child chains to find the
+// element that really carries the position, honoring dy accumulation.
+function __resolveTextPos(el, fontSize) {
+  let n = el, x = 0, y = 0;
+  while (n) {
+    const xAttr = n.getAttribute && n.getAttribute("x");
+    const yAttr = n.getAttribute && n.getAttribute("y");
+    const dxAttr = n.getAttribute && n.getAttribute("dx");
+    const dyAttr = n.getAttribute && n.getAttribute("dy");
+    if (xAttr !== null) { const v = __parseLen(xAttr, fontSize); if (v !== null) x = v; }
+    if (yAttr !== null) { const v = __parseLen(yAttr, fontSize); if (v !== null) y = v; }
+    if (dxAttr !== null) { const v = __parseLen(dxAttr, fontSize); if (v !== null) x += v; }
+    if (dyAttr !== null) { const v = __parseLen(dyAttr, fontSize); if (v !== null) y += v; }
+    const kids = n.childNodes ? n.childNodes.filter(c => c.nodeType === 1) : [];
+    if (kids.length !== 1) break;
+    n = kids[0];
+  }
+  return { x, y };
+}
+
 function __computeBBox(el) {
   if (el.tagName === "text" || el.tagName === "tspan") {
     const font = __resolveFont(el);
     const m = globalThis.__measureTextFull(el.textContent, font.size, font.family, font.weight, font.style);
-    let x = parseFloat(el.getAttribute("x")) || 0;
-    const y = parseFloat(el.getAttribute("y")) || 0;
+    const pos = __resolveTextPos(el, font.size);
+    let x = pos.x;
+    const y = pos.y;
     const anchor = __resolveTextAnchor(el);
     if (anchor === "middle") x -= m.width / 2;
     else if (anchor === "end") x -= m.width;
