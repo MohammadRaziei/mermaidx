@@ -32,11 +32,103 @@ globalThis.console = {
   };
 })();
 
+// Minimal CSSStyleSheet -- mermaid >=11.13ish builds its base CSS via the
+// real CSSOM constructor (`new CSSStyleSheet()` + insertRule/replaceSync)
+// instead of plain string concatenation. Only the two methods mermaid
+// actually calls, plus the `.cssRules` / `.cssText` shape its own
+// `cssStyleSheetToString()` reads back out, are implemented here.
+class CSSStyleSheet {
+  constructor() { this.cssRules = []; }
+  insertRule(ruleText, index) {
+    const i = index === undefined ? this.cssRules.length : index;
+    this.cssRules.splice(i, 0, { cssText: ruleText });
+    return i;
+  }
+  replaceSync(text) { this.cssRules = [{ cssText: text }]; }
+}
+globalThis.CSSStyleSheet = CSSStyleSheet;
+
 // Minimal crypto.getRandomValues polyfill -- QuickJS has no Web Crypto API
 // at all, but mermaid bundles the `uuid` library (used for mindmap node IDs,
 // among other things) which requires it to exist. Mermaid only needs these
 // IDs to be unique within one render, not cryptographically secure, so
 // Math.random() is a perfectly fine source here.
+// Minimal TextEncoder/TextDecoder -- QuickJS has neither. mermaid 11.15's
+// preprocessing (toBase64, used for diagram frontmatter handling) and a
+// transitively-bundled dependency both call `new TextEncoder()`/
+// `new TextDecoder()` directly, so a ReferenceError here aborts every
+// render, not just the "info" diagram that happened to surface it first.
+class TextEncoder {
+  encode(str) {
+    str = str ?? "";
+    const bytes = [];
+    for (let i = 0; i < str.length; i++) {
+      let code = str.codePointAt(i);
+      if (code > 0xffff) i++; // consumed a surrogate pair
+      if (code < 0x80) bytes.push(code);
+      else if (code < 0x800) bytes.push(0xc0 | (code >> 6), 0x80 | (code & 0x3f));
+      else if (code < 0x10000) bytes.push(0xe0 | (code >> 12), 0x80 | ((code >> 6) & 0x3f), 0x80 | (code & 0x3f));
+      else bytes.push(0xf0 | (code >> 18), 0x80 | ((code >> 12) & 0x3f), 0x80 | ((code >> 6) & 0x3f), 0x80 | (code & 0x3f));
+    }
+    return new Uint8Array(bytes);
+  }
+}
+class TextDecoder {
+  constructor(encoding) { this.encoding = (encoding || "utf-8").toLowerCase(); }
+  decode(input) {
+    if (!input) return "";
+    const arr = input instanceof Uint8Array ? input : new Uint8Array(input);
+    if (this.encoding === "ascii" || this.encoding === "latin1") {
+      let s = "";
+      for (let i = 0; i < arr.length; i++) s += String.fromCharCode(arr[i]);
+      return s;
+    }
+    let s = "", i = 0;
+    while (i < arr.length) {
+      const b0 = arr[i++];
+      if (b0 < 0x80) { s += String.fromCharCode(b0); continue; }
+      let n, cp;
+      if ((b0 & 0xe0) === 0xc0) { n = 1; cp = b0 & 0x1f; }
+      else if ((b0 & 0xf0) === 0xe0) { n = 2; cp = b0 & 0x0f; }
+      else if ((b0 & 0xf8) === 0xf0) { n = 3; cp = b0 & 0x07; }
+      else { s += "\ufffd"; continue; }
+      for (let k = 0; k < n; k++) cp = (cp << 6) | (arr[i++] & 0x3f);
+      s += String.fromCodePoint(cp);
+    }
+    return s;
+  }
+}
+globalThis.TextEncoder = TextEncoder;
+globalThis.TextDecoder = TextDecoder;
+
+const __B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+globalThis.btoa = function (str) {
+  str = String(str);
+  let out = "";
+  for (let i = 0; i < str.length; i += 3) {
+    const c0 = str.charCodeAt(i) & 0xff;
+    const has1 = i + 1 < str.length, has2 = i + 2 < str.length;
+    const c1 = has1 ? str.charCodeAt(i + 1) & 0xff : 0;
+    const c2 = has2 ? str.charCodeAt(i + 2) & 0xff : 0;
+    out += __B64[c0 >> 2];
+    out += __B64[((c0 & 3) << 4) | (c1 >> 4)];
+    out += has1 ? __B64[((c1 & 15) << 2) | (c2 >> 6)] : "=";
+    out += has2 ? __B64[c2 & 63] : "=";
+  }
+  return out;
+};
+globalThis.atob = function (str) {
+  str = String(str).replace(/=+$/, "");
+  let out = "";
+  let bits = 0, value = 0;
+  for (let i = 0; i < str.length; i++) {
+    value = (value << 6) | __B64.indexOf(str[i]);
+    bits += 6;
+    if (bits >= 8) { bits -= 8; out += String.fromCharCode((value >> bits) & 0xff); }
+  }
+  return out;
+};
+
 globalThis.crypto = {
   getRandomValues(typedArray) {
     const max = Math.pow(2, 8 * typedArray.BYTES_PER_ELEMENT);
@@ -254,13 +346,26 @@ function __matchesSimple(el, sel) {
   return true;
 }
 function __matchesCompound(el, part) {
-  const re = /(#[\w-]+|\.[\w-]+|\[[^\]]+\]|[\w-]+|\*)/g;
+  const re = /(#[\w-]+|\.[\w-]+|\[[^\]]+\]|:[\w-]+|[\w-]+|\*)/g;
   let m;
   while ((m = re.exec(part))) {
     const t = m[0];
     if (t === "*") continue;
     if (t[0] === "#") { if (el.getAttribute("id") !== t.slice(1)) return false; }
     else if (t[0] === ".") { if (!el.classList.contains(t.slice(1))) return false; }
+    else if (t[0] === ":") {
+      // Pseudo-classes. Only the ones mermaid/d3 actually rely on (mainly
+      // ':first-child', used by `.insert(tag, ':first-child')` to place a
+      // shape's background behind an already-created label) are handled;
+      // an unrecognized pseudo-class fails the match rather than silently
+      // matching everything, matching real querySelector semantics.
+      const siblings = el.parentNode
+        ? el.parentNode.childNodes.filter((c) => c.nodeType === 1)
+        : [];
+      if (t === ":first-child") { if (siblings[0] !== el) return false; }
+      else if (t === ":last-child") { if (siblings[siblings.length - 1] !== el) return false; }
+      else { return false; }
+    }
     else if (t[0] === "[") {
       const am = /\[([\w-]+)(?:([~^$*|]?=)"?([^"\]]*)"?)?\]/.exec(t);
       if (am) {
