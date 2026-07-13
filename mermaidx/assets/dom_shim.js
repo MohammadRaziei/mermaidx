@@ -286,15 +286,76 @@ function __resolveFont(el) {
   return { size, family, weight, style };
 }
 
+let __cssRulesCache = null;
+let __cssRulesCacheText = null;
+
+// Best-effort parse of the single <style> block mermaid writes into the
+// document: split on top-level `selector { decl; decl; ... }` blocks.
+// @keyframes bodies produce a few harmless bogus "rules" (selectors like
+// "from"/"to" that never match a real SVG element) since this doesn't
+// track nesting, which is fine for our purposes -- this only needs to
+// answer "what does the stylesheet say for this element", not fully
+// parse CSS.
+function __getCssRules() {
+  const doc = globalThis.__document;
+  const styleEl = doc && doc.querySelector ? doc.querySelector("style") : null;
+  const text = styleEl ? styleEl.textContent : "";
+  // The shim's Document is created once and reused for the engine's whole
+  // lifetime (only rebuilt per render), so caching by document identity
+  // would silently keep serving a previous render's rules forever -- key
+  // on the actual stylesheet text, which does change each render.
+  if (__cssRulesCacheText === text && __cssRulesCache) return __cssRulesCache;
+  const rules = [];
+  const re = /([^{}]+)\{([^{}]*)\}/g;
+  let m;
+  while ((m = re.exec(text || ""))) {
+    const selectors = m[1].trim();
+    if (!selectors || selectors[0] === "@") continue;
+    const decls = {};
+    for (const part of m[2].split(";")) {
+      const idx = part.indexOf(":");
+      if (idx === -1) continue;
+      const prop = part.slice(0, idx).trim();
+      const val = part.slice(idx + 1).trim();
+      if (prop) decls[prop] = val;
+    }
+    rules.push({ selectors, decls });
+  }
+  __cssRulesCache = rules;
+  __cssRulesCacheText = text;
+  return rules;
+}
+
+// Last matching rule wins -- an approximation of the cascade (source
+// order, no specificity weighing) that's good enough for mermaid's own
+// generated stylesheet, which doesn't lean on specificity tricks.
+function __resolveCssProp(el, prop) {
+  let value = null;
+  for (const rule of __getCssRules()) {
+    if (prop in rule.decls && __matches(el, rule.selectors)) value = rule.decls[prop];
+  }
+  return value;
+}
+
 function __resolveTextAnchor(el) {
   let n = el;
   while (n && n.nodeType === 1) {
-    if (n.hasAttribute && n.hasAttribute("text-anchor")) return n.getAttribute("text-anchor");
     const s = n.style;
     if (s && s.cssText) {
       const ta = /text-anchor:\s*([a-z]+)/.exec(s.cssText);
       if (ta) return ta[1];
     }
+    n = n.parentNode;
+  }
+  // External stylesheet rules (e.g. mermaid's own
+  // "#gd1 .node .label text{text-anchor:middle}") outrank a plain
+  // text-anchor="..." presentation attribute in real CSS, so they're
+  // checked before falling back to that attribute below.
+  const css = __resolveCssProp(el, "text-anchor");
+  if (css) return css.trim();
+  n = el;
+  while (n && n.nodeType === 1) {
+    if (n.hasAttribute && n.hasAttribute("text-anchor")) return n.getAttribute("text-anchor");
     n = n.parentNode;
   }
   return "start";
@@ -439,9 +500,22 @@ function __matchesSimple(el, sel) {
   return true;
 }
 function __matchesCompound(el, part) {
+  // :not(...) wraps its own compound selector (itself possibly a
+  // pseudo-class, as in mermaid's own "g:not(:first-child)") that the
+  // flat tokenizer below can't parse through parens -- pull each
+  // :not(...) clause out and evaluate it recursively first, then
+  // tokenize whatever's left as an ordinary compound selector.
+  const notRe = /:not\(([^()]*)\)/g;
+  const notClauses = [];
+  let notMatch;
+  while ((notMatch = notRe.exec(part))) notClauses.push(notMatch[1]);
+  for (const inner of notClauses) {
+    if (__matchesCompound(el, inner)) return false;
+  }
+  const rest = part.replace(notRe, "");
   const re = /(#[\w-]+|\.[\w-]+|\[[^\]]+\]|:[\w-]+|[\w-]+|\*)/g;
   let m;
-  while ((m = re.exec(part))) {
+  while ((m = re.exec(rest))) {
     const t = m[0];
     if (t === "*") continue;
     if (t[0] === "#") { if (el.getAttribute("id") !== t.slice(1)) return false; }

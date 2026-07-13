@@ -195,3 +195,118 @@ def test_sample_node_shapes_drawn_before_labels(name):
         if shape_idx is not None and shape_idx > label_idx:
             offenders.append(node.get("id"))
     assert not offenders, f"{name}: node shape painted after (on top of) its label: {offenders}"
+
+
+def _translate_of(el) -> tuple[float, float]:
+    m = re.search(r"translate\(\s*(-?[\d.]+)(?:[,\s]+(-?[\d.]+))?\s*\)", el.get("transform") or "")
+    if not m:
+        return 0.0, 0.0
+    return float(m.group(1)), float(m.group(2) or 0)
+
+
+def _shape_local_bbox(el, ns_strip):
+    """Local (pre-transform) bbox of a shape element, reusing the same
+    parser already validated for mermaidx's own bbox computation."""
+    from mermaidx.engine import _path_bbox
+
+    tag = ns_strip(el.tag)
+    if tag == "rect":
+        x, y = float(el.get("x", 0)), float(el.get("y", 0))
+        w, h = float(el.get("width", 0)), float(el.get("height", 0))
+        return x, y, x + w, y + h
+    if tag == "circle":
+        cx, cy, r = float(el.get("cx", 0)), float(el.get("cy", 0)), float(el.get("r", 0))
+        return cx - r, cy - r, cx + r, cy + r
+    if tag == "ellipse":
+        cx, cy = float(el.get("cx", 0)), float(el.get("cy", 0))
+        rx, ry = float(el.get("rx", 0)), float(el.get("ry", 0))
+        return cx - rx, cy - ry, cx + rx, cy + ry
+    if tag == "polygon" or tag == "polyline":
+        nums = [float(n) for n in re.split(r"[\s,]+", (el.get("points") or "").strip()) if n]
+        xs, ys = nums[0::2], nums[1::2]
+        if not xs:
+            return None
+        return min(xs), min(ys), max(xs), max(ys)
+    if tag == "path":
+        b = _path_bbox(el.get("d") or "")
+        if b["width"] == 0 and b["height"] == 0:
+            return None
+        return b["x"], b["y"], b["x"] + b["width"], b["y"] + b["height"]
+    return None
+
+
+@pytest.mark.parametrize("name", [n for n in SAMPLE_NAMES if n not in KNOWN_UNSUPPORTED])
+def test_sample_labels_inside_their_own_shape(name):
+    """A node's label must sit within (a padded version of) that node's
+    own shape -- not off to the side of it. Shapes with a manually
+    computed label transform (the cylinder is the one that actually hit
+    this) depend on getBBox()/text-anchor being resolved correctly; get
+    either wrong and the label drifts outside the shape it's meant to
+    label while everything still parses as valid, word-complete SVG."""
+    source = (SAMPLES_DIR / f"{name}.mmd").read_text(encoding="utf-8")
+    svg = mermaidx.render(source).svg()
+    root = ET.fromstring(svg)
+    ns_strip = lambda tag: tag.split("}")[-1]
+    shape_tags = {"rect", "polygon", "circle", "ellipse", "path"}
+
+    offenders = []
+    for node in root.iter():
+        if "node" not in (node.get("class") or "").split():
+            continue
+        children = list(node)
+        shape = next((c for c in children if ns_strip(c.tag) in shape_tags), None)
+        label = next(
+            (c for c in children if "label" in (c.get("class") or "").split()), None
+        )
+        if shape is None or label is None:
+            continue
+        bbox = _shape_local_bbox(shape, ns_strip)
+        if bbox is None:
+            continue
+        sx, sy = _translate_of(shape)
+        x0, y0, x1, y1 = bbox[0] + sx, bbox[1] + sy, bbox[2] + sx, bbox[3] + sy
+        lx, ly = _translate_of(label)
+        cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+        # Generous relative to shape size, but centered on the shape's
+        # actual center -- not just "somewhere inside the (padded) bbox",
+        # which a label shifted most of the way to one side can still
+        # satisfy for a wide shape like a cylinder.
+        tol_x = 0.35 * max(x1 - x0, 1)
+        tol_y = 0.35 * max(y1 - y0, 1)
+        if abs(lx - cx) > tol_x or abs(ly - cy) > tol_y:
+            offenders.append((node.get("id"), (lx, ly), "center", (cx, cy)))
+    assert not offenders, f"{name}: label positioned outside its own node shape: {offenders}"
+
+
+@pytest.mark.parametrize("name", [n for n in SAMPLE_NAMES if n not in KNOWN_UNSUPPORTED])
+def test_sample_sibling_labels_not_stacked(name):
+    """Sibling label groups with different text (e.g. an ER-diagram row's
+    type/name/keys/comment columns) must not share the exact same
+    transform -- that means whatever was supposed to shift them apart
+    (mermaid's own "g:not(:first-child)" column-repositioning selector,
+    in the ER case) silently never ran, and every column in the row
+    prints on top of the others."""
+    source = (SAMPLES_DIR / f"{name}.mmd").read_text(encoding="utf-8")
+    svg = mermaidx.render(source).svg()
+    root = ET.fromstring(svg)
+    ns_strip = lambda tag: tag.split("}")[-1]
+
+    def label_text(g):
+        return "".join(t.strip() for t in g.itertext() if t.strip())
+
+    offenders = []
+    for parent in root.iter():
+        seen = {}
+        for child in parent:
+            if ns_strip(child.tag) != "g" or "label" not in (child.get("class") or "").split():
+                continue
+            text = label_text(child)
+            transform = child.get("transform") or ""
+            if not text:
+                continue
+            key = transform
+            if key in seen and seen[key] != text:
+                offenders.append((seen[key], text, transform))
+            else:
+                seen[key] = text
+    assert not offenders, f"{name}: sibling labels sharing one position: {offenders}"
