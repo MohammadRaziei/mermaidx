@@ -359,7 +359,23 @@ class Engine:
         svg = ctx.eval("globalThis.__renderResult")
         if not svg:
             raise MermaidRenderError("mermaid.render() produced no output (unknown error)")
-        return str(svg)
+        svg = str(svg)
+        # mermaid's own mindmap CSS defines centering via a
+        # ".mindmap-node-label{text-anchor:middle;...}" rule, but (only in
+        # the native-SVG-text mode this engine requires -- resvg can't
+        # render the foreignObject+HTML labels mermaid uses by default)
+        # never actually attaches that class to any element, so the rule
+        # is dead and labels render left-anchored instead of centered.
+        # Patched in directly since we can't change mermaid.js's own
+        # class-assignment logic; scoped to mindmap nodes only.
+        if "<style" in svg and "section-root" in svg:
+            svg = re.sub(
+                r"(<style[^>]*>)",
+                r"\1.section-root .label text{text-anchor:middle;}",
+                svg,
+                count=1,
+            )
+        return svg
 
     # -- public, thread-safe entry point ---------------------------------------
 
