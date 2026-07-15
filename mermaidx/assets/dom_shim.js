@@ -499,17 +499,54 @@ function __resolveTextPos(el, fontSize) {
   return { x, y };
 }
 
+// Collect the per-line tspans of a multi-line label. mermaid wraps each visual
+// line in a `<tspan class="text-outer-tspan row" ...>` (the words within are
+// `text-inner-tspan`), one such row per line and positioned with dy="1.1em".
+// A single-line label has exactly one row, so callers treat >1 rows as multi-line.
+function __rowTspans(el) {
+  const rows = [];
+  const walk = (n) => {
+    for (const c of (n.childNodes || [])) {
+      if (c.nodeType !== 1) continue;
+      const cls = (c.getAttribute && c.getAttribute("class")) || "";
+      if (/(^|\s)(row|text-outer-tspan)(\s|$)/.test(cls)) rows.push(c);
+      else walk(c);
+    }
+  };
+  walk(el);
+  return rows;
+}
+
 function __computeBBox(el) {
   if (el.tagName === "text" || el.tagName === "tspan") {
     const font = __resolveFont(el);
     const m = globalThis.__measureTextFull(el.textContent, font.size, font.family, font.weight, font.style);
     const pos = __resolveTextPos(el, font.size);
-    let x = pos.x;
-    const y = pos.y;
     const anchor = __resolveTextAnchor(el);
+
+    // Multi-line: measuring the whole textContent as one line (below) under-reports the
+    // height, so mermaid sizes the node for a single line and lines 2+ overflow the box.
+    // Width = the widest line; height = one line box + (n-1) line steps (dy="1.1em").
+    const rows = __rowTspans(el);
+    if (rows.length > 1) {
+      let maxW = 0;
+      for (const r of rows) {
+        const rm = globalThis.__measureTextFull(
+          r.textContent, font.size, font.family, font.weight, font.style);
+        if (rm.width > maxW) maxW = rm.width;
+      }
+      const height = m.ascent + m.descent + (rows.length - 1) * 1.1 * font.size;
+      let lx = pos.x;
+      if (anchor === "middle") lx -= maxW / 2;
+      else if (anchor === "end") lx -= maxW;
+      const top = pos.y - m.ascent;
+      return { x: lx, y: top, width: maxW, height, top, left: lx, right: lx + maxW, bottom: top + height };
+    }
+
+    let x = pos.x;
     if (anchor === "middle") x -= m.width / 2;
     else if (anchor === "end") x -= m.width;
-    return { x, y: y - m.ascent, width: m.width, height: m.ascent + m.descent };
+    return { x, y: pos.y - m.ascent, width: m.width, height: m.ascent + m.descent };
   }
   if (el.tagName === "rect") {
     return { x: parseFloat(el.getAttribute("x"))||0, y: parseFloat(el.getAttribute("y"))||0,

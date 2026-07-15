@@ -229,3 +229,25 @@ def test_svg_to_raw_standalone_utility():
     raw, w, h = mermaidx.svg_to_raw(svg)
     assert (w, h) == (40, 40)
     assert len(raw) == 40 * 40 * 4
+
+
+def _first_node_box_height(svg: str) -> float:
+    import re
+    return float(re.findall(r'label-container[^>]*height="([0-9.]+)"', svg)[0])
+
+
+def test_multiline_node_label_grows_box_height():
+    """A node label with <br> line breaks must produce a taller box than a
+    single-line label. Regression: the headless bbox shim measured the whole
+    <text> as one line, so multi-line boxes stayed single-line height and
+    lines after the first overflowed the box border (issue #8)."""
+    h1 = _first_node_box_height(
+        mermaidx.render("stateDiagram-v2\n s1: One line\n [*] --> s1").svg())
+    h2 = _first_node_box_height(
+        mermaidx.render("stateDiagram-v2\n s1: Line one<br>line two\n [*] --> s1").svg())
+    h3 = _first_node_box_height(
+        mermaidx.render("stateDiagram-v2\n s1: a<br>b<br>c\n [*] --> s1").svg())
+    assert h2 > h1, "2-line box should be taller than 1-line"
+    assert h3 > h2, "3-line box should be taller than 2-line"
+    # Each extra line adds roughly one line-step (dy=1.1em) — evenly spaced.
+    assert (h2 - h1) == pytest.approx(h3 - h2, rel=0.2)
