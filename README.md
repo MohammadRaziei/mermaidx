@@ -44,6 +44,8 @@ The official Mermaid CLI (`@mermaid-js/mermaid-cli`) works by spinning up a real
 
 ## Quick Start
 
+[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/mohammadraziei/mermaidx/blob/master/examples/jupyter_demo.ipynb)
+
 ```python
 import mermaidx
 
