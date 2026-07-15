@@ -8,11 +8,15 @@ exercised: stadium-shaped nodes and stateDiagram start/end circles crashed
 outright (missing `RegExp.$1` legacy static properties -- QuickJS-ng doesn't
 implement them, but a roughjs-derived path parser bundled in mermaid.js
 relies on them; and missing `Element.children`/`.matches()` in the DOM
-shim), and mindmap needs `crypto.getRandomValues` (now polyfilled) plus a
-full Canvas 2D context (not yet implemented -- see the xfail below).
+shim), and mindmap needed a Canvas 2D shim, several missing DOM methods,
+and an async-timer fix (see dom_shim.js/engine.py) before it would render
+at all.
 
-Comparison is structural (label words + aspect ratio), not pixel-diffing --
-two different rendering engines are never going to match pixel-for-pixel.
+Comparison is structural (label words + aspect ratio) for the reference-svg
+checks, but several checks below render to real pixels and inspect them
+directly -- some bugs (CSS-cascade-only positioning issues) are invisible
+in the SVG's own attribute values and only show up once something actually
+paints the markup.
 """
 
 from __future__ import annotations
@@ -279,6 +283,80 @@ def test_sample_labels_inside_their_own_shape(name):
         if abs(lx - cx) > tol_x or abs(ly - cy) > tol_y:
             offenders.append((node.get("id"), (lx, ly), "center", (cx, cy)))
     assert not offenders, f"{name}: label positioned outside its own node shape: {offenders}"
+
+
+@pytest.mark.parametrize("name", [n for n in SAMPLE_NAMES if n not in KNOWN_UNSUPPORTED])
+def test_sample_label_pixels_centered_in_shape(name):
+    """Pixel-level check that a label's ink is actually centered within its
+    own node shape once painted -- not just that some SVG attribute value
+    looks plausible. The XML-attribute version of this check
+    (test_sample_labels_inside_their_own_shape) is blind to bugs that live
+    purely in CSS resolution at paint time (confirmed directly: a broken
+    and a fixed render of the mindmap sample differ in exactly one
+    injected stylesheet rule and are byte-identical everywhere else,
+    including every transform attribute), so this renders to real pixels
+    instead of trusting the markup."""
+    pytest.importorskip("numpy")
+    import numpy as np
+
+    source = (SAMPLES_DIR / f"{name}.mmd").read_text(encoding="utf-8")
+    d = mermaidx.render(source)
+    svg = d.svg()
+    arr = d.numpy()
+    h, w = arr.shape[:2]
+
+    vb_m = re.search(r'viewBox\s*=\s*["\']([^"\']+)["\']', svg)
+    assert vb_m, f"{name}: no viewBox"
+    vx0, vy0, vw, vh = (float(x) for x in vb_m.group(1).split())
+    sx, sy = w / vw, h / vh  # user-units -> pixels
+
+    root = ET.fromstring(svg)
+    ns_strip = lambda tag: tag.split("}")[-1]
+    shape_tags = {"rect", "polygon", "circle", "ellipse", "path"}
+
+    offenders = []
+    checked = 0
+    for node in root.iter():
+        if "node" not in (node.get("class") or "").split():
+            continue
+        children = list(node)
+        shape = next((c for c in children if ns_strip(c.tag) in shape_tags), None)
+        label = next((c for c in children if "label" in (c.get("class") or "").split()), None)
+        if shape is None or label is None or not (label.itertext() and "".join(label.itertext()).strip()):
+            continue
+        bbox = _shape_local_bbox(shape, ns_strip)
+        if bbox is None or bbox[2] - bbox[0] < 4 or bbox[3] - bbox[1] < 4:
+            continue  # too small to meaningfully check (icon glyphs etc.)
+        nx, ny = _translate_of(node)
+        shx, shy = _translate_of(shape)
+        x0 = (nx + shx + bbox[0] - vx0) * sx
+        x1 = (nx + shx + bbox[2] - vx0) * sx
+        y0 = (ny + shy + bbox[1] - vy0) * sy
+        y1 = (ny + shy + bbox[3] - vy0) * sy
+        px0, px1 = max(0, int(x0)), min(w, int(x1))
+        py0, py1 = max(0, int(y0)), min(h, int(y1))
+        if px1 - px0 < 6 or py1 - py0 < 6:
+            continue
+        crop = arr[py0:py1, px0:px1, :3].astype(int)
+        # The shape's own fill is whatever color covers the most pixels;
+        # text pixels are the ones that differ meaningfully from it.
+        flat = crop.reshape(-1, 3)
+        colors, counts = np.unique(flat, axis=0, return_counts=True)
+        fill = colors[counts.argmax()]
+        dist = np.abs(flat.astype(int) - fill.astype(int)).sum(axis=1)
+        text_mask = dist > 60
+        if text_mask.sum() < 5:
+            continue  # no discernible text ink found (nothing to check)
+        checked += 1
+        ys, xs = np.divmod(np.where(text_mask)[0], crop.shape[1])
+        cx_ink, cy_ink = xs.mean(), ys.mean()
+        cx_box, cy_box = crop.shape[1] / 2, crop.shape[0] / 2
+        tol_x, tol_y = 0.12 * crop.shape[1], 0.25 * crop.shape[0]
+        if abs(cx_ink - cx_box) > tol_x or abs(cy_ink - cy_box) > tol_y:
+            offenders.append((node.get("id"), (round(cx_ink), round(cy_ink)), (round(cx_box), round(cy_box))))
+    if checked == 0:
+        pytest.skip(f"{name}: no node matched this check's shape+label assumptions")
+    assert not offenders, f"{name}: label ink off-center within its shape (ink_centroid vs box_center): {offenders}"
 
 
 @pytest.mark.parametrize("name", [n for n in SAMPLE_NAMES if n not in KNOWN_UNSUPPORTED])
