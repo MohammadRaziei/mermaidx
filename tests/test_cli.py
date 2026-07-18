@@ -282,6 +282,21 @@ def test_e2e_output_message(tmp_path):
     assert "result.svg" in r.stderr
 
 
+def test_e2e_quiet_suppresses_output_message(tmp_path):
+    out = tmp_path / "result.svg"
+    r = run("-i", str(BASIC_MERMAID), "-o", str(out), "-q")
+    assert r.returncode == 0
+    assert r.stderr == ""
+    assert out.read_bytes().lstrip().startswith(b"<svg")
+
+
+def test_e2e_quiet_long_flag_suppresses_output_message(tmp_path):
+    out = tmp_path / "result.svg"
+    r = run("-i", str(BASIC_MERMAID), "-o", str(out), "--quiet")
+    assert r.returncode == 0
+    assert r.stderr == ""
+
+
 def test_e2e_config_file(tmp_path):
     config_path = tmp_path / "config.json"
     config_path.write_text(json.dumps({"theme": "forest"}))
@@ -313,3 +328,4 @@ def test_backend_quickjs_explicit(tmp_path):
     r = run("-i", str(BASIC_MERMAID), "-o", str(out), "--backend", "quickjs")
     assert r.returncode == 0
     assert out.read_bytes().lstrip().startswith(b"<svg")
+    

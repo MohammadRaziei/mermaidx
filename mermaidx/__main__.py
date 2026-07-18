@@ -88,6 +88,8 @@ examples:
                         help="Landscape orientation (PDF only)")
     parser.add_argument("--margin", default="0", metavar="MARGIN",
                         help="PDF margin e.g. '1cm' (default: 0)")
+    parser.add_argument("-q", "--quiet", action="store_true",
+                        help="Suppress informational messages (e.g. 'saved to ... bytes')")
 
     return parser
 
@@ -161,7 +163,8 @@ def main() -> None:
     else:
         d.save(str(output), **raster_kwargs)
 
-    print(f"saved to {output}  ({output.stat().st_size:,} bytes)", file=sys.stderr)
+    if not args.quiet:
+        print(f"saved to {output}  ({output.stat().st_size:,} bytes)", file=sys.stderr)
 
 
 if __name__ == "__main__":
