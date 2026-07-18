@@ -200,6 +200,17 @@ class Node {
     return c;
   }
   get ownerDocument() { return globalThis.__document; }
+  // DOM spec: parentElement is parentNode, but only when that parent is
+  // itself an Element (nodeType 1) -- e.g. a node whose parent is the
+  // Document has parentNode set but parentElement === null. Mermaid's
+  // gantt renderer reads `document.getElementById(id).parentElement
+  // .offsetWidth` to size the chart, and the state-diagram renderer walks
+  // `.parentElement` while positioning divider lines; without this getter
+  // both read `undefined` off the plain Node class and throw
+  // "cannot read property '...' of undefined".
+  get parentElement() {
+    return this.parentNode && this.parentNode.nodeType === 1 ? this.parentNode : null;
+  }
   getRootNode() {
     let n = this;
     while (n.parentNode) n = n.parentNode;
