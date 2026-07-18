@@ -9,10 +9,10 @@ import mermaidx
 FLOWCHART = "flowchart LR\n    A[Start] --> B{OK?}\n    B -->|Yes| C[Done]"
 
 
-def test_backends_includes_js():
-    # 'js' is always available regardless of whether mmdr happens to be
+def test_backends_includes_quickjs():
+    # 'quickjs' is always available regardless of whether mmdr happens to be
     # installed in this environment.
-    assert "js" in mermaidx.backends()
+    assert "quickjs" in mermaidx.backends()
 
 
 def test_render_does_not_compute_anything_yet():
@@ -165,13 +165,13 @@ def test_show_is_backend_agnostic():
     """show()/_repr_svg_() live entirely on DiagramBase and just display
     self.svg() -- they don't care which backend produced it."""
     pytest.importorskip("IPython")
-    d = mermaidx.render(FLOWCHART, backend="js")
+    d = mermaidx.render(FLOWCHART, backend="quickjs")
     d.show()  # exercises the same DiagramBase.show() a DiagramRust instance would use
 
 
 def test_repr():
     d = mermaidx.render(FLOWCHART)
-    assert "backend='js'" in repr(d)
+    assert "backend='quickjs'" in repr(d)
 
 
 def test_render_invalid_mermaid_raises_on_svg_not_on_render():
@@ -211,8 +211,8 @@ def test_render_unknown_backend_name_raises_value_error():
         mermaidx.render(FLOWCHART, backend="not-a-real-backend")
 
 
-def test_render_js_backend_explicit():
-    d = mermaidx.render(FLOWCHART, backend="js")
+def test_render_quickjs_backend_explicit():
+    d = mermaidx.render(FLOWCHART, backend="quickjs")
     assert isinstance(d, mermaidx.Diagram)
 
 

@@ -32,7 +32,8 @@ test = [
   "pytest-cov"
 ]
 rust = [ "mmdr" ]
-all  = [ "mmdr", "numpy" ]
+v8 = [ "mini-racer" ]
+all  = [ "mmdr", "mini-racer", "numpy" ]
 
 [project.scripts]
 mermaidx = "mermaidx.__main__:main"

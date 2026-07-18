@@ -22,11 +22,12 @@ That's it — SVG, PNG, PDF, and ASCII output all work out of the box; nothing e
 
 **Which install do you need?**
 
-- `pip install mermaidx` — this alone is enough for everything above. It gives you the default backend (`backend="js"`, the embedded JS engine this README is about) and nothing else to think about.
+- `pip install mermaidx` — this alone is enough for everything above. It gives you the default backend (`backend="quickjs"`, the embedded JS engine this README is about) and nothing else to think about.
+- `pip install mermaidx[v8]` — swaps the embedded JS engine from QuickJS-ng to real V8 (via `mini-racer`) when available, since V8's JIT renders the same real mermaid.js noticeably faster (2-4.5x in our own benchmarks) — same output, same API, still zero system dependencies. Falls back to QuickJS-ng automatically if `mini-racer` isn't installed, and for the one diagram type V8 can't handle (`mindmap`, see [Additional backends](#additional-backends-optional)) even when it is.
 - `pip install mermaidx[rust]` — adds the optional Rust backend (`mmdr`) for extra speed on top of that, selectable with `backend="rust"`.
 - `pip install mermaidx[all]` — the easy option: every optional backend, in one command.
 
-None of these need a system dependency, a system Mermaid/Node install, or even a compiler — including `[rust]`/`[all]`, which install prebuilt wheels, not source you build locally.
+None of these need a system dependency, a system Mermaid/Node install, or even a compiler — including `[v8]`/`[rust]`/`[all]`, which install prebuilt wheels, not source you build locally.
 
 There isn't really an equivalent to this in the Python ecosystem. Every other Mermaid-to-image tool reachable from Python — including the official `mermaid-cli` itself — works by driving an actual browser (Puppeteer/Chrome) or shelling out to a separate Node.js process. `mermaidx` is the only one that renders real, current Mermaid JS with no browser and no subprocess at all.
 
@@ -89,7 +90,7 @@ See [`examples/jupyter_demo.ipynb`](examples/jupyter_demo.ipynb) for a full walk
 
 ```mermaid
 flowchart LR
-    A[Mermaid source] --> B[QuickJS-ng]
+    A[Mermaid source] --> B["QuickJS-ng (or V8, optional)"]
     B -->|"mermaid.js v11 (bundled)"| C[SVG]
     C --> D[resvg]
     D --> E[PNG]
@@ -102,14 +103,14 @@ flowchart LR
 
 Everything happens in one process, no subprocess, no I/O:
 
-- **SVG** — mermaid.js runs inside QuickJS-ng against a minimal fake DOM/SVG implementation. The one thing a fake DOM can't fabricate — real text metrics (`getBBox`/`getComputedTextLength`) — is bridged back into Python, which reads real glyph widths from a bundled font.
+- **SVG** — mermaid.js runs inside QuickJS-ng (or, optionally, real V8 — see [JS engine: QuickJS vs V8](#js-engine-quickjs-vs-v8-optional)) against a minimal fake DOM/SVG implementation. The one thing a fake DOM can't fabricate — real text metrics (`getBBox`/`getComputedTextLength`) — is bridged back into Python (QuickJS) or reproduced exactly from a precomputed per-glyph advance-width table (V8), both reading the same bundled font.
 - **PNG** — the SVG is rasterized by [resvg](https://pypi.org/project/resvg_py/), forced to use that *same* bundled font, so what mermaid measured during layout is exactly what gets painted.
 - **PDF** — a small hand-written PDF writer (stdlib `zlib`/`struct` only) embeds the rendered pixels directly. No Pillow, no Cairo, no reportlab — every mainstream "put an image in a PDF" library pulls in Pillow as a transitive dependency; this avoids that entirely.
 - **ASCII** — a completely separate, lightweight path via [termaid](https://pypi.org/project/termaid/) (pure Python, ~700KB, zero dependencies), which parses the Mermaid source itself rather than going through the SVG.
 
 Rendering is CPU-bound, synchronous, single-process — there's no browser or subprocess to wait on, so there's nothing for `async` to usefully overlap. See [`mermaidx.render_many()`](#parallel-batch-rendering) below for real parallelism instead.
 
-Every backend is a small subclass of one shared `DiagramBase` — `Diagram` for `'js'`, `DiagramRust` for anything from the optional `mmdr` package. Subclasses only override the private `_svg()` hook; the public, cached `svg()`/`png()`/`pdf()`/`raw()`/`numpy()`/`ascii()`/`save()` are all written once in the base class and work identically regardless of which backend produced the SVG.
+Every backend is a small subclass of one shared `DiagramBase` — `Diagram` for `'quickjs'`/`'v8'`, `DiagramRust` for anything from the optional `mmdr` package. Subclasses only override the private `_svg()` hook; the public, cached `svg()`/`png()`/`pdf()`/`raw()`/`numpy()`/`ascii()`/`save()` are all written once in the base class and work identically regardless of which backend produced the SVG.
 
 ---
 
@@ -201,6 +202,22 @@ png = svg_to_png(svg, width=1200, background="#ffffff")
 raw, w, h = svg_to_raw(svg)
 ```
 
+### JS engine: QuickJS vs V8 (optional)
+
+```bash
+pip install mermaidx[v8]   # adds mini-racer (real V8) as a selectable JS engine
+```
+
+Both backends run the exact same real mermaid.js and produce byte-for-byte identical SVG output — the only difference is which JS engine runs it:
+
+```python
+mermaidx.render(source)                    # backend="quickjs" (default) — always available
+mermaidx.render(source, backend="v8")      # force V8 explicitly (raises ImportError
+                                            # with an install hint if mini-racer isn't present)
+```
+
+V8's JIT renders noticeably faster than QuickJS-ng's interpreter-only execution — 2-4.5x in our own benchmarks, scaling up with diagram size — for byte-for-byte identical output (V8 reproduces mermaidx's own font-metrics math exactly, not an approximation). The one exception is `mindmap`: its cytoscape-based layout schedules an animation loop that only QuickJS-ng knows how to safely bound in a one-shot headless render (see `mermaidx/engines/v8_engine.py`'s docstring for why) — use the default `backend="quickjs"` for those; `backend="v8"` raises rather than silently falling back.
+
 ### Additional backends (optional)
 
 ```bash
@@ -212,8 +229,9 @@ If [`mmdr`](https://github.com/mohammadraziei/mmdr) (a native-Rust Mermaid rende
 
 ```python
 mermaidx.backends()
-# ['js']                                   # mmdr not installed
-# ['js', 'merman', 'mermaid-rs-renderer']   # mmdr installed
+# ['quickjs']                                    # nothing extra installed
+# ['quickjs', 'v8']                               # mermaidx[v8] installed
+# ['quickjs', 'merman', 'mermaid-rs-renderer']     # mermaidx[rust] installed
 
 d = mermaidx.render(source, backend="merman")   # svg() comes from mmdr; everything else from mermaidx
 d.pdf()                                      # works, even though mmdr's own .pdf() doesn't
@@ -253,7 +271,8 @@ mermaidx --info
 # list available backends
 mermaidx --list-backends
 
-# pick a backend explicitly (requires mermaidx[rust] for anything but 'js')
+# pick a backend explicitly (quickjs/v8 always/optionally available; anything
+# else requires mermaidx[rust])
 mermaidx -i diagram.mermaid -o diagram.svg --backend merman
 
 # version
@@ -274,6 +293,7 @@ pie charts, git graphs, and more.
 
 - Python 3.9+
 - `quickjs-ng`, `resvg_py`, `termaid` (installed automatically)
+- `mini-racer` (optional, `pip install mermaidx[v8]`, for the V8 engine)
 - No system packages, no Node.js, no npm, no browser
 
 ---
@@ -294,6 +314,7 @@ pytest tests/ -v
 - **mmdc, powered by [phasma](https://github.com/mohammadraziei/phasma)** — the original version of this project. It bundled a real (if small — around 20MB) headless browser, PhantomJS, and exposed an `async` Python API to match: rendering meant talking to a subprocess, so `async`/`await` genuinely mattered for concurrency.
 - **0.6.x** — a full rewrite: PhantomJS's engine couldn't parse modern Mermaid (v11's ES2022+ syntax) at all, so the whole browser was replaced with mermaid.js running inside QuickJS-ng against a hand-written DOM/SVG shim, with resvg for rasterization. No subprocess left to wait on, so the API became synchronous. Three backends appeared: `js` (this engine), plus `merman` and `mermaid-rs-renderer` via the optional [`mmdr`](https://github.com/mohammadraziei/mmdr) package.
 - **0.7.x, renamed to mermaidx** — same engine, new name. The old name, `mmdc`, was identical to the official Mermaid CLI's own binary name (`@mermaid-js/mermaid-cli` installs a command called `mmdc`) — a real collision, not just a branding concern. Renamed early, while it still could be. **If you have `mmdc` pinned anywhere (`requirements.txt`, a Dockerfile, CI config), switch it to `mermaidx` — the old name isn't maintained or published anymore.**
+- **Later 0.7.x** — the embedded-JS-engine backend split into `mermaidx/engines/` (`quickjs_engine.py` / `v8_engine.py`), and gained an optional real-V8 path (`pip install mermaidx[v8]`, `backend="v8"`) alongside the original QuickJS-ng one (`backend="quickjs"`, still the default) — same mermaid.js, same output, just a choice of engine. See [JS engine: QuickJS vs V8](#js-engine-quickjs-vs-v8-optional).
 
 ---
 

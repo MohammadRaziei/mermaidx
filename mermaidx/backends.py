@@ -7,16 +7,26 @@ def backends() -> list:
     """
     Available rendering backends.
 
-    Always includes ``'js'`` (this package's own QuickJS + resvg engine,
-    zero extra dependencies). If the optional ``mmdr`` package
-    (https://github.com/mohammadraziei/mmdr) is installed — e.g. via
-    ``pip install mermaidx[rust]`` — its backends are appended too::
+    Always includes ``'quickjs'`` (mermaidx's one hard dependency, always
+    available). If the optional ``mini-racer`` package is installed
+    (``pip install mermaidx[v8]``), also ``'v8'`` (faster, real JIT --
+    can't render ``mindmap`` diagrams, see ``Diagram``'s docstring). If the
+    optional ``mmdr`` package (https://github.com/mohammadraziei/mmdr) is
+    installed -- e.g. via ``pip install mermaidx[rust]`` -- its backends are
+    appended too::
 
         >>> backends()
-        ['js']                                       # mmdr not installed
-        ['js', 'merman', 'mermaid-rs-renderer']       # mmdr installed
+        ['quickjs']                                    # nothing extra installed
+        ['quickjs', 'v8']                               # mermaidx[v8] installed
+        ['quickjs', 'merman', 'mermaid-rs-renderer']     # mermaidx[rust] installed
+        ['quickjs', 'v8', 'merman', 'mermaid-rs-renderer']  # both installed
     """
-    result = ["js"]
+    result = ["quickjs"]
+    try:
+        import mermaidx.engines.v8_engine  # noqa: F401
+        result.append("v8")
+    except ImportError:
+        pass
     try:
         import mmdr
     except ImportError:

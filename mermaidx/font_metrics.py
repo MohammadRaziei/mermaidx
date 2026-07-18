@@ -164,6 +164,35 @@ class Font:
             "descent": -self.descender * scale,  # descender is negative in the font
         }
 
+    def full_advance_table(self) -> dict:
+        """Every codepoint this font can render, mapped to its advance
+        width in font design units (unscaled, i.e. independent of size_px).
+
+        Since measure()/advance_width_units() do nothing more than sum
+        per-character advances (no kerning, no ligatures -- see module
+        docstring), a JS engine that has this table (plus units_per_em/
+        ascender/descender, see metrics_summary()) can reproduce measure()
+        exactly by summing itself, with zero Python callback involved. This
+        is what mermaidx.engines.v8_engine uses, since its underlying V8
+        binding can't do synchronous Python callbacks the way QuickJS can.
+        """
+        return {cp: self._glyph_advance(gid) for cp, gid in self._cmap.items()}
+
+    def notdef_advance_units(self) -> int:
+        """Advance width used for any codepoint outside the font's cmap
+        (glyph id 0, the ".notdef" glyph) -- matches what
+        advance_width_units() falls back to via `self._cmap.get(ord(ch), 0)`."""
+        return self._glyph_advance(0)
+
+    def metrics_summary(self) -> dict:
+        """units_per_em/ascender/descender -- everything besides the
+        advance table itself that's needed to reproduce measure() in JS."""
+        return {
+            "unitsPerEm": self.units_per_em,
+            "ascender": self.ascender,
+            "descender": self.descender,
+        }
+
 
 # ── font selection ────────────────────────────────────────────────────────
 

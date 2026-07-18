@@ -10,8 +10,8 @@ beautiful-mermaid is a JS bundle that would need its own DOM shim loaded
 into the QuickJS engine).
 
 Character-cell art doesn't need real font metrics the way SVG layout does,
-so this is a completely separate, lightweight code path from the 'js'
-backend rather than something built on top of it.
+so this is a completely separate, lightweight code path from the
+'quickjs'/'v8' backend rather than something built on top of it.
 """
 
 from __future__ import annotations

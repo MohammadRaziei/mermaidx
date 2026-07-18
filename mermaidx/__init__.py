@@ -12,7 +12,7 @@ mermaidx — Mermaid diagram rendering, no browser, Node.js, or npm required.
     d.pdf()                                         # bytes -- fully supported
     d.save("out.svg") / d.save("out.png") / d.save("out.pdf")
 
-    mermaidx.backends()          # ['js']  (+ mmdr's backends if installed)
+    mermaidx.backends()          # ['quickjs']  (+ 'v8'/mmdr's backends if installed)
     mermaidx.render_many(sources, workers=4)   # real parallelism (multiprocessing)
     mermaidx.render_ascii(source)              # terminal-friendly text (always available)
 """

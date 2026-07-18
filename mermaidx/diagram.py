@@ -4,7 +4,8 @@ mermaidx.diagram — the object returned by mermaidx.render().
     DiagramBase   -- all the shared machinery: caching, and default
                      implementations of every derived output (png/raw/
                      numpy/pdf/ascii/save), each computed from self.svg().
-    Diagram       -- backend='js': mermaid.js running inside QuickJS-ng.
+    Diagram       -- backend='quickjs' (default) or 'v8': mermaid.js running
+                     inside QuickJS-ng or real V8.
     DiagramRust   -- any backend from the optional `mmdr` package (e.g.
                      'merman', 'mermaid-rs-renderer'): svg() delegates to
                      mmdr, but png/raw/numpy/pdf still go through *our*
@@ -25,37 +26,69 @@ and everything else for free.
 
 from __future__ import annotations
 
+import atexit
 import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
 from mermaidx.ascii import render_ascii
-from mermaidx.engine import Engine, MermaidRenderError
+from mermaidx.engines.quickjs_engine import Engine as _QuickJSEngine
+from mermaidx.engines.quickjs_engine import MermaidRenderError as _QuickJSRenderError
 from mermaidx.pdf_writer import png_to_pdf
 from mermaidx.png_decode import decode_png_rgba, decode_png
 from mermaidx.raster import render_png
 
+try:
+    from mermaidx.engines.v8_engine import Engine as _V8Engine
+    from mermaidx.engines.v8_engine import MermaidRenderError as _V8RenderError
+    _V8_AVAILABLE = True
+except ImportError:
+    _V8_AVAILABLE = False
+
 if TYPE_CHECKING:
     import numpy as np
 
-# One persistent, lazily-started engine shared by every render() call in the
-# process — loading mermaid.js (~6MB of source) is the expensive part, so it
-# only happens once. Synchronous by design: Engine.start()/render_svg()
-# already block internally on their own dedicated worker thread, so no
-# asyncio is needed here at all.
-_engine: Optional[Engine] = None
-_engine_lock = threading.Lock()
+# One persistent, lazily-started engine per *name* ("quickjs" / "v8"), shared
+# by every render() call in the process -- loading mermaid.js (~6MB of
+# source) is the expensive part, so each engine only pays that cost once,
+# and both can coexist if a caller explicitly asks for each by name (e.g.
+# `backend="quickjs"` for one render, `backend="v8"` for another). Engine
+# instances are synchronous by design -- start()/render_svg() already block
+# internally on their own dedicated worker thread, so no asyncio is needed
+# here at all.
+_engines: dict = {}
+_engines_lock = threading.Lock()
 
 
-def _get_engine() -> Engine:
-    global _engine
-    if _engine is None:
-        with _engine_lock:
-            if _engine is None:  # re-check inside the lock
-                e = Engine()
+def _get_engine_by_name(name: str):
+    """
+    Lazily creates and caches one engine instance per name ("quickjs" or
+    "v8"), so both can coexist in the same process without one evicting
+    the other.
+    """
+    if name not in _engines:
+        with _engines_lock:
+            if name not in _engines:  # re-check inside the lock
+                if name == "quickjs":
+                    e = _QuickJSEngine()
+                elif name == "v8":
+                    if not _V8_AVAILABLE:
+                        raise ImportError(
+                            "backend='v8' requires the optional 'mini-racer' package. "
+                            "Install it with:\n    pip install mermaidx[v8]"
+                        )
+                    e = _V8Engine()
+                else:
+                    raise ValueError(f"Unknown JS engine {name!r}; expected 'quickjs' or 'v8'.")
                 e.start()
-                _engine = e
-    return _engine
+                # Some engine backends (e.g. engines.v8_engine, built on
+                # py_mini_racer) have background threads that don't join
+                # cleanly if the process exits without closing them first --
+                # register a clean shutdown so callers never have to think
+                # about this themselves.
+                atexit.register(e.close)
+                _engines[name] = e
+    return _engines[name]
 
 
 _MISSING = object()
@@ -370,15 +403,28 @@ class DiagramBase:
 
 
 class Diagram(DiagramBase):
-    """backend='js' (the default): mermaid.js v11 running inside QuickJS-ng,
-    with resvg (using a bundled font shared with the layout step) for
-    everything downstream of SVG. See DiagramBase for the full method list.
+    """mermaid.js v11 running inside a JS engine, with resvg (using a bundled
+    font shared with the layout step) for everything downstream of SVG. See
+    DiagramBase for the full method list.
+
+    `backend` picks *which* JS engine runs mermaid.js -- both always render
+    the exact same mermaid.js and produce byte-identical SVG output:
+
+      - 'quickjs' (default): QuickJS-ng. Always available (mermaidx's one
+        hard dependency), handles every diagram type mermaidx supports.
+      - 'v8': real V8 via the optional `mini-racer` package -- noticeably
+        faster (a real JIT vs. QuickJS-ng's interpreter-only execution; see
+        the project's own benchmarks), at two costs: it's an extra install
+        (`pip install mermaidx[v8]`), and it can't render `mindmap`
+        diagrams (see engines/v8_engine.py's "Known limitation" docstring
+        for why) -- use the default 'quickjs' for those.
 
     Example::
 
         import mermaidx
 
         d = mermaidx.render("flowchart LR; A-->B-->C")
+        d2 = mermaidx.render("flowchart LR; A-->B-->C", backend="v8")
 
         d.svg()                          # str -- computed on first call
         d.svg() is d.svg()               # True -- cached, not recomputed
@@ -393,28 +439,30 @@ class Diagram(DiagramBase):
         d.save("out.png.bak", format="png")   # force format regardless of extension
     """
 
-    backend = "js"
-
     def __init__(
         self,
         source: str,
+        backend: str = "quickjs",
         *,
         theme: Optional[str] = None,
         config: Optional[dict] = None,
         css: Optional[str] = None,
         **_ignored,
     ) -> None:
+        if backend not in ("quickjs", "v8"):
+            raise ValueError(f"Unknown backend {backend!r} for Diagram; expected 'quickjs' or 'v8'.")
         super().__init__(source, theme=theme, config=config, css=css)
+        self.backend = backend
         self._theme = theme
         self._config = config
         self._css = css
 
     def _svg(self) -> str:
+        engine = _get_engine_by_name(self.backend)  # raises ImportError first if backend="v8" but unavailable
+        render_error = _QuickJSRenderError if self.backend == "quickjs" else _V8RenderError
         try:
-            return _get_engine().render_svg(
-                self._source, self._theme or "default", self._config, self._css
-            )
-        except MermaidRenderError as e:
+            return engine.render_svg(self._source, self._theme or "default", self._config, self._css)
+        except render_error as e:
             raise RuntimeError(f"Mermaid rendering failed: {e}") from e
 
 
@@ -444,21 +492,25 @@ def render(source: str, backend: Optional[str] = None, **opts) -> "DiagramBase":
 
     Args:
         source:  Mermaid source text.
-        backend: ``'js'`` (default — this package's own QuickJS + resvg
-                 engine, always available, zero extra dependencies) or, if
-                 the optional ``mmdr`` package is installed,
-                 ``'merman'`` / ``'mermaid-rs-renderer'``.
+        backend: ``'quickjs'`` (default -- mermaidx's one hard dependency,
+                 always available) or ``'v8'`` (faster, optional -- raises
+                 ``ImportError`` with an install hint if the ``mini-racer``
+                 package isn't present; can't render ``mindmap`` diagrams,
+                 see ``Diagram``'s docstring). If the optional ``mmdr``
+                 package is installed, also ``'merman'`` /
+                 ``'mermaid-rs-renderer'``.
         **opts:  Forwarded to the chosen backend.
-                 'js': theme, config, css
+                 'quickjs' / 'v8': theme, config, css
                  mmdr backends: theme, node_spacing, rank_spacing, aspect_ratio
 
     Returns:
-        A DiagramBase subclass instance (Diagram for 'js', DiagramRust for
-        anything from mmdr). Every method (svg/png/raw/numpy/pdf/ascii) is
-        lazy and cached, regardless of backend.
+        A DiagramBase subclass instance (Diagram for 'quickjs'/'v8',
+        DiagramRust for anything from mmdr). Every method
+        (svg/png/raw/numpy/pdf/ascii) is lazy and cached, regardless of
+        backend.
     """
-    if backend in (None, "js"):
-        return Diagram(source, **opts)
+    if backend in (None, "quickjs", "v8"):
+        return Diagram(source, backend=backend or "quickjs", **opts)
 
     from .backends import backends
 

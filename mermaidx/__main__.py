@@ -60,7 +60,7 @@ examples:
     parser.add_argument("--list-backends", action="store_true",
                         help="List available rendering backends and exit")
     parser.add_argument("--backend", default=None, metavar="NAME",
-                        help="Rendering backend to use (default: js). "
+                        help="Rendering backend to use (default: quickjs). "
                              "See --list-backends for what's available.")
     parser.add_argument("-i", "--input", metavar="FILE",
                         help="Input Mermaid file, or '-' to read from stdin")
@@ -79,9 +79,9 @@ examples:
     parser.add_argument("-b", "--background", default=None, metavar="COLOR",
                         help="CSS background color (default: transparent)")
     parser.add_argument("-c", "--config", metavar="FILE",
-                        help="JSON config file for Mermaid (backend='js' only)")
+                        help="JSON config file for Mermaid (backend='quickjs'/'v8' only)")
     parser.add_argument("--css", metavar="FILE",
-                        help="CSS file to inject into the diagram (backend='js' only)")
+                        help="CSS file to inject into the diagram (backend='quickjs'/'v8' only)")
     parser.add_argument("--pdf-format", default=None, metavar="FORMAT",
                         help="PDF paper format e.g. A4, Letter (default: fit to diagram)")
     parser.add_argument("--landscape", action="store_true",
@@ -114,7 +114,7 @@ def _print_info() -> None:
 def _print_backends() -> None:
     available = mermaidx.backends()
     for name in available:
-        marker = " (default)" if name == "js" else ""
+        marker = " (default)" if name == "quickjs" else ""
         print(f"{name}{marker}")
 
 
@@ -137,13 +137,13 @@ def main() -> None:
     config = json.loads(Path(args.config).read_text(encoding="utf-8")) if args.config else None
     css = Path(args.css).read_text(encoding="utf-8") if args.css else None
 
-    backend = args.backend or "js"
+    backend = args.backend or "quickjs"
     render_kwargs = {"theme": args.theme}
-    if backend == "js":
+    if backend in ("quickjs", "v8"):
         render_kwargs.update(config=config, css=css)
     elif config or css:
-        print(f"warning: --config/--css are ignored for backend={backend!r} (only 'js' supports them)",
-              file=sys.stderr)
+        print(f"warning: --config/--css are ignored for backend={backend!r} "
+              "(only 'quickjs'/'v8' support them)", file=sys.stderr)
 
     d = mermaidx.render(source, backend=args.backend, **render_kwargs)
 
