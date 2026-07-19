@@ -270,6 +270,22 @@ def test_c4_diagram_renders():
     assert svg.startswith("<svg")
 
 
+def test_multiline_html_label_flowchart_renders():
+    """Regression: multi-line node labels containing embedded HTML (e.g.
+    <code>...</code>) go through mermaid's grapheme-splitting helper, which
+    feature-detects `Intl.Segmenter` -- but QuickJS has no `Intl` global at
+    all (not even as an empty object), so reading `Intl.Segmenter` itself
+    raised 'ReferenceError: Intl is not defined' before the fallback ever
+    ran (issue #16)."""
+    svg = mermaidx.render(
+        'flowchart\n'
+        '    a["line one\\n<code>line two</code>"]\n'
+        '    b["<code>x = 1;</code>"]\n'
+        '    a --> b\n'
+    ).svg()
+    assert svg.startswith("<svg")
+
+
 def test_embed_font_without_fonttools_raises_clear_error(monkeypatch):
     """Regression: embed_font=True needs fontTools, which isn't a core
     dependency -- must fail with install instructions, not a bare

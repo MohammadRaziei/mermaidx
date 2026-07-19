@@ -176,6 +176,8 @@ globalThis.structuredClone = function structuredClone(value, _seen) {
   return out;
 };
 
+globalThis.Intl = {};
+
 // Minimal fake browser environment for mermaid.js layout-only rendering.
 // getBBox / getComputedTextLength call back into Python (via __measureText),
 // which reads real glyph widths from a bundled font (see font_metrics.py).
