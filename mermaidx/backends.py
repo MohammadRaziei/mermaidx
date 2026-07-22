@@ -23,7 +23,7 @@ def backends() -> list:
     """
     result = ["quickjs"]
     try:
-        import mermaidx.engines.v8_engine  # noqa: F401
+        import py_mini_racer  # noqa: F401
         result.append("v8")
     except ImportError:
         pass

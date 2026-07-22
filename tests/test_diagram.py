@@ -15,6 +15,35 @@ def test_backends_includes_quickjs():
     assert "quickjs" in mermaidx.backends()
 
 
+def test_backends_v8_reflects_py_mini_racer_availability(monkeypatch):
+    """https://github.com/MohammadRaziei/mermaidx/issues/28
+
+    backends() used to check `import mermaidx.engines.v8_engine` for v8
+    availability, but that module always imports fine -- it deliberately
+    defers `from py_mini_racer import MiniRacer` to inside
+    _build_context(), since that's meant to run in a multiprocessing
+    child process. So 'v8' showed up in backends() even when mini-racer
+    was never installed. The check has to import py_mini_racer itself.
+    """
+    import builtins
+    import sys
+
+    real_import = builtins.__import__
+
+    def fake_import_missing(name, *args, **kwargs):
+        if name == "py_mini_racer" or name.startswith("py_mini_racer."):
+            raise ImportError("simulated: mini-racer not installed")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.delitem(sys.modules, "py_mini_racer", raising=False)
+    monkeypatch.setattr(builtins, "__import__", fake_import_missing)
+    assert "v8" not in mermaidx.backends()
+
+    monkeypatch.setattr(builtins, "__import__", real_import)
+    monkeypatch.setitem(sys.modules, "py_mini_racer", type(sys)("py_mini_racer"))
+    assert "v8" in mermaidx.backends()
+
+
 def test_render_does_not_compute_anything_yet():
     """render() is now fully lazy: constructing a Diagram must not touch
     the engine at all -- not even to render SVG."""
