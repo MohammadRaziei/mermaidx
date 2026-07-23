@@ -118,7 +118,39 @@ def test_issue_27_sequence_box_groups():
     )
 
 
-def test_issue_27_sequence_box_without_a_valid_color():
+def test_issue_23_block_chart_with_nested_block_and_style():
+    """https://github.com/MohammadRaziei/mermaidx/issues/23
+
+    Block diagrams with a nested `block:ID ... end` group used to crash
+    with "TypeError: circular reference". Root cause: mermaid's block
+    layout stashes a live d3 selection (wrapping a DOM node) inside a
+    plain `size` object, then JSON.stringify's that object in a debug-log
+    line. The shim's DOM nodes store parentNode/childNodes as own
+    enumerable instance properties (real browsers use non-enumerable
+    prototype getters instead), so without a Node.toJSON() short-circuit,
+    that JSON.stringify call walks the whole parent<->child graph and
+    hits a genuine cycle.
+    """
+    code = """block
+    columns 1
+      db(("DB"))
+      blockArrowId6<["&nbsp;&nbsp;&nbsp;"]>(down)
+      block:ID
+        A
+        B["A wide one in the middle"]
+        C
+      end
+      space
+      D
+      ID --> D
+      C --> D
+      style B fill:#f9F,stroke:#333,stroke-width:4px
+    """
+    svg = mermaidx.render(code).svg()
+    assert svg.startswith("<svg")
+    assert "DB" in svg
+    # The styled block's fill color should make it into the output.
+    assert "#f9F" in svg or "#ff99ff" in svg.lower()
     """When the leading word isn't a real CSS color, mermaid treats the
     whole string as the participant list instead -- must not crash either
     way now that CSS.supports is implemented."""

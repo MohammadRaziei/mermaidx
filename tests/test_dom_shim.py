@@ -392,3 +392,40 @@ def test_previous_sibling_matches_d3_lower_pattern():
     JSON.stringify(parent.childNodes.map(n => n === a ? "a" : n === b ? "b" : "c"));
     """
     assert json.loads(ctx.eval(js)) == ["c", "a", "b"]
+
+
+# ---------------------------------------------------------------------------
+# Node.toJSON() (issue #23: "TypeError: circular reference" rendering a
+# block diagram). Some diagrams stash a live d3 selection wrapping a DOM
+# node inside a plain data object that later gets JSON.stringify'd for a
+# debug-log line. In a real browser, Node.prototype.parentNode/childNodes
+# are non-enumerable prototype getters, so JSON.stringify(element) just
+# serializes to "{}"; here they're own enumerable instance properties (so
+# the rest of the shim can read/write them directly), which without
+# toJSON() makes JSON.stringify walk the whole parent<->child graph and
+# hit a genuine cycle.
+# ---------------------------------------------------------------------------
+
+
+def test_json_stringify_element_does_not_throw():
+    ctx = _make_ctx()
+    js = """
+    const parent = document.createElement("g");
+    const child = document.createElement("rect");
+    parent.appendChild(child);
+    JSON.stringify(child);  // used to throw: "TypeError: circular reference"
+    """
+    assert ctx.eval(js) == "{}"
+
+
+def test_json_stringify_object_containing_a_node_does_not_throw():
+    """Matches the actual failure shape from issue #23: a plain object
+    (like block layout's `size`) holding a reference to a live node."""
+    ctx = _make_ctx()
+    js = """
+    const el = document.createElement("rect");
+    const size = { width: 10, height: 20, x: 0, y: 0, node: el };
+    JSON.stringify(size);
+    """
+    result = json.loads(ctx.eval(js))
+    assert result == {"width": 10, "height": 20, "x": 0, "y": 0, "node": {}}

@@ -308,6 +308,17 @@ class Node {
     this.childNodes = [];
     this.parentNode = null;
   }
+  // JSON.stringify(node) -- needed because some diagrams (e.g. block) stash
+  // a live d3 selection wrapping a DOM node inside a data object that later
+  // gets JSON.stringify'd for a debug-log line. In a real browser this is
+  // harmless: Node.prototype.parentNode/childNodes are non-enumerable
+  // prototype getters, so JSON.stringify(element) just serializes to "{}".
+  // Here, parentNode/childNodes are plain own enumerable instance
+  // properties (needed so the rest of this shim can read/write them
+  // directly), so without this, JSON.stringify would walk the whole
+  // parent<->child graph and hit a genuine cycle. toJSON() short-circuits
+  // that the same way real DOM serialization does.
+  toJSON() { return {}; }
   appendChild(c) {
     if (c.parentNode) c.parentNode.removeChild(c);
     c.parentNode = this;
