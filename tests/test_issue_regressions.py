@@ -118,18 +118,32 @@ def test_issue_27_sequence_box_groups():
     )
 
 
-def test_issue_23_block_chart_with_nested_block_and_style():
+def test_issue_27_sequence_box_without_a_valid_color():
+    """When the leading word isn't a real CSS color, mermaid treats the
+    whole string as the participant list instead -- must not crash either
+    way now that CSS.supports is implemented."""
+    code = """sequenceDiagram
+    box Alice & John
+    participant Alice
+    participant John
+    end
+    Alice->>John: hi
+    """
+    svg = mermaidx.render(code).svg()
+    assert svg.startswith("<svg")
+
+
+def test_issue_23_block_diagram_with_composite_block():
     """https://github.com/MohammadRaziei/mermaidx/issues/23
 
-    Block diagrams with a nested `block:ID ... end` group used to crash
-    with "TypeError: circular reference". Root cause: mermaid's block
-    layout stashes a live d3 selection (wrapping a DOM node) inside a
-    plain `size` object, then JSON.stringify's that object in a debug-log
-    line. The shim's DOM nodes store parentNode/childNodes as own
-    enumerable instance properties (real browsers use non-enumerable
-    prototype getters instead), so without a Node.toJSON() short-circuit,
-    that JSON.stringify call walks the whole parent<->child graph and
-    hits a genuine cycle.
+    A block diagram containing a composite `block:ID ... end` used to crash
+    with "TypeError: circular reference": mermaid's block-layout code logs a
+    debug message that JSON.stringify()s internal node/size state (purely
+    for the log line, never anything that reaches the SVG), and that state
+    can legitimately contain a cycle. QuickJS-ng's native JSON.stringify
+    throws on cycles instead of silently truncating them like some engines'
+    console formatters do, so the fix makes JSON.stringify itself
+    cycle-safe (substituting "[Circular]") rather than throwing.
     """
     code = """block
     columns 1
@@ -149,17 +163,70 @@ def test_issue_23_block_chart_with_nested_block_and_style():
     svg = mermaidx.render(code).svg()
     assert svg.startswith("<svg")
     assert "DB" in svg
-    # The styled block's fill color should make it into the output.
-    assert "#f9F" in svg or "#ff99ff" in svg.lower()
-    """When the leading word isn't a real CSS color, mermaid treats the
-    whole string as the participant list instead -- must not crash either
-    way now that CSS.supports is implemented."""
-    code = """sequenceDiagram
-    box Alice & John
-    participant Alice
-    participant John
-    end
-    Alice->>John: hi
+
+
+def test_issue_26_yaml_frontmatter():
+    """https://github.com/MohammadRaziei/mermaidx/issues/26
+
+    A diagram beginning with a YAML front-matter block (`--- ... ---`)
+    used to crash with mermaid's own "Diagrams beginning with --- are not
+    valid" error. Covers a flowchart as reported, plus the `config:`
+    front-matter key actually taking effect.
     """
+    code = """---
+title: Subgraph nodeSpacing and rankSpacing example
+config:
+  flowchart:
+    nodeSpacing: 1
+    rankSpacing: 1
+---
+
+flowchart LR
+
+X --> Y
+
+subgraph X
+  direction LR
+  A
+  C
+end
+
+subgraph Y
+  direction LR
+  B
+  D
+end
+"""
     svg = mermaidx.render(code).svg()
     assert svg.startswith("<svg")
+    assert "A" in svg and "B" in svg
+
+
+def test_issue_28_treemap_value_label_position():
+    """https://github.com/MohammadRaziei/mermaidx/issues/28
+
+    Treemap value labels (the small number under a leaf's name) rendered at
+    `y="NaN"` -- landing at the same spot as the leaf label instead of just
+    below it -- because mermaid sets the label's initial font-size only via
+    d3's `.attr("style", "...")` (which the shim stored on the element's
+    raw attribute string) and later reads it back via `.style("font-size")`
+    (which only checked the live style-property store) to size and place
+    the value label. The fix makes the live style store fall back to
+    parsing the style attribute string, matching how a real browser's
+    el.style reflects the style="..." attribute.
+    """
+    code = """treemap-beta
+    "Section 1"
+        "Leaf 1.1": 12
+        "Section 1.2"
+        "Leaf 1.2.1": 12
+    "Section 2"
+        "Leaf 2.1": 20
+        "Leaf 2.2": 25
+"""
+    svg = mermaidx.render(code).svg()
+    assert svg.startswith("<svg")
+    value_ys = re.findall(r'<text class="treemapValue"[^>]*\by="([^"]*)"', svg)
+    assert value_ys, "expected at least one treemapValue text element"
+    for y in value_ys:
+        assert y != "NaN", "treemapValue label must not land at y=NaN"

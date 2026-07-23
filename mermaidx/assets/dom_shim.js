@@ -176,6 +176,36 @@ globalThis.structuredClone = function structuredClone(value, _seen) {
   return out;
 };
 
+// mermaid's internal debug logging (Z.debug(...)) builds template-literal
+// strings that call JSON.stringify() on internal layout state (e.g. block
+// diagram node/size objects) purely to print it -- the string is built
+// eagerly regardless of whether debug logging is even enabled. Some of that
+// internal state legitimately contains circular references (e.g. a size
+// object reachable from more than one place through a cycle in the layout
+// graph), which QuickJS-ng's native JSON.stringify rejects with "TypeError:
+// circular reference". Since this stringification is debug-only output,
+// never data that ends up in the rendered SVG, swap in a safe replacer
+// instead of throwing whenever the native call rejects a cycle.
+(function () {
+  const nativeStringify = JSON.stringify;
+  JSON.stringify = function (value, replacer, space) {
+    try {
+      return nativeStringify(value, replacer, space);
+    } catch (e) {
+      if (!(e instanceof TypeError)) throw e;
+      const seen = new WeakSet();
+      const safeReplacer = function (key, val) {
+        if (val !== null && typeof val === "object") {
+          if (seen.has(val)) return "[Circular]";
+          seen.add(val);
+        }
+        return typeof replacer === "function" ? replacer.call(this, key, val) : val;
+      };
+      return nativeStringify(value, safeReplacer, space);
+    }
+  };
+})();
+
 globalThis.Intl = {};
 
 // Minimal URL polyfill -- QuickJS has no built-in URL. mermaid's click-handler
@@ -279,15 +309,44 @@ const _ZERO_PX_PROPS = new Set([
   "margin-left", "margin-right", "margin-top", "margin-bottom",
   "border-left-width", "border-right-width", "border-top-width", "border-bottom-width",
 ]);
-function CSSStyleDecl() {
+// Parses a `"key: value; key2: value2"` style-attribute string into a
+// plain {key: value} object (hyphenated CSS property names, matching what
+// d3's .style(name) getter/setter and getPropertyValue()/setProperty() use
+// -- d3 never goes through the camelCase el.style.fontSize form).
+function __parseStyleAttr(str) {
+  const out = {};
+  if (!str) return out;
+  for (const part of str.split(";")) {
+    const i = part.indexOf(":");
+    if (i === -1) continue;
+    const k = part.slice(0, i).trim();
+    if (k) out[k] = part.slice(i + 1).trim();
+  }
+  return out;
+}
+function CSSStyleDecl(el) {
   const store = {};
+  // A real browser's el.style reflects the element's `style="..."` attribute
+  // live -- properties set via setAttribute("style", "a: 1; b: 2") are just
+  // as visible through el.style.getPropertyValue("a") as ones set directly
+  // via el.style.setProperty(...). mermaid relies on exactly this: e.g. the
+  // treemap renderer sets a full style string via d3's `.attr("style", ...)`
+  // (which lands only in the element's _attrs, not this store) and later
+  // reads the font-size back via `.style("font-size")` to compute the value
+  // label's vertical offset. Without this fallback that read comes back
+  // empty, parseFloat("") is NaN, and the value label ends up at y="NaN".
+  const fromAttr = (k) => __parseStyleAttr(el && el._attrs && el._attrs.style)[k];
   return new Proxy(store, {
     get(t, p) {
       if (p === "cssText") return Object.entries(t).map(([k,v])=>`${k}:${v}`).join(";");
       if (p === "setProperty") return (k,v) => { t[k]=v; };
       if (p === "removeProperty") return (k) => { delete t[k]; };
-      if (p === "getPropertyValue") return (k) => t[k] || (_ZERO_PX_PROPS.has(k) ? "0px" : "");
-      return t[p] || "";
+      if (p === "getPropertyValue") return (k) => {
+        if (Object.prototype.hasOwnProperty.call(t, k)) return t[k];
+        return fromAttr(k) ?? (_ZERO_PX_PROPS.has(k) ? "0px" : "");
+      };
+      if (Object.prototype.hasOwnProperty.call(t, p)) return t[p];
+      return fromAttr(p) ?? "";
     },
     set(t, p, v) { t[p] = v; return true; }
   });
@@ -308,17 +367,6 @@ class Node {
     this.childNodes = [];
     this.parentNode = null;
   }
-  // JSON.stringify(node) -- needed because some diagrams (e.g. block) stash
-  // a live d3 selection wrapping a DOM node inside a data object that later
-  // gets JSON.stringify'd for a debug-log line. In a real browser this is
-  // harmless: Node.prototype.parentNode/childNodes are non-enumerable
-  // prototype getters, so JSON.stringify(element) just serializes to "{}".
-  // Here, parentNode/childNodes are plain own enumerable instance
-  // properties (needed so the rest of this shim can read/write them
-  // directly), so without this, JSON.stringify would walk the whole
-  // parent<->child graph and hit a genuine cycle. toJSON() short-circuits
-  // that the same way real DOM serialization does.
-  toJSON() { return {}; }
   appendChild(c) {
     if (c.parentNode) c.parentNode.removeChild(c);
     c.parentNode = this;
@@ -427,7 +475,7 @@ class Element extends Node {
     this.tagName = tagName;
     this.namespaceURI = ns || XHTML_NS;
     this._attrs = {};
-    this.style = CSSStyleDecl();
+    this.style = CSSStyleDecl(this);
     this._listeners = {};
   }
   get classList() { return new ClassList(this); }
