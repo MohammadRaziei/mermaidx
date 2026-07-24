@@ -270,7 +270,42 @@ flowchart TD
 
 ---
 
-## 8. Design principles, stated explicitly
+## 8. Investigated and ruled out: is the HTML-label (`foreignObject`) path reachable?
+
+`resvg` (the rasterizer this project rasters through, §6) cannot paint `foreignObject`/HTML content at all, which is why every render forces `htmlLabels: false` (§7, `engine.py`). mermaid.js, though, still *ships* an HTML-label code path (`addHtmlSpan`, gated by a per-call `useHtmlLabels` flag) alongside the plain-SVG-text one — and two shim methods, `Element.getBoundingClientRect()` and `Element.getElementsByTagName("img")`, exist specifically because *something* in mermaid.js called them while getting the mindmap diagram type working. That raised a real question, tracked as issue #11: is `useHtmlLabels` ever actually forced `true` despite the global config, and if it is, does the resulting `foreignObject` end up in real output — where its `getBoundingClientRect()` would hit the exact same single-line-only assumption issue #8 fixed for `getBBox()` (§4)?
+
+**Where `useHtmlLabels` actually comes from.** Every label-creation call site in mermaid.js resolves it through one function:
+
+```js
+Yr = config => (config.htmlLabels ?? config.flowchart?.htmlLabels ?? true)
+```
+
+`mermaidx` sets *both* `config.htmlLabels` and `config.flowchart.htmlLabels` to `false` (`quickjs_engine.py`), so `Yr(config)` is `false` everywhere it's read. Grepping every `.useHtmlLabels =` assignment in the bundle turns up exactly one, and it also just forwards `config.htmlLabels` — no diagram type hardcodes `true` for a specific node/label kind (icon nodes, KaTeX, etc.).
+
+**So where were `getBoundingClientRect`/`getElementsByTagName("img")` actually being called from?** Instrumenting them to log a JS stack trace and rendering a mindmap with an icon node (`::icon(fa fa-book)`) answers it directly:
+
+```
+at getBoundingClientRect (<input>:349:156)
+at <anonymous> (<input>:557:272617)     ← cytoscape.js internals
+at <anonymous> (<input>:560:86314)      ← gs.matchCanvasSize (cytoscape)
+```
+
+Both calls resolve into **cytoscape.js's own container/canvas-sizing code** (`matchCanvasSize`/`findContainerClientCoords`) — mindmap's layout engine measuring its own rendering container, completely unrelated to mermaid's `addHtmlSpan`/HTML-label path. `getElementsByTagName("img")` never fired at all in this render.
+
+**Direct confirmation it isn't reachable.** Rendering both a mindmap with an icon node and a flowchart using KaTeX math syntax (`$$x^2+y^2=z^2$$`, one of the two candidates the issue named) and counting `foreignObject` in the output SVG:
+
+| Input | `foreignObject` count | Notes |
+|---|---|---|
+| mindmap + `::icon(...)` node | 0 | icon syntax renders through the plain-text path |
+| flowchart + `$$...$$` label | 0 | renders as the *literal string* `$$x^2+y^2=z^2$$`, not real math — KaTeX rendering itself isn't wired up in this build |
+
+Zero `foreignObject` elements in either case confirms `addHtmlSpan` is not reached by any currently-supported `mermaidx` input.
+
+**Conclusion.** `getBoundingClientRect()`'s single-line-only measurement (it feeds `this.textContent` straight into `__measureTextFull` with no `<br>`/line-count handling — the same class of gap issue #8 fixed for `getBBox()`) is a real latent gap, but it's provably **dead code under every input tried so far**: nothing in the current bundle drives `useHtmlLabels` to `true` for an actual label, so `addHtmlSpan` never runs, so that measurement code never executes. This isn't a "fixed" bug — there was never a reachable bug to trigger it. If a future `mermaid.js` upgrade adds a call site that hardcodes `useHtmlLabels: true` for some label kind (the issue's own suggested next step: find one), *then* `getBoundingClientRect()` would need the same multi-line fix `__computeBBox()` already got — worth re-checking on every `mermaid.js` version bump, not worth speculatively fixing against code that doesn't run.
+
+---
+
+## 9. Design principles, stated explicitly
 
 - **Never patch `mermaid.js` itself.** Every fix lives in `dom_shim.js` or `engine.py`. This means upgrading to a new mermaid.js release is a file swap, not a rebase of hand-edits — at the cost of occasionally needing a small compensating patch (§2, mindmap centering) when mermaid.js's own generated output has a gap that only shows up in the non-default (`htmlLabels:false`) configuration this project requires (`resvg` can't render `foreignObject`+HTML content, so `htmlLabels:false` isn't optional here).
 - **One font, two consumers.** `font_metrics.py` and `raster.py` are handed the *same* DejaVu Sans font file. Layout (what mermaid.js's JS thinks a label's size is) and paint (what resvg actually draws) agree by construction, not by coincidence.
