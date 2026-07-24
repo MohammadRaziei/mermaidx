@@ -38,6 +38,19 @@ A couple of things worth knowing before you pick one:
 - **`[v8]` degrades gracefully.** If `mini-racer` isn't installed, `backend="v8"` just falls back to QuickJS-ng. And for the one diagram type V8 can't handle (`mindmap` — see [Additional backends](#additional-backends-optional)), it falls back too, even when `mini-racer` *is* installed.
 - **`[embed]` is niche.** `.png()`/`.pdf()` are already browser-accurate without it — you only need this for a plain `.svg()` file that has to render correctly outside `mermaidx` itself, with no external font file alongside it. See [Embedding the font for browser-accurate SVGs](#embedding-the-font-for-browser-accurate-svgs-optional).
 
+**Which backend?**
+
+Assuming `mermaidx[all]` is installed — i.e. every optional dependency this package ships is present — these are the backends `render(source, backend=...)` can pick from:
+
+| Backend | What it is |
+| --- | --- |
+| `quickjs` (default) | Lightweight & always available — runs the real mermaid.js inside an embedded QuickJS-ng engine. No compiler, no browser, no Node — just this one package. |
+| `v8` | Fast — the same real mermaid.js, but JIT-compiled by real V8 (`mini-racer`) instead of interpreted. 2-4.5x faster, byte-for-byte identical output — except `mindmap`, which falls back to `quickjs` (see above). |
+| `merman` | Fully Rust-based, from the optional [`mmdr`](https://github.com/mohammadraziei/mmdr) package — no JS engine runs at all. |
+| `mermaid-rs-renderer` | Also fully Rust-based, also from `mmdr` — a second, independent Rust implementation, no JS engine either. |
+
+Whichever backend produces the SVG, everything downstream of it — `.png()`, `.pdf()`, `.raw()`, `.numpy()` — always goes through `mermaidx`'s own resvg + PDF-writer pipeline, so those work identically (and PDF/raw/numpy support doesn't disappear) no matter which one you pick.
+
 There isn't really an equivalent to this in the Python ecosystem. Every other Mermaid-to-image tool reachable from Python — including the official `mermaid-cli` itself — works by driving an actual browser (Puppeteer/Chrome) or shelling out to a separate Node.js process. `mermaidx` is the only one that renders real, current Mermaid JS with no browser and no subprocess at all.
 
 > **Looking for `mmdc`?** That was this project's old name, renamed to `mermaidx` — see [History](#history) for why. `mmdc` is no longer published or maintained under that name; install `mermaidx` instead.
