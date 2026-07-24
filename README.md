@@ -22,13 +22,21 @@ That's it — SVG, PNG, PDF, and ASCII output all work out of the box; nothing e
 
 **Which install do you need?**
 
-- `pip install mermaidx` — this alone is enough for everything above. It gives you the default backend (`backend="quickjs"`, the embedded JS engine this README is about) and nothing else to think about.
-- `pip install mermaidx[v8]` — swaps the embedded JS engine from QuickJS-ng to real V8 (via `mini-racer`) when available, since V8's JIT renders the same real mermaid.js noticeably faster (2-4.5x in our own benchmarks) — same output, same API, still zero system dependencies. Falls back to QuickJS-ng automatically if `mini-racer` isn't installed, and for the one diagram type V8 can't handle (`mindmap`, see [Additional backends](#additional-backends-optional)) even when it is.
-- `pip install mermaidx[rust]` — adds the optional Rust backend (`mmdr`) for extra speed on top of that, selectable with `backend="rust"`.
-- `pip install mermaidx[embed]` — adds `fontTools`, needed only for `svg(embed_font=True)` (see [Embedding the font for browser-accurate SVGs](#embedding-the-font-for-browser-accurate-svgs-optional)). Not needed for `.png()`/`.pdf()`, which are already browser-accurate without it.
-- `pip install mermaidx[all]` — the easy option: every optional backend, in one command.
+`pip install mermaidx` alone already covers everything above (SVG/PNG/PDF/ASCII, default `backend="quickjs"`, the embedded engine this README is about). Everything else is opt-in, and every one of them installs a prebuilt wheel — no system dependency, no system Mermaid/Node install, no compiler, ever.
 
-None of these need a system dependency, a system Mermaid/Node install, or even a compiler — including `[v8]`/`[rust]`/`[all]`, which install prebuilt wheels, not source you build locally.
+| Install | Adds |
+| --- | --- |
+| `pip install mermaidx` | Base install — default `backend="quickjs"`, nothing else to think about |
+| `pip install mermaidx[v8]` | Real V8 engine (`mini-racer`) as a selectable, opt-in `backend="v8"` — same output, 2-4.5x faster JIT |
+| `pip install mermaidx[rust]` | Native-Rust backends (`mmdr`) — `backend="merman"`, `backend="mermaid-rs-renderer"` |
+| `pip install mermaidx[embed]` | `fontTools`, for `.svg(embed_font=True)` — a self-contained SVG that also paints correctly in a plain browser tab |
+| `pip install numpy` | Plain numpy, just for `.numpy()` — a regular dependency, not a `mermaidx` extra |
+| `pip install mermaidx[all]` | Every extra above (`v8` + `rust` + `embed` + `numpy`), in one command |
+
+A couple of things worth knowing before you pick one:
+
+- **`[v8]` degrades gracefully.** If `mini-racer` isn't installed, `backend="v8"` just falls back to QuickJS-ng. And for the one diagram type V8 can't handle (`mindmap` — see [Additional backends](#additional-backends-optional)), it falls back too, even when `mini-racer` *is* installed.
+- **`[embed]` is niche.** `.png()`/`.pdf()` are already browser-accurate without it — you only need this for a plain `.svg()` file that has to render correctly outside `mermaidx` itself, with no external font file alongside it. See [Embedding the font for browser-accurate SVGs](#embedding-the-font-for-browser-accurate-svgs-optional).
 
 There isn't really an equivalent to this in the Python ecosystem. Every other Mermaid-to-image tool reachable from Python — including the official `mermaid-cli` itself — works by driving an actual browser (Puppeteer/Chrome) or shelling out to a separate Node.js process. `mermaidx` is the only one that renders real, current Mermaid JS with no browser and no subprocess at all.
 
