@@ -82,7 +82,7 @@ sequenceDiagram
 Two things worth noticing:
 
 - **The callback bridge (steps 6-13) is the hot path.** A single moderately complex diagram makes 100-300+ round trips from JS into Python and back, each one answering "how big is this text/shape". This is also *why* a from-scratch C++ rewrite (discussed in `architecture-notes`/project history) targets this bridge specifically rather than the JS engine choice — profiling showed ~98% of render time is this loop, not the final rasterization step.
-- **The Promise chain has to be pumped manually** (`_pump_jobs`). QuickJS has no event loop of its own; `execute_pending_job()` runs one microtask at a time, and `Engine` calls it in a loop until the result is ready. Early on this loop had no early-exit condition and would drain a diagram type's entire internal animation-frame queue (hundreds of thousands of no-op iterations) even after the real answer was ready — see §5.
+- **The Promise chain has to be pumped manually** (`_pump_jobs`). QuickJS has no event loop of its own; `execute_pending_job()` runs one microtask at a time, and `Engine` calls it in a loop until the result is ready. Early on this loop had no early-exit condition and would drain a diagram type's entire internal animation-frame queue (hundreds of thousands of no-op iterations) even after the real answer was ready — see §6.
 
 ---
 
@@ -204,7 +204,40 @@ None of these are exotic: they're all direct consequences of the same principle 
 
 ---
 
-## 5. Async without a browser: the job-pump model
+## 5. Known gap: text sanitization (`sanitizeText`/DOMPurify) is a no-op
+
+mermaid.js runs essentially all label text through an internal `sanitizeText()` helper before it ever reaches layout or drawing. That helper is a thin wrapper around a bundled copy of **DOMPurify** (the real, unmodified npm package — same one used to strip unsafe HTML/XSS out of user-supplied labels in a real browser).
+
+DOMPurify refuses to do any real work unless it detects a "real enough" browser DOM. Its own support probe is, roughly:
+
+```mermaid
+flowchart LR
+    A["DOMPurify init"] --> B{"document.implementation.\ncreateHTMLDocument exists?"}
+    B -- no --> NOOP(["isSupported = false\n→ sanitizeText() returns\ninput completely unprocessed"])
+    B -- yes --> C{"Element.prototype has a\n*real getter* named parentNode?\n(walks the prototype chain\nlooking for a get accessor,\nnot an own instance property)"}
+    C -- no --> NOOP
+    C -- yes --> D["... continues into _initDocument():\nDOMParser, or document.implementation.\ncreateDocument() + innerHTML,\nthen createNodeIterator() to walk\nand filter the parsed tree"]
+    D --> WORKS(["real sanitize + entity decode"])
+```
+
+`dom_shim.js` fails the very first check (no `document.implementation` at all), so DOMPurify silently returns whatever text it was given, completely unprocessed — no tag stripping, no entity decoding, nothing. This was traced concretely for [issue #23](https://github.com/MohammadRaziei/mermaidx/issues/23) (a `&nbsp;&nbsp;&nbsp;` block-arrow label rendering as the literal, visible text `&nbsp;&nbsp;&nbsp;` instead of blank padding) by round-tripping the exact string through the bundled DOMPurify instance directly and confirming it came back byte-for-byte identical.
+
+**Why this isn't (currently) fixed at the root.** Getting `isSupported` to actually reach `true` was tried, and required, in order: (1) converting `Node`'s `parentNode`/`childNodes` from own instance properties to real getter/setter pairs on the prototype (DOMPurify's probe specifically walks the prototype chain via `Object.getOwnPropertyDescriptor` — an own instance property doesn't satisfy it, only a real accessor does), (2) `document.implementation.createHTMLDocument()`, (3) `document.implementation.createDocument()` (a *different* method, only discovered once (2) exposed the next missing piece), (4) `NodeFilter` + `document.createNodeIterator()`. After all four, the full render pipeline **silently hung** (no error, no output, no rejected promise) on even a trivial `flowchart LR\nA-->B` — meaning at least one more undiscovered dependency exists somewhere past that point. This is consistent with DOMPurify's own project history: its maintainers spent years getting it to run under jsdom for exactly this reason (jsdom itself was missing `createNodeIterator` as late as 2018), and jsdom is a vastly more complete DOM implementation than this shim. Given the change touches `Node`'s core representation (used by literally every diagram type) and the failure mode discovered was a silent hang rather than a clean error, this was reverted rather than shipped half-working — see the design principle in §9 about verifying with a rendered PNG, not just "did it throw."
+
+**The pragmatic fix in place today:** rather than making DOMPurify work, `&nbsp;` specifically is decoded to a real U+00A0 character at `TextNode` construction (`dom_shim.js`) — the one place all visible text is ultimately created, regardless of which code path produced it. This fixes the one concretely-reported symptom without touching `mermaid.js` and without the blast radius of a `Node`-level rewrite.
+
+**What else likely lives in this same gap** (not yet reported, but the same root cause would produce them):
+
+- **Other named HTML entities in label text**, beyond `&nbsp;` — e.g. `&copy;`, `&trade;`, `&mdash;`, `&hellip;`, `&ensp;`/`&emsp;`/`&thinsp;` — would render as literal entity text instead of the real character, in *any* diagram type, the same way `&nbsp;` did. Only `&nbsp;` is currently patched.
+- **Markdown-formatted labels that lean on whitespace preservation.** mermaid's markdown-label path converts runs of spaces into `&nbsp;` internally so they survive as visible gaps; only diagrams/labels that happen to hit the same plain-`&nbsp;` shape are covered by the current fix. A label that produces some *other* entity for the same purpose wouldn't be.
+- **Numeric character references** (`&#160;`, `&#xA0;`, etc.) written directly in a label instead of the named form — the current fix only matches the literal string `&nbsp;`, not numeric equivalents.
+- **Disallowed tags/attributes intentionally embedded in a label** (e.g. a label containing a literal `<script>` or an `onclick=` attribute) would *not* be stripped the way real mermaid.js (via a working DOMPurify) would strip them. This isn't a live XSS risk for `mermaidx` itself — there's no browser executing the output, just a static SVG/PNG/PDF being produced — but it is a behavior difference worth knowing about if a diagram's rendered *text* ever needs to exactly match what a real browser would show for adversarial label content.
+
+If more of these turn up, that's the signal to revisit the full fix rather than patching each symptom individually — see the discussion that led to this section for the trade-off being made deliberately, not by default.
+
+---
+
+## 6. Async without a browser: the job-pump model
 
 QuickJS has no event loop, no timers, and no real 60fps frame clock. `requestAnimationFrame` and `setTimeout` are polyfilled (`dom_shim.js`, bottom), and `Engine._pump_jobs()` (`engine.py`) manually drains QuickJS's own Promise/microtask queue after kicking off `mermaid.render()`.
 
@@ -226,7 +259,7 @@ Two real bugs lived here:
 
 ---
 
-## 6. Where the layers hand off
+## 7. Where the layers hand off
 
 ```mermaid
 flowchart TD
@@ -253,7 +286,7 @@ flowchart TD
 
 ---
 
-## 7. File reference
+## 8. File reference
 
 | File | Responsibility |
 |---|---|
@@ -270,42 +303,9 @@ flowchart TD
 
 ---
 
-## 8. Investigated and ruled out: is the HTML-label (`foreignObject`) path reachable?
-
-`resvg` (the rasterizer this project rasters through, §6) cannot paint `foreignObject`/HTML content at all, which is why every render forces `htmlLabels: false` (§7, `engine.py`). mermaid.js, though, still *ships* an HTML-label code path (`addHtmlSpan`, gated by a per-call `useHtmlLabels` flag) alongside the plain-SVG-text one — and two shim methods, `Element.getBoundingClientRect()` and `Element.getElementsByTagName("img")`, exist specifically because *something* in mermaid.js called them while getting the mindmap diagram type working. That raised a real question, tracked as issue #11: is `useHtmlLabels` ever actually forced `true` despite the global config, and if it is, does the resulting `foreignObject` end up in real output — where its `getBoundingClientRect()` would hit the exact same single-line-only assumption issue #8 fixed for `getBBox()` (§4)?
-
-**Where `useHtmlLabels` actually comes from.** Every label-creation call site in mermaid.js resolves it through one function:
-
-```js
-Yr = config => (config.htmlLabels ?? config.flowchart?.htmlLabels ?? true)
-```
-
-`mermaidx` sets *both* `config.htmlLabels` and `config.flowchart.htmlLabels` to `false` (`quickjs_engine.py`), so `Yr(config)` is `false` everywhere it's read. Grepping every `.useHtmlLabels =` assignment in the bundle turns up exactly one, and it also just forwards `config.htmlLabels` — no diagram type hardcodes `true` for a specific node/label kind (icon nodes, KaTeX, etc.).
-
-**So where were `getBoundingClientRect`/`getElementsByTagName("img")` actually being called from?** Instrumenting them to log a JS stack trace and rendering a mindmap with an icon node (`::icon(fa fa-book)`) answers it directly:
-
-```
-at getBoundingClientRect (<input>:349:156)
-at <anonymous> (<input>:557:272617)     ← cytoscape.js internals
-at <anonymous> (<input>:560:86314)      ← gs.matchCanvasSize (cytoscape)
-```
-
-Both calls resolve into **cytoscape.js's own container/canvas-sizing code** (`matchCanvasSize`/`findContainerClientCoords`) — mindmap's layout engine measuring its own rendering container, completely unrelated to mermaid's `addHtmlSpan`/HTML-label path. `getElementsByTagName("img")` never fired at all in this render.
-
-**Direct confirmation it isn't reachable.** Rendering both a mindmap with an icon node and a flowchart using KaTeX math syntax (`$$x^2+y^2=z^2$$`, one of the two candidates the issue named) and counting `foreignObject` in the output SVG:
-
-| Input | `foreignObject` count | Notes |
-|---|---|---|
-| mindmap + `::icon(...)` node | 0 | icon syntax renders through the plain-text path |
-| flowchart + `$$...$$` label | 0 | renders as the *literal string* `$$x^2+y^2=z^2$$`, not real math — KaTeX rendering itself isn't wired up in this build |
-
-Zero `foreignObject` elements in either case confirms `addHtmlSpan` is not reached by any currently-supported `mermaidx` input.
-
-**Conclusion.** `getBoundingClientRect()`'s single-line-only measurement (it feeds `this.textContent` straight into `__measureTextFull` with no `<br>`/line-count handling — the same class of gap issue #8 fixed for `getBBox()`) is a real latent gap, but it's provably **dead code under every input tried so far**: nothing in the current bundle drives `useHtmlLabels` to `true` for an actual label, so `addHtmlSpan` never runs, so that measurement code never executes. This isn't a "fixed" bug — there was never a reachable bug to trigger it. If a future `mermaid.js` upgrade adds a call site that hardcodes `useHtmlLabels: true` for some label kind (the issue's own suggested next step: find one), *then* `getBoundingClientRect()` would need the same multi-line fix `__computeBBox()` already got — worth re-checking on every `mermaid.js` version bump, not worth speculatively fixing against code that doesn't run.
-
----
-
 ## 9. Design principles, stated explicitly
+
+- **Verify with a rendered artifact, not just "did it throw."** A fix that stops an exception isn't necessarily correct — see §5's block-arrow label, which rendered without error for a long time while showing literal `&nbsp;&nbsp;&nbsp;` text instead of blank padding, and see §4's three silent-zero-bbox bugs, none of which raised anything either. The reliable check is comparing an actual rendered PNG (via the CLI) against what the diagram is supposed to look like, not just confirming `mermaid.render()` resolved.
 
 - **Never patch `mermaid.js` itself.** Every fix lives in `dom_shim.js` or `engine.py`. This means upgrading to a new mermaid.js release is a file swap, not a rebase of hand-edits — at the cost of occasionally needing a small compensating patch (§2, mindmap centering) when mermaid.js's own generated output has a gap that only shows up in the non-default (`htmlLabels:false`) configuration this project requires (`resvg` can't render `foreignObject`+HTML content, so `htmlLabels:false` isn't optional here).
 - **One font, two consumers.** `font_metrics.py` and `raster.py` are handed the *same* DejaVu Sans font file. Layout (what mermaid.js's JS thinks a label's size is) and paint (what resvg actually draws) agree by construction, not by coincidence.
