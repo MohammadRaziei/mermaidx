@@ -1004,9 +1004,34 @@ function __querySelectorAll(root, sel) {
 
 // --- serialize / parse (very small, enough for mermaid's own output) ---
 function __esc(s) { return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+
+// mermaid.js's non-HTML-labels tspan builder (the `Mse` helper in the
+// bundle, at the time of writing) only decodes &amp;/&lt;/&gt; when it
+// builds label text -- everything else, including &nbsp; (commonly used
+// to force visible width in an otherwise-empty label, e.g. block-arrow
+// shapes), passes through as literal text instead of becoming the
+// character it names. In mermaid's HTML-labels path (its default, what a
+// real browser / mmdc-cli uses) this never comes up, since label markup
+// goes through actual HTML parsing there, which decodes any named
+// entity; mermaidx always renders with htmlLabels:false (resvg can't
+// paint the foreignObject/HTML labels that path produces), so every
+// diagram takes the narrower one instead. Decode the common ones here,
+// on raw text content before __esc() runs -- scoped to entities outside
+// the 5 XML-reserved ones (&amp; &lt; &gt; &quot; &apos;), since
+// decoding those would hand __esc() a bare "&" or "<" and produce
+// invalid XML; they're real XML/SVG markup escapes, not just HTML
+// entities mermaid forgot.
+const _EXTRA_TEXT_ENTITIES = {
+  nbsp: "\u00A0", copy: "\u00A9", reg: "\u00AE", trade: "\u2122",
+  mdash: "\u2014", ndash: "\u2013", hellip: "\u2026",
+};
+function __decodeStrayLabelEntities(s) {
+  return String(s).replace(/&([a-zA-Z]+);/g, (m0, name) =>
+    name in _EXTRA_TEXT_ENTITIES ? _EXTRA_TEXT_ENTITIES[name] : m0);
+}
 function __serialize(el, innerOnly) {
   function ser(n) {
-    if (n.nodeType === 3) return __esc(n.textContent);
+    if (n.nodeType === 3) return __esc(__decodeStrayLabelEntities(n.textContent));
     const attrEntries = Object.entries(n._attrs||{}).filter(([k]) => k !== "style");
     const attrs = attrEntries.map(([k,v])=>` ${k}="${__esc(v)}"`).join("");
     // A "style" set via setAttribute("style", ...) and properties set via
@@ -1032,9 +1057,33 @@ function __parseInto(parent, html) {
   let stack = [parent];
   let last = 0;
   let m;
+  // mermaid's own label entity-decoding (Rje/"entityDecode") works by
+  // setting innerHTML on a scratch element and reading textContent back --
+  // the same trick a real browser's parser performs, which decodes any
+  // named or numeric HTML entity, not just the 5 XML ones. A named entity
+  // mermaidx doesn't know here (e.g. &nbsp; -- reported as issue: it's a
+  // real, meaningful non-breaking space character in a label, not visible
+  // text that should read literally "&nbsp;") passes through unchanged and
+  // ends up serialized back out as literal "&nbsp;" text in the SVG.
+  const NAMED_ENTITIES = {
+    nbsp: "\u00A0", copy: "\u00A9", reg: "\u00AE", trade: "\u2122",
+    mdash: "\u2014", ndash: "\u2013", hellip: "\u2026",
+    larr: "\u2190", uarr: "\u2191", rarr: "\u2192", darr: "\u2193",
+    deg: "\u00B0", plusmn: "\u00B1", times: "\u00D7", divide: "\u00F7",
+    sect: "\u00A7", para: "\u00B6", middot: "\u00B7",
+    laquo: "\u00AB", raquo: "\u00BB",
+    euro: "\u20AC", pound: "\u00A3", yen: "\u00A5", cent: "\u00A2",
+  };
   function pushText(text) {
     if (!text) return;
-    const t = text.replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&quot;/g,'"').replace(/&#39;/g,"'").replace(/&amp;/g,"&");
+    const t = text
+      .replace(/&#x([0-9a-fA-F]+);/g, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+      .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(parseInt(d, 10)))
+      .replace(/&([a-zA-Z]+);/g, (m0, name) =>
+        name in NAMED_ENTITIES ? NAMED_ENTITIES[name] :
+        name === "lt" ? "<" : name === "gt" ? ">" :
+        name === "quot" ? '"' : name === "apos" ? "'" :
+        name === "amp" ? "&" : m0);
     if (t.length) stack[stack.length-1].appendChild(doc.createTextNode(t));
   }
   while ((m = tagRe.exec(s))) {
