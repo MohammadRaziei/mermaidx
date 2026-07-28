@@ -29,6 +29,16 @@ def render_ascii(source: str, **opts) -> str:
                 padding_x, padding_y, gap.
 
     Returns:
-        The rendered diagram as a string.
+        The rendered diagram as a string, ending in a trailing newline.
     """
-    return termaid.render(source, **opts)
+    art = termaid.render(source, **opts)
+    # termaid.render() itself doesn't end with "\n" -- the termaid *CLI*
+    # only appears to include one because printing a string adds one for
+    # free. mermaidx.save()/diagram.py write this straight to a file with
+    # no such implicit newline, so without this the saved file is missing
+    # its trailing newline (unlike running `termaid` directly, and unlike
+    # every other text file convention) -- reported as a diff-only
+    # difference against `termaid`'s own output for the same diagram.
+    if not art.endswith("\n"):
+        art += "\n"
+    return art

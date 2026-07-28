@@ -143,6 +143,15 @@ def test_save_ascii_by_extension(tmp_path):
     assert out.read_text(encoding="utf-8").strip()
 
 
+def test_save_ascii_ends_with_trailing_newline(tmp_path):
+    """https://github.com/MohammadRaziei/mermaidx/issues/32 -- save()
+    writes Diagram.ascii() straight to the file with no implicit
+    newline of its own, so the fix has to be in the string itself."""
+    out = tmp_path / "d.txt"
+    mermaidx.render(FLOWCHART).save(str(out))
+    assert out.read_text(encoding="utf-8").endswith("\n")
+
+
 def test_save_format_override_ignores_extension(tmp_path):
     """save(..., format=...) forces the format regardless of the file extension."""
     out = tmp_path / "d.whatever"
