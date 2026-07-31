@@ -33,7 +33,7 @@ from typing import Optional
 
 import quickjs
 
-from mermaidx.engines._svg_patches import patch_mindmap_centering
+from mermaidx.engines._svg_patches import patch_journey_task_text_color, patch_mindmap_centering
 from mermaidx.font_metrics import get_font
 from mermaidx.path_bbox import PATH_BBOX_JS
 
@@ -153,7 +153,9 @@ class Engine:
         render_id = f"gd{self._render_count}"
 
         base_config = {"startOnLoad": False, "theme": theme or "default",
-                        "flowchart": {"htmlLabels": False}, "htmlLabels": False}
+                        "flowchart": {"htmlLabels": False}, "htmlLabels": False,
+                        "journey": {"textPlacement": "tspan"},
+                        "timeline": {"textPlacement": "tspan"}}
         if config:
             base_config.update(config)
 
@@ -189,7 +191,7 @@ class Engine:
         svg = ctx.eval("globalThis.__renderResult")
         if not svg:
             raise MermaidRenderError("mermaid.render() produced no output (unknown error)")
-        return patch_mindmap_centering(str(svg))
+        return patch_journey_task_text_color(patch_mindmap_centering(str(svg)))
 
     # -- public, thread-safe entry point ---------------------------------------
 

@@ -84,7 +84,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Optional
 
-from mermaidx.engines._svg_patches import patch_mindmap_centering
+from mermaidx.engines._svg_patches import patch_journey_task_text_color, patch_mindmap_centering
 from mermaidx.font_metrics import get_font
 from mermaidx.path_bbox import PATH_BBOX_JS
 
@@ -194,7 +194,9 @@ def _render_svg_sync(ctx, render_count: int, code: str, theme: str,
     render_id = f"gd{render_count}"
 
     base_config = {"startOnLoad": False, "theme": theme or "default",
-                    "flowchart": {"htmlLabels": False}, "htmlLabels": False}
+                    "flowchart": {"htmlLabels": False}, "htmlLabels": False,
+                    "journey": {"textPlacement": "tspan"},
+                    "timeline": {"textPlacement": "tspan"}}
     if config:
         base_config.update(config)
 
@@ -227,7 +229,7 @@ mermaid.render({json.dumps(render_id)}, {json.dumps(code)})
     svg = ctx.eval("globalThis.__renderResult")
     if not svg:
         raise MermaidRenderError("mermaid.render() produced no output (unknown error)")
-    return patch_mindmap_centering(str(svg))
+    return patch_journey_task_text_color(patch_mindmap_centering(str(svg)))
 
 
 def _child_main(conn) -> None:

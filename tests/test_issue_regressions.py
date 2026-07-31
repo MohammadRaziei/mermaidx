@@ -290,3 +290,55 @@ end
     left, right = title_x - width / 2, title_x + width / 2
     assert left >= vb_x0, "title runs off the left edge of the viewBox"
     assert right <= vb_x0 + vb_w, "title runs off the right edge of the viewBox"
+
+
+def test_issue_31_journey_task_labels_not_missing():
+    """https://github.com/MohammadRaziei/mermaidx/issues/31
+
+    Journey (and timeline, which shares the same renderer) diagrams
+    default to mermaid's `textPlacement: "fo"` config, which places every
+    section/task/actor label inside a `<foreignObject><div>...</div>`
+    rather than a native SVG `<text>` element. resvg -- the engine this
+    project rasterizes SVG with -- doesn't render foreignObject/HTML
+    content at all, so every label silently vanished from the output
+    while the surrounding boxes and the diagram title (a plain `<text>`
+    element) still rendered fine. Fixed by forcing `textPlacement` away
+    from "fo" (and "old") so mermaid falls back to its native multi-line
+    `<text>`/`<tspan>` renderer for these diagram types.
+    """
+    code = """journey
+    title Ordering groceries online
+    section Browse and select
+      Search for items: 6: Customer
+      Compare prices: 4: Customer
+      Add to basket: 7: Customer
+    section Checkout
+      Choose delivery slot: 5: Customer
+      Pay for order: 3: Customer
+    section Fulfilment
+      Pick items in store: 4: Store staff
+      Deliver groceries: 5: Driver
+      Unpack at home: 7: Customer
+"""
+    svg = mermaidx.render(code).svg()
+    assert svg.startswith("<svg")
+
+    assert "foreignObject" not in svg, "journey labels should use native <text>, not foreignObject"
+
+    for label in (
+        "Browse and select", "Search for items", "Compare prices", "Add to basket",
+        "Checkout", "Choose delivery slot", "Pay for order",
+        "Fulfilment", "Pick items in store", "Deliver groceries", "Unpack at home",
+    ):
+        assert f">{label}<" in svg, f"missing task/section label: {label}"
+
+    # The tspan fallback's default `fill` (from mermaid's `sectionColours`
+    # theme var, "#fff") is only harmless under the foreignObject path,
+    # where real CSS color takes over; in native-text mode it renders as
+    # invisible white-on-pastel text unless overridden. `!important` is
+    # required: section-header labels share a "section-type-N" class with
+    # their own background <rect>, and mermaid's #<id>-scoped theme CSS
+    # for that class has higher specificity than a bare class+tag rule,
+    # so without it the label silently repaints to match its own box.
+    assert "text.task,text.journey-section" in svg
+    assert "!important" in svg
