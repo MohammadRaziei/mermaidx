@@ -32,7 +32,7 @@ test = [
   "pytest-cov", "psutil"
 ]
 rust = [ "mmdr" ]
-v8 = [ "mini-racer" ]
+v8engine = [ "mini-racer" ]
 embed = [ "fonttools" ]
 all  = [ "mmdr", "mini-racer", "numpy", "fonttools" ]
 

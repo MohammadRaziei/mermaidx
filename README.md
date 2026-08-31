@@ -33,11 +33,11 @@ Everything beyond the base installation is opt-in via standard PyPI extras:
 | Command | Adds |
 | --- | --- |
 | `pip install mermaidx` | Base install — default `backend="quickjs"`, zero system dependencies |
-| `pip install mermaidx[v8]` | Real V8 engine (`mini-racer`) as a selectable `backend="v8"` (2-4.5x faster JIT) |
+| `pip install mermaidx[v8engine]` | Real V8 engine (`mini-racer`) as a selectable `backend="v8"` (2-4.5x faster JIT) |
 | `pip install mermaidx[rust]` | Native-Rust backends via [`mmdr`](https://github.com/mohammadraziei/mmdr) — `backend="merman"`, `backend="mermaid-rs-renderer"` |
 | `pip install mermaidx[embed]` | `fontTools`, enabling `.svg(embed_font=True)` for standalone browser-safe SVGs |
 | `pip install numpy` | Adds `.numpy()` export support (standard package dependency) |
-| `pip install mermaidx[all]` | Every extra above (`v8` + `rust` + `embed` + `numpy`) in one go |
+| `pip install mermaidx[all]` | Every extra above (`v8engine` + `rust` + `embed` + `numpy`) in one go |
 
 - **V8 Speedup & Behavior:** V8 renders **2–4.5x faster** (byte-for-byte identical SVG) by leveraging JIT compilation. It runs in an isolated child process to ensure 100% memory reclamation.
 - **Mindmap Exception:** For `mindmap` diagrams, use the default `backend="quickjs"`. Cytoscape animation loops require QuickJS-ng's execution bounding; under `V8`, mindmaps raise an error and clean up the process safely without leaking memory.
@@ -53,7 +53,7 @@ import mermaidx
 
 print(mermaidx.backends())
 # ['quickjs']                                    # Base install
-# ['quickjs', 'v8']                               # with mermaidx[v8]
+# ['quickjs', 'v8']                               # with mermaidx[v8engine]
 # ['quickjs', 'merman', 'mermaid-rs-renderer']     # with mermaidx[rust]
 ```
 
@@ -327,7 +327,7 @@ pie charts, git graphs, and more.
 
 * Python 3.9+
 * `quickjs-ng`, `resvg_py`, `termaid` (installed automatically)
-* `mini-racer` (optional, `pip install mermaidx[v8]`, for the V8 engine)
+* `mini-racer` (optional, `pip install mermaidx[v8engine]`, for the V8 engine)
 * No system packages, no Node.js, no npm, no browser
 
 ---
@@ -346,7 +346,7 @@ pytest tests/ -v
 * **mmdc, powered by [phasma**](https://github.com/mohammadraziei/phasma) — the original version of this project. It bundled a real (if small — around 20MB) headless browser, PhantomJS, and exposed an `async` Python API to match: rendering meant talking to a subprocess, so `async`/`await` genuinely mattered for concurrency.
 * **0.6.x** — a full rewrite: PhantomJS's engine couldn't parse modern Mermaid (v11's ES2022+ syntax) at all, so the whole browser was replaced with mermaid.js running inside QuickJS-ng against a hand-written DOM/SVG shim, with resvg for rasterization. No subprocess left to wait on, so the API became synchronous. Three backends appeared: `js` (this engine), plus `merman` and `mermaid-rs-renderer` via the optional [`mmdr`](https://github.com/mohammadraziei/mmdr) package.
 * **0.7.x, renamed to mermaidx** — same engine, new name. The old name, `mmdc`, was identical to the official Mermaid CLI's own binary name (`@mermaid-js/mermaid-cli` installs a command called `mmdc`) — a real collision, not just a branding concern. Renamed early, while it still could be. **If you have `mmdc` pinned anywhere (`requirements.txt`, a Dockerfile, CI config), switch it to `mermaidx` — the old name isn't maintained or published anymore.**
-* **Later 0.7.x** — the embedded-JS-engine backend split into `mermaidx/engines/` (`quickjs_engine.py` / `v8_engine.py`), and gained an optional real-V8 path (`pip install mermaidx[v8]`, `backend="v8"`) alongside the original QuickJS-ng one (`backend="quickjs"`, still the default) — same mermaid.js, same output, just a choice of engine.
+* **Later 0.7.x** — the embedded-JS-engine backend split into `mermaidx/engines/` (`quickjs_engine.py` / `v8_engine.py`), and gained an optional real-V8 path (`pip install mermaidx[v8engine]`, `backend="v8"`) alongside the original QuickJS-ng one (`backend="quickjs"`, still the default) — same mermaid.js, same output, just a choice of engine.
 
 ---
 
