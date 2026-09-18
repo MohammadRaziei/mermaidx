@@ -33,8 +33,9 @@ test = [
 ]
 rust = [ "mmdr" ]
 v8engine = [ "mini-racer" ]
+novasvg = [ "novasvg>=0.5.0" ]
 embed = [ "fonttools" ]
-all  = [ "mmdr", "mini-racer", "numpy", "fonttools" ]
+all  = [ "mmdr", "mini-racer", "novasvg>=0.5.0", "numpy", "fonttools" ]
 
 [project.scripts]
 mermaidx = "mermaidx.__main__:main"

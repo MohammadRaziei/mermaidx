@@ -37,7 +37,7 @@ from mermaidx.engines.quickjs_engine import MermaidRenderError as _QuickJSRender
 from mermaidx.font_embed import embed_dejavu_font
 from mermaidx.pdf_writer import png_to_pdf
 from mermaidx.png_decode import decode_png_rgba, decode_png
-from mermaidx.raster import render_png
+from mermaidx.raster import render_png as _render_png_resvg
 
 try:
     from mermaidx.engines.v8_engine import Engine as _V8Engine
@@ -93,6 +93,35 @@ def _get_engine_by_name(name: str):
 
 _MISSING = object()
 
+# Which SVG->PNG rasterizer to use. "resvg" (default, via mermaidx.raster) is
+# what every existing render() call keeps getting unless it opts in.
+# "novasvg" (mermaidx.raster_novasvg) additionally renders <foreignObject>
+# text -- what mermaid.js emits by default for every label -- so it's the
+# only one of the two that doesn't need the textPlacement="tspan" override
+# in engines/quickjs_engine.py and engines/v8_engine.py to show labels at
+# all. That override (and the _svg_patches it exists to work around) is
+# left in place regardless of raster= here; switching it off per diagram
+# type is a separate, deliberate change, not a side effect of this flag.
+_RASTER_BACKENDS = {"resvg": _render_png_resvg}
+
+
+def _render_png_fn(raster: str):
+    if raster not in _RASTER_BACKENDS and raster == "novasvg":
+        try:
+            from mermaidx.raster_novasvg import render_png as _render_png_novasvg
+        except ImportError as exc:
+            raise ImportError(
+                "raster='novasvg' requires the optional 'novasvg' package. "
+                "Install it with:\n    pip install mermaidx[novasvg]"
+            ) from exc
+        _RASTER_BACKENDS["novasvg"] = _render_png_novasvg
+    try:
+        return _RASTER_BACKENDS[raster]
+    except KeyError:
+        raise ValueError(
+            f"raster={raster!r} is not a known rasterizer. Use 'resvg' (default) or 'novasvg'."
+        ) from None
+
 
 class DiagramBase:
     """
@@ -112,10 +141,11 @@ class DiagramBase:
 
     backend: str = "base"
 
-    def __init__(self, source: str, **opts) -> None:
+    def __init__(self, source: str, *, raster: str = "resvg", **opts) -> None:
         self._source = source
         self._opts = opts
         self._cache: dict = {}
+        self._render_png = _render_png_fn(raster)
 
     # ------------------------------------------------------------------
     # memoization helper -- keyed by (method name, sorted kwargs)
@@ -171,7 +201,7 @@ class DiagramBase:
         kwargs = dict(background=background, width=width, height=height)
         if width is None and height is None and scale is not None:
             kwargs["scale"] = scale
-        return render_png(self.svg(), **kwargs)
+        return self._render_png(self.svg(), **kwargs)
 
     def png(
         self,
@@ -269,7 +299,7 @@ class DiagramBase:
         render_kwargs = dict(background=background, width=width, height=height)
         if width is None and height is None:
             render_kwargs["scale"] = scale
-        png_bytes = render_png(self.svg(), **render_kwargs)
+        png_bytes = self._render_png(self.svg(), **render_kwargs)
         decoded = decode_png(png_bytes)
         return png_to_pdf(
             decoded, pdf_format=pdf_format, landscape=pdf_landscape,
@@ -416,6 +446,37 @@ class DiagramBase:
         return self.svg()
 
 
+# quickjs_engine.py / v8_engine.py hardcode htmlLabels=False (top-level and
+# under "flowchart") and journey/timeline textPlacement="tspan" into every
+# render's base_config, because resvg cannot paint the <foreignObject> HTML
+# labels mermaid.js otherwise emits by default (see mermaidx.raster_novasvg's
+# module docstring, and novasvg's own COMPARISON.md, for why). Those
+# defaults only make sense for raster="resvg". When raster="novasvg" -- a
+# rasterizer that *does* paint foreignObject text -- this restores mermaid's
+# own defaults instead, so diagrams get real HTML labels (proper wrapping,
+# multi-line, styled spans) rather than the native <text> fallback.
+# A key the caller's own `config=` sets explicitly always wins: this only
+# fills in what they didn't already decide for themselves.
+_NOVASVG_MERMAID_DEFAULTS = {
+    "htmlLabels": True,
+    "flowchart": {"htmlLabels": True},
+    "journey": {"textPlacement": "fo"},
+    "timeline": {"textPlacement": "fo"},
+}
+
+
+def _effective_mermaid_config(raster: str, user_config: Optional[dict]) -> Optional[dict]:
+    if raster != "novasvg":
+        return user_config
+    merged = dict(_NOVASVG_MERMAID_DEFAULTS)
+    for key, value in (user_config or {}).items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = {**merged[key], **value}
+        else:
+            merged[key] = value
+    return merged
+
+
 class Diagram(DiagramBase):
     """mermaid.js v11 running inside a JS engine, with resvg (using a bundled
     font shared with the layout step) for everything downstream of SVG. See
@@ -461,12 +522,14 @@ class Diagram(DiagramBase):
         theme: Optional[str] = None,
         config: Optional[dict] = None,
         css: Optional[str] = None,
+        raster: str = "resvg",
         **_ignored,
     ) -> None:
         if backend not in ("quickjs", "v8"):
             raise ValueError(f"Unknown backend {backend!r} for Diagram; expected 'quickjs' or 'v8'.")
-        super().__init__(source, theme=theme, config=config, css=css)
+        super().__init__(source, raster=raster, theme=theme, config=config, css=css)
         self.backend = backend
+        self._raster = raster
         self._theme = theme
         self._config = config
         self._css = css
@@ -474,8 +537,9 @@ class Diagram(DiagramBase):
     def _svg(self) -> str:
         engine = _get_engine_by_name(self.backend)  # raises ImportError first if backend="v8" but unavailable
         render_error = _QuickJSRenderError if self.backend == "quickjs" else _V8RenderError
+        config = _effective_mermaid_config(self._raster, self._config)
         try:
-            return engine.render_svg(self._source, self._theme or "default", self._config, self._css)
+            return engine.render_svg(self._source, self._theme or "default", config, self._css)
         except render_error as e:
             raise RuntimeError(f"Mermaid rendering failed: {e}") from e
 
@@ -516,6 +580,9 @@ def render(source: str, backend: Optional[str] = None, **opts) -> "DiagramBase":
         **opts:  Forwarded to the chosen backend.
                  'quickjs' / 'v8': theme, config, css
                  mmdr backends: theme, node_spacing, rank_spacing, aspect_ratio
+                 all backends: raster='resvg' (default) or 'novasvg' -- which
+                 SVG->PNG rasterizer png()/raw()/numpy()/pdf() use. See
+                 mermaidx.raster_novasvg for why 'novasvg' exists.
 
     Returns:
         A DiagramBase subclass instance (Diagram for 'quickjs'/'v8',
