@@ -82,7 +82,7 @@ def test_png():
 
 
 def test_png_with_background_and_width():
-    """resvg (like most SVG rasterizers) preserves aspect ratio when a
+    """novasvg (like most SVG rasterizers) preserves aspect ratio when a
     single dimension is given -- it doesn't stretch to arbitrary w+h."""
     png = mermaidx.render(FLOWCHART).png(width=400, background="#ffffff")
     from mermaidx.png_decode import decode_png
@@ -236,7 +236,7 @@ def test_render_unknown_backend_without_mmdr_behaves_correctly():
 
 def test_mmdr_backend_gets_pdf_support_it_doesnt_natively_have():
     """The whole point of DiagramBase: mmdr's own Diagram.pdf() raises
-    NotImplementedError, but ours reuses our resvg + PDF writer on top of
+    NotImplementedError, but ours reuses our novasvg + PDF writer on top of
     mmdr's svg() -- so PDF export works for mmdr backends too."""
     pytest.importorskip("mmdr")
     d = mermaidx.render(FLOWCHART, backend="merman")
@@ -366,7 +366,7 @@ def test_embed_font_is_cached_separately_from_plain_svg():
 
 
 def test_embed_font_does_not_affect_png():
-    """.png()/.pdf() already guarantee measure == paint via resvg's own
+    """.png()/.pdf() already guarantee measure == paint via novasvg's own
     font override (see raster.py) regardless of embed_font -- this option
     only matters for opening the raw SVG in a browser."""
     pytest.importorskip("fontTools")
@@ -440,7 +440,7 @@ def test_treemap_rasterizes_without_duplicate_style_attribute():
     an attribute set via setAttribute('style', ...) with one set via the
     live el.style API, and the (old) serializer emitted two separate
     style="..." attributes on the same element -- invalid SVG/XML that
-    resvg rejected with "attribute 'style' ... already defined"."""
+    novasvg rejected with "attribute 'style' ... already defined"."""
     png = mermaidx.render(TREEMAP).png()
     assert png[:8] == b"\x89PNG\r\n\x1a\n"
 

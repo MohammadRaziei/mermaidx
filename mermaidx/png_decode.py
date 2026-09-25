@@ -2,15 +2,16 @@
 mermaidx.png_decode — just enough of the PNG spec to pull raw RGB(A) pixels back
 out of a PNG file, using only the standard library (`zlib`, `struct`).
 
-Why this exists: resvg only emits PNG bytes. To embed those pixels into a
-hand-written PDF (see mermaidx.pdf_writer) as an image XObject, or to hand back
-raw RGBA8888 buffers (Diagram.raw() / .numpy()), we need actual samples, not
-a PNG container — and every mainstream "give me a raster image" library
-(Pillow, pikepdf, img2pdf, reportlab...) pulls in Pillow as a transitive
-dependency. This avoids that entirely.
+Why this exists: mermaidx.raster (novasvg) only emits PNG bytes. To embed
+those pixels into a hand-written PDF (see mermaidx.pdf_writer) as an image
+XObject, or to hand back raw RGBA8888 buffers (Diagram.raw() / .numpy()),
+we need actual samples, not a PNG container -- and every mainstream "give
+me a raster image" library (Pillow, pikepdf, img2pdf, reportlab...) pulls
+in Pillow as a transitive dependency. This avoids that entirely.
 
-Supports exactly what resvg produces: 8-bit, non-interlaced, color type 2
-(RGB) or 6 (RGBA). That covers all resvg output; nothing else is handled.
+Supports exactly what novasvg produces: 8-bit, non-interlaced, color type 2
+(RGB) or 6 (RGBA). That covers all output mermaidx.raster produces; nothing
+else is handled.
 """
 
 from __future__ import annotations
@@ -65,7 +66,7 @@ def decode_png(data: bytes) -> DecodedPNG:
     if bit_depth != 8 or color_type not in (2, 6):
         raise ValueError(
             f"Unsupported PNG: bit_depth={bit_depth} color_type={color_type} "
-            "(only 8-bit RGB/RGBA, as produced by resvg, is supported)"
+            "(only 8-bit RGB/RGBA, as produced by mermaidx.raster, is supported)"
         )
 
     channels = 3 if color_type == 2 else 4

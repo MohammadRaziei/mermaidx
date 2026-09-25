@@ -783,7 +783,7 @@ function __chainTo(root, target) {
 // runs, and puts a vestigial, unrelated y (plain user units, no dy) on the
 // outer <text> that gets overridden the moment that tspan is reached.
 // Reading the outer element's own y/x directly (as if it were the one SVG
-// actually uses) silently disagreed with resvg's real paint position by
+// actually uses) silently disagreed with the real paint position by
 // exactly that difference -- which is what put backgrounds and text out of
 // alignment. This walks down through single-child chains to find the
 // element that really carries the position, honoring dy accumulation.
@@ -1013,10 +1013,12 @@ function __esc(s) { return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").
 // character it names. In mermaid's HTML-labels path (its default, what a
 // real browser / mmdc-cli uses) this never comes up, since label markup
 // goes through actual HTML parsing there, which decodes any named
-// entity; mermaidx always renders with htmlLabels:false (resvg can't
-// paint the foreignObject/HTML labels that path produces), so every
-// diagram takes the narrower one instead. Decode the common ones here,
-// on raw text content before __esc() runs -- scoped to entities outside
+// entity; this DOM shim's own tspan text builder doesn't do that HTML
+// entity decoding, so any diagram/config that still reaches it (see
+// mermaidx.engines.quickjs_engine/v8_engine's base_config -- journey/
+// timeline section headers and score labels always do, htmlLabels:false
+// opt-ins do for everything) needs it done here instead. Decode the
+// common ones here, on raw text content before __esc() runs -- scoped to entities outside
 // the 5 XML-reserved ones (&amp; &lt; &gt; &quot; &apos;), since
 // decoding those would hand __esc() a bare "&" or "<" and produce
 // invalid XML; they're real XML/SVG markup escapes, not just HTML
@@ -1038,7 +1040,7 @@ function __serialize(el, innerOnly) {
     // the live el.style.foo = ... API both need to end up in the SAME
     // style="..." attribute -- emitting two separate style= attributes
     // (one from _attrs, one from n.style.cssText) is invalid SVG/XML and
-    // resvg rejects it outright ("attribute 'style' ... already defined").
+    // novasvg (and any strict XML parser) rejects it outright ("attribute 'style' ... already defined").
     const attrStyle = n._attrs && n._attrs.style;
     const liveStyle = n.style && n.style.cssText;
     const combinedStyle = [attrStyle, liveStyle].filter(Boolean).join(";");

@@ -1,221 +1,116 @@
 """
-mermaidx.font_metrics — just enough of the TrueType/OpenType spec to answer one
-question: "how wide is this string, in this font, at this size?"
+mermaidx.font_metrics -- just enough of the TrueType/OpenType spec to answer
+one question: "how wide is this string, in this font, at this size?" (plus
+the per-codepoint advance TABLE mermaidx.engines.v8_engine needs to ship
+into a JS engine that can't call back into Python).
 
-This intentionally does NOT use fontTools (a real, excellent library — but
-~20MB for what amounts to a handful of table lookups here) or any other
-third-party dependency. It reads exactly three tables:
+Previously this parsed the head/hhea/cmap/hmtx tables by hand (no fontTools
+dependency, no kerning/ligatures -- see git history for that version). It
+now delegates entirely to novasvg (github.com/mohammadraziei/novasvg), the
+same library mermaidx.raster_novasvg uses to actually paint the glyphs:
+novasvg's font stack is a vendored stb_truetype, exposed to Python as
+FontFace/Font (novasvg.FontFace.codepoints()/advance_width_units()/
+units_per_em, novasvg.Font.measure_text()). One engine measuring AND
+painting means layout and paint can't drift apart from two separately
+maintained implementations -- which is the whole reason novasvg itself
+exists (see its README / COMPARISON.md).
 
-  head  -> unitsPerEm
-  hhea  -> numberOfHMetrics, ascender, descender
-  cmap  -> Unicode codepoint -> glyph ID (format 4 and format 12 subtables)
-  hmtx  -> glyph ID -> advance width
-
-No kerning, no ligatures, no complex shaping — just summed per-character
-advance widths. For mermaid's own layout purposes (sizing boxes around
-short labels) this is the same level of precision most non-browser SVG
-tools operate at, and it exactly matches what will actually be painted
-since the *same* bundled font file is also handed to resvg for final
-rendering (see engine.py).
+Verified numerically identical to the old hand-rolled parser for the
+bundled DejaVu Sans files: same width, same ascent (descent differs only in
+sign convention, normalized below to keep this module's own established
+convention of "positive descent"), same unitsPerEm/ascender/descender/
+notdef-glyph width, and the exact same 5906 codepoints with the exact same
+per-codepoint advance in font design units.
 """
 
 from __future__ import annotations
 
-import struct
 from functools import lru_cache
 from pathlib import Path
 from typing import Optional
 
+import novasvg as _novasvg
 
-class _Reader:
-    __slots__ = ("data",)
+_ASSETS_FONTS = Path(__file__).parent / "assets" / "fonts"
+_FAMILY = "DejaVu Sans"
 
-    def __init__(self, data: bytes) -> None:
-        self.data = data
-
-    def u8(self, off): return self.data[off]
-    def u16(self, off): return struct.unpack_from(">H", self.data, off)[0]
-    def i16(self, off): return struct.unpack_from(">h", self.data, off)[0]
-    def u32(self, off): return struct.unpack_from(">I", self.data, off)[0]
+# Registered once per process into novasvg's global font-face cache -- same
+# pattern raster.py uses for the paint side, so "DejaVu Sans" resolves to
+# these exact bytes for both layout and paint regardless of what's
+# installed on the host.
+_novasvg.add_font_face_from_file(_FAMILY, False, False, str(_ASSETS_FONTS / "DejaVuSans.ttf"))
+_novasvg.add_font_face_from_file(_FAMILY, True, False, str(_ASSETS_FONTS / "DejaVuSans-Bold.ttf"))
 
 
 class Font:
-    """A single parsed TTF/OTF file's metrics (no glyph outlines)."""
+    """A bundled font family (regular or bold), backed by a novasvg
+    FontFace. Public shape kept identical to the old hand-rolled Font class
+    on purpose -- both engines/quickjs_engine.py (measure(), synchronous
+    per-string) and engines/v8_engine.py (full_advance_table() /
+    notdef_advance_units() / metrics_summary(), one-time bulk export) use
+    it unchanged."""
 
-    def __init__(self, path: Path) -> None:
-        r = self._r = _Reader(path.read_bytes())
-        num_tables = r.u16(4)
-        self._tables = {}
-        for i in range(num_tables):
-            rec = 12 + i * 16
-            tag = r.data[rec:rec + 4].decode("latin-1")
-            offset = r.u32(rec + 8)
-            length = r.u32(rec + 12)
-            self._tables[tag] = (offset, length)
+    def __init__(self, bold: bool) -> None:
+        self._face = _novasvg.get_font_face(_FAMILY, bold, False)
 
-        head_off, _ = self._tables["head"]
-        self.units_per_em = r.u16(head_off + 18)
+    @lru_cache(maxsize=None)
+    def _at_size(self, size_px: float) -> "_novasvg.Font":
+        return _novasvg.Font(self._face, size_px)
 
-        hhea_off, _ = self._tables["hhea"]
-        self.ascender = r.i16(hhea_off + 4)
-        self.descender = r.i16(hhea_off + 6)
-        self._num_h_metrics = r.u16(hhea_off + 34)
-
-        hmtx_off, _ = self._tables["hmtx"]
-        self._hmtx_off = hmtx_off
-        self._advance_cache: dict[int, int] = {}
-
-        self._cmap = self._parse_cmap()
-
-    # -- cmap: codepoint -> glyph id --------------------------------------
-
-    def _parse_cmap(self) -> dict:
-        r = self._r
-        cmap_off, _ = self._tables["cmap"]
-        num_subtables = r.u16(cmap_off + 2)
-        best_offset = None
-        best_score = -1
-        for i in range(num_subtables):
-            rec = cmap_off + 4 + i * 8
-            platform_id = r.u16(rec)
-            encoding_id = r.u16(rec + 2)
-            offset = r.u32(rec + 4)
-            # Prefer Windows BMP (3,1), then Windows full-unicode (3,10),
-            # then Unicode platform (0,*), skipping symbol/Mac tables.
-            score = {(3, 10): 3, (3, 1): 2, (0, 4): 2, (0, 3): 2}.get(
-                (platform_id, encoding_id), 0
-            )
-            if score > best_score:
-                best_score, best_offset = score, cmap_off + offset
-        if best_offset is None:
-            return {}
-
-        fmt = r.u16(best_offset)
-        mapping: dict = {}
-        if fmt == 4:
-            seg_x2 = r.u16(best_offset + 6)
-            seg_count = seg_x2 // 2
-            end_base = best_offset + 14
-            start_base = end_base + seg_x2 + 2
-            delta_base = start_base + seg_x2
-            range_base = delta_base + seg_x2
-            for s in range(seg_count):
-                end = r.u16(end_base + s * 2)
-                start = r.u16(start_base + s * 2)
-                delta = r.i16(delta_base + s * 2)
-                range_offset = r.u16(range_base + s * 2)
-                if start == 0xFFFF and end == 0xFFFF:
-                    continue
-                for cp in range(start, min(end, 0xFFFE) + 1):
-                    if range_offset == 0:
-                        gid = (cp + delta) & 0xFFFF
-                    else:
-                        addr = range_base + s * 2 + range_offset + (cp - start) * 2
-                        if addr + 2 > len(r.data):
-                            continue
-                        gid = r.u16(addr)
-                        if gid != 0:
-                            gid = (gid + delta) & 0xFFFF
-                    if gid:
-                        mapping[cp] = gid
-        elif fmt == 12:
-            num_groups = r.u32(best_offset + 12)
-            for g in range(num_groups):
-                base = best_offset + 16 + g * 12
-                start_char = r.u32(base)
-                end_char = r.u32(base + 4)
-                start_gid = r.u32(base + 8)
-                for cp in range(start_char, end_char + 1):
-                    mapping[cp] = start_gid + (cp - start_char)
-        # else: unsupported subtable format (0, 6, ...) -> empty mapping;
-        # advance_width() falls back to glyph 0 for every character.
-        return mapping
-
-    # -- hmtx: glyph id -> advance width -----------------------------------
-
-    def _glyph_advance(self, gid: int) -> int:
-        cached = self._advance_cache.get(gid)
-        if cached is not None:
-            return cached
-        r = self._r
-        if gid < self._num_h_metrics:
-            width = r.u16(self._hmtx_off + gid * 4)
-        else:
-            # glyphs beyond numberOfHMetrics repeat the last advance width
-            width = r.u16(self._hmtx_off + (self._num_h_metrics - 1) * 4)
-        self._advance_cache[gid] = width
-        return width
-
-    # -- public ---------------------------------------------------------------
-
-    def advance_width_units(self, text: str) -> int:
-        """Sum of glyph advance widths for `text`, in font design units."""
-        total = 0
-        for ch in text:
-            gid = self._cmap.get(ord(ch), 0)
-            total += self._glyph_advance(gid)
-        return total
+    # -- per-string measurement (quickjs_engine's synchronous-callback path) --
 
     def measure(self, text: str, size_px: float) -> dict:
-        scale = size_px / self.units_per_em
+        font = self._at_size(size_px)
         return {
-            "width": self.advance_width_units(text) * scale,
-            "ascent": self.ascender * scale,
-            "descent": -self.descender * scale,  # descender is negative in the font
+            "width": font.measure_text(text),
+            "ascent": font.ascent,
+            "descent": -font.descent,  # novasvg: negative; this module's convention: positive
         }
+
+    # -- size-independent bulk export (v8_engine's no-callback path) --
 
     def full_advance_table(self) -> dict:
         """Every codepoint this font can render, mapped to its advance
-        width in font design units (unscaled, i.e. independent of size_px).
+        width in font design units (unscaled, i.e. independent of
+        size_px) -- lets a JS engine that has this table (plus
+        metrics_summary()) reproduce measure() exactly by summing itself,
+        with zero Python callback involved."""
+        return {cp: self._face.advance_width_units(cp) for cp in self._face.codepoints()}
 
-        Since measure()/advance_width_units() do nothing more than sum
-        per-character advances (no kerning, no ligatures -- see module
-        docstring), a JS engine that has this table (plus units_per_em/
-        ascender/descender, see metrics_summary()) can reproduce measure()
-        exactly by summing itself, with zero Python callback involved. This
-        is what mermaidx.engines.v8_engine uses, since its underlying V8
-        binding can't do synchronous Python callbacks the way QuickJS can.
-        """
-        return {cp: self._glyph_advance(gid) for cp, gid in self._cmap.items()}
-
-    def notdef_advance_units(self) -> int:
+    def notdef_advance_units(self) -> float:
         """Advance width used for any codepoint outside the font's cmap
-        (glyph id 0, the ".notdef" glyph) -- matches what
-        advance_width_units() falls back to via `self._cmap.get(ord(ch), 0)`."""
-        return self._glyph_advance(0)
+        (the ".notdef" glyph) -- matches what measure()/
+        full_advance_table() themselves fall back to for such a codepoint."""
+        return self._face.notdef_advance_width_units
 
     def metrics_summary(self) -> dict:
-        """units_per_em/ascender/descender -- everything besides the
+        """unitsPerEm/ascender/descender -- everything besides the
         advance table itself that's needed to reproduce measure() in JS."""
         return {
-            "unitsPerEm": self.units_per_em,
-            "ascender": self.ascender,
-            "descender": self.descender,
+            "unitsPerEm": self._face.units_per_em,
+            "ascender": self._face.ascent_units,
+            "descender": self._face.descent_units,
         }
 
 
 # ── font selection ────────────────────────────────────────────────────────
 
-_ASSETS_FONTS = Path(__file__).parent / "assets" / "fonts"
-
-
-@lru_cache(maxsize=None)
-def _load(name: str) -> Font:
-    return Font(_ASSETS_FONTS / name)
+_REGULAR = Font(bold=False)
+_BOLD = Font(bold=True)
 
 
 def get_font(weight: Optional[str] = None) -> Font:
     """
     Only one bundled font family (DejaVu Sans) is used regardless of the
     diagram's requested font-family: mermaid diagrams don't depend on exact
-    typeface, only on consistent, real metrics between layout and paint —
+    typeface, only on consistent, real metrics between layout and paint --
     and this stays true only if both stages read the *same* font file.
     """
     try:
         if int(weight or 0) >= 600:
-            return _load("DejaVuSans-Bold.ttf")
+            return _BOLD
     except (TypeError, ValueError):
         pass
     if str(weight).strip().lower() in ("bold", "bolder"):
-        return _load("DejaVuSans-Bold.ttf")
-    return _load("DejaVuSans.ttf")
+        return _BOLD
+    return _REGULAR

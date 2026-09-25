@@ -4,14 +4,14 @@ browser rendering (issue #12).
 
 The rest of this package guarantees measure == paint for *our own* raster
 output: font_metrics.py always measures with the bundled DejaVu Sans, and
-engine.py always hands resvg that exact same file to paint with, regardless
-of whatever font-family the diagram source (or mermaid's default theme)
-asked for. That invariant doesn't extend to opening the raw SVG directly in
-a browser: the browser has no reason to have DejaVu Sans installed, so it
-substitutes whatever sans-serif font it does have for the CSS mermaid
-embedded (typically `"trebuchet ms", verdana, arial, sans-serif`), and that
-substitute is very unlikely to have the exact same advance widths --
-producing extra/missing whitespace around every label.
+mermaidx.raster (novasvg) always paints with that exact same file,
+regardless of whatever font-family the diagram source (or mermaid's default
+theme) asked for. That invariant doesn't extend to opening the raw SVG
+directly in a browser: the browser has no reason to have DejaVu Sans
+installed, so it substitutes whatever sans-serif font it does have for the
+CSS mermaid embedded (typically `"trebuchet ms", verdana, arial,
+sans-serif`), and that substitute is very unlikely to have the exact same
+advance widths -- producing extra/missing whitespace around every label.
 
 embed_dejavu_font() closes that gap for the SVG-in-a-browser case by
 subsetting the bundled DejaVu font down to just the glyphs this particular

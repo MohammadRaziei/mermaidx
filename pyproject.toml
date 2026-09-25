@@ -5,11 +5,11 @@ build-backend = "hatchling.build"
 [project]
 name = "mermaidx"
 dynamic = ["version"]
-description = "Python-native Mermaid diagram converter – no browser, Node.js, or npm required. Renders diagrams to SVG/PNG/PDF using an embedded QuickJS engine and resvg, perfect for documentation automation and CI/CD pipelines."
+description = "Python-native Mermaid diagram converter – no browser, Node.js, or npm required. Renders diagrams to SVG/PNG/PDF using an embedded QuickJS engine and novasvg, perfect for documentation automation and CI/CD pipelines."
 readme = "README.md"
 requires-python = ">=3.9"
 license = "MIT"
-keywords = ["mermaid", "diagram", "svg", "quickjs", "resvg", "documentation", "automation", "ci-cd", "python"]
+keywords = ["mermaid", "diagram", "svg", "quickjs", "novasvg", "documentation", "automation", "ci-cd", "python"]
 authors = [
   { name = "Mohammad Raziei", email = "mohammadraziei1375@gmail.com" },
 ]
@@ -23,7 +23,14 @@ classifiers = [
 ]
 dependencies = [
     "quickjs-ng>=0.15.1",
-    "resvg_py>=0.3.2",
+    # novasvg is the sole SVG->PNG rasterizer (mermaidx.raster) and text
+    # measurer (mermaidx.font_metrics) as of this version; resvg_py has
+    # been retired (it couldn't paint <foreignObject> HTML labels, which
+    # mermaid.js uses by default). NOTE: this floor needs bumping once a
+    # novasvg release ships FontFace.codepoints()/advance_width_units()/
+    # units_per_em (added upstream alongside this change) -- v8_engine's
+    # advance-table export depends on them.
+    "novasvg>=0.5.0",
     "termaid>=0.7.1",
 ]
 
@@ -33,9 +40,8 @@ test = [
 ]
 rust = [ "mmdr" ]
 v8engine = [ "mini-racer" ]
-novasvg = [ "novasvg>=0.5.0" ]
 embed = [ "fonttools" ]
-all  = [ "mmdr", "mini-racer", "novasvg>=0.5.0", "numpy", "fonttools" ]
+all  = [ "mmdr", "mini-racer", "numpy", "fonttools" ]
 
 [project.scripts]
 mermaidx = "mermaidx.__main__:main"

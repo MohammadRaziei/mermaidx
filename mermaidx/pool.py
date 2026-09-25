@@ -21,7 +21,7 @@ from typing import Optional
 
 from .diagram import Diagram
 
-# 'spawn' avoids inheriting any native (QuickJS/resvg) state across fork();
+# 'spawn' avoids inheriting any native (QuickJS/novasvg) state across fork();
 # each worker starts completely fresh. Costs a bit more per-worker startup
 # time, which is amortized across every diagram that worker renders.
 _CTX = mp.get_context("spawn")

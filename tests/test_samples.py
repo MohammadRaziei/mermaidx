@@ -117,7 +117,7 @@ def test_sample_aspect_ratio_close_to_reference(name):
 @pytest.mark.parametrize("name", [n for n in SAMPLE_NAMES if n not in KNOWN_UNSUPPORTED])
 def test_sample_png_and_pdf_also_work(name):
     """The SVG comparisons above are the interesting part; this just makes
-    sure the rest of the pipeline (resvg, the PDF writer) doesn't choke on
+    sure the rest of the pipeline (novasvg, the PDF writer) doesn't choke on
     any of these samples either."""
     source = (SAMPLES_DIR / f"{name}.mmd").read_text(encoding="utf-8")
     d = mermaidx.render(source)

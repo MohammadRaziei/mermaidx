@@ -2,7 +2,7 @@
 mermaidx.ascii — ASCII/Unicode terminal rendering.
 
 Backed by termaid (https://pypi.org/project/termaid/): pure Python, ~700KB,
-zero dependencies of its own -- small enough next to quickjs-ng/resvg that
+zero dependencies of its own -- small enough next to quickjs-ng/novasvg that
 it's a core dependency here rather than an optional extra. No binary blob
 and no second JS engine to load, unlike the alternatives (mermaid-ascii is
 a Go binary rebundled for PyPI by a third-party repackaging project;

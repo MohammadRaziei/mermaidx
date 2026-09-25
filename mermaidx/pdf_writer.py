@@ -3,7 +3,7 @@ mermaidx.pdf_writer — hand-written, dependency-free PDF generation.
 
 Every mainstream "put a raster image on a PDF page" library (Pillow,
 pikepdf, img2pdf, reportlab) pulls in Pillow as a transitive dependency.
-Since resvg already gives us decoded, real pixels (via mermaidx.png_decode),
+Since mermaidx.raster already gives us decoded, real pixels (via mermaidx.png_decode),
 building the PDF objects directly is a bounded, well-specified task and
 avoids that dependency entirely — this only uses `zlib` and `struct` from
 the standard library.

@@ -193,10 +193,31 @@ def _render_svg_sync(ctx, render_count: int, code: str, theme: str,
                       config: Optional[dict], css: Optional[str]) -> str:
     render_id = f"gd{render_count}"
 
+    # journey/timeline default to textPlacement="fo" (mermaid's own
+    # default) because their foreignObject boxes use a config-driven FIXED
+    # height (position:"fixed", not measured from content -- see
+    # mermaidx.engines._svg_patches's docstring for the two things that
+    # still need patching there), so this DOM shim's lack of real CSS
+    # text-wrapping/reflow never comes into it: novasvg (the sole
+    # rasterizer; mermaidx.raster) paints that foreignObject content
+    # directly, unlike the now-retired resvg.
+    #
+    # htmlLabels stays *off* (mermaid's non-default) everywhere else,
+    # deliberately: flowchart/state/class/etc. node labels use
+    # foreignObject boxes that must GROW to fit their content (e.g. a
+    # multi-line label via <br>), and that requires real HTML
+    # reflow/measurement this shim doesn't implement (its
+    # getBBox()/getComputedTextLength() bridge to real font metrics only
+    # covers the native <text>/<tspan> path) -- turning it on site-wide
+    # silently produces boxes sized for one line regardless of actual
+    # content. A key the caller's own `config=` sets explicitly always
+    # wins, so a caller who has verified their own diagrams are safe (no
+    # dynamically-sized multi-line HTML labels) can still opt in with
+    # config={"htmlLabels": True, "flowchart": {"htmlLabels": True}, ...}.
     base_config = {"startOnLoad": False, "theme": theme or "default",
-                    "flowchart": {"htmlLabels": False}, "htmlLabels": False,
-                    "journey": {"textPlacement": "tspan"},
-                    "timeline": {"textPlacement": "tspan"}}
+                    "htmlLabels": False, "flowchart": {"htmlLabels": False},
+                    "journey": {"textPlacement": "fo"},
+                    "timeline": {"textPlacement": "fo"}}
     if config:
         base_config.update(config)
 

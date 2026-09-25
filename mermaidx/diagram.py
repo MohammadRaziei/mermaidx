@@ -9,7 +9,7 @@ mermaidx.diagram — the object returned by mermaidx.render().
     DiagramRust   -- any backend from the optional `mmdr` package (e.g.
                      'merman', 'mermaid-rs-renderer'): svg() delegates to
                      mmdr, but png/raw/numpy/pdf still go through *our*
-                     resvg + hand-written PDF writer -- so backends that
+                     novasvg + hand-written PDF writer -- so backends that
                      don't natively support e.g. PDF (mmdr's own
                      Diagram.pdf() raises NotImplementedError) get it here
                      for free.
@@ -37,7 +37,7 @@ from mermaidx.engines.quickjs_engine import MermaidRenderError as _QuickJSRender
 from mermaidx.font_embed import embed_dejavu_font
 from mermaidx.pdf_writer import png_to_pdf
 from mermaidx.png_decode import decode_png_rgba, decode_png
-from mermaidx.raster import render_png as _render_png_resvg
+from mermaidx.raster import render_png as _render_png_novasvg
 
 try:
     from mermaidx.engines.v8_engine import Engine as _V8Engine
@@ -93,34 +93,26 @@ def _get_engine_by_name(name: str):
 
 _MISSING = object()
 
-# Which SVG->PNG rasterizer to use. "resvg" (default, via mermaidx.raster) is
-# what every existing render() call keeps getting unless it opts in.
-# "novasvg" (mermaidx.raster_novasvg) additionally renders <foreignObject>
-# text -- what mermaid.js emits by default for every label -- so it's the
-# only one of the two that doesn't need the textPlacement="tspan" override
-# in engines/quickjs_engine.py and engines/v8_engine.py to show labels at
-# all. That override (and the _svg_patches it exists to work around) is
-# left in place regardless of raster= here; switching it off per diagram
-# type is a separate, deliberate change, not a side effect of this flag.
-_RASTER_BACKENDS = {"resvg": _render_png_resvg}
+# Which SVG->PNG rasterizer to use. "novasvg" (mermaidx.raster) is the only
+# one -- resvg_py has been retired (see mermaidx.raster's module docstring).
+# The raster= parameter is kept, rather than removed outright, so a future
+# rasterizer can be added the same way this one was; raster='resvg' now
+# raises a clear error instead of silently doing nothing.
+_RASTER_BACKENDS = {"novasvg": _render_png_novasvg}
 
 
 def _render_png_fn(raster: str):
-    if raster not in _RASTER_BACKENDS and raster == "novasvg":
-        try:
-            from mermaidx.raster_novasvg import render_png as _render_png_novasvg
-        except ImportError as exc:
-            raise ImportError(
-                "raster='novasvg' requires the optional 'novasvg' package. "
-                "Install it with:\n    pip install mermaidx[novasvg]"
-            ) from exc
-        _RASTER_BACKENDS["novasvg"] = _render_png_novasvg
     try:
         return _RASTER_BACKENDS[raster]
     except KeyError:
-        raise ValueError(
-            f"raster={raster!r} is not a known rasterizer. Use 'resvg' (default) or 'novasvg'."
-        ) from None
+        if raster == "resvg":
+            raise ValueError(
+                "raster='resvg' was retired -- mermaidx now rasterizes with novasvg "
+                "by default (and exclusively), which -- unlike resvg -- paints "
+                "<foreignObject> HTML labels directly. Drop raster='resvg' to use "
+                "the current renderer."
+            ) from None
+        raise ValueError(f"raster={raster!r} is not a known rasterizer. Use 'novasvg' (the default).") from None
 
 
 class DiagramBase:
@@ -132,7 +124,7 @@ class DiagramBase:
     of the same name (without the underscore) add caching on top and are
     defined here exactly once. Most subclasses only need to override
     `_svg()` -- the default `_png()`/`_raw()`/`_numpy()`/`_pdf()` all just
-    rasterize `self.svg()` via resvg, which is enough to make every output
+    rasterize `self.svg()` via novasvg, which is enough to make every output
     format available regardless of backend.
 
     Not instantiated directly -- use mermaidx.render(), which picks the right
@@ -141,7 +133,7 @@ class DiagramBase:
 
     backend: str = "base"
 
-    def __init__(self, source: str, *, raster: str = "resvg", **opts) -> None:
+    def __init__(self, source: str, *, raster: str = "novasvg", **opts) -> None:
         self._source = source
         self._opts = opts
         self._cache: dict = {}
@@ -177,7 +169,7 @@ class DiagramBase:
                 used to lay it out (see mermaidx.font_embed). Off by
                 default: it needs fontTools (`pip install mermaidx[embed]`)
                 and makes the file bigger; mermaidx's own .png()/.pdf()
-                output is unaffected either way, since resvg is already
+                output is unaffected either way, since novasvg is already
                 told to use this exact font regardless.
         """
         base = self._cached("svg", {}, self._svg)
@@ -197,7 +189,7 @@ class DiagramBase:
         background: Optional[str] = None,
     ) -> bytes:
         """Uncached PNG computation. Default: rasterize self.svg() via
-        resvg. Override in a subclass for a different (e.g. native) path."""
+        novasvg. Override in a subclass for a different (e.g. native) path."""
         kwargs = dict(background=background, width=width, height=height)
         if width is None and height is None and scale is not None:
             kwargs["scale"] = scale
@@ -249,7 +241,7 @@ class DiagramBase:
         background: Optional[str] = None,
     ) -> tuple[bytes, int, int]:
         """Return raw RGBA8888 pixels as ``(bytes, width, height)`` — no
-        imaging library involved, just resvg's output decoded directly."""
+        imaging library involved, just novasvg's output decoded directly."""
         kwargs = dict(width=width, height=height, scale=scale, background=background)
         return self._cached("raw", kwargs, lambda: self._raw(**kwargs))
 
@@ -319,7 +311,7 @@ class DiagramBase:
     ) -> bytes:
         """Return the diagram as PDF bytes (fully supported on every backend
         — no imaging library needed either: a hand-written, dependency-free
-        PDF writer embeds the resvg-rendered pixels directly).
+        PDF writer embeds the novasvg-rendered pixels directly).
 
         Args:
             width, height: Canvas size in pixels (only when pdf_format is None --
@@ -446,39 +438,15 @@ class DiagramBase:
         return self.svg()
 
 
-# quickjs_engine.py / v8_engine.py hardcode htmlLabels=False (top-level and
-# under "flowchart") and journey/timeline textPlacement="tspan" into every
-# render's base_config, because resvg cannot paint the <foreignObject> HTML
-# labels mermaid.js otherwise emits by default (see mermaidx.raster_novasvg's
-# module docstring, and novasvg's own COMPARISON.md, for why). Those
-# defaults only make sense for raster="resvg". When raster="novasvg" -- a
-# rasterizer that *does* paint foreignObject text -- this restores mermaid's
-# own defaults instead, so diagrams get real HTML labels (proper wrapping,
-# multi-line, styled spans) rather than the native <text> fallback.
-# A key the caller's own `config=` sets explicitly always wins: this only
-# fills in what they didn't already decide for themselves.
-_NOVASVG_MERMAID_DEFAULTS = {
-    "htmlLabels": True,
-    "flowchart": {"htmlLabels": True},
-    "journey": {"textPlacement": "fo"},
-    "timeline": {"textPlacement": "fo"},
-}
-
-
-def _effective_mermaid_config(raster: str, user_config: Optional[dict]) -> Optional[dict]:
-    if raster != "novasvg":
-        return user_config
-    merged = dict(_NOVASVG_MERMAID_DEFAULTS)
-    for key, value in (user_config or {}).items():
-        if isinstance(value, dict) and isinstance(merged.get(key), dict):
-            merged[key] = {**merged[key], **value}
-        else:
-            merged[key] = value
-    return merged
+# mermaid.js's own defaults (htmlLabels on, foreignObject textPlacement for
+# journey/timeline) are used as-is now -- see engines/quickjs_engine.py and
+# engines/v8_engine.py's base_config, which set them directly, and their
+# module docstrings for why (novasvg, the sole rasterizer, paints
+# <foreignObject> HTML content directly, unlike the now-retired resvg).
 
 
 class Diagram(DiagramBase):
-    """mermaid.js v11 running inside a JS engine, with resvg (using a bundled
+    """mermaid.js v11 running inside a JS engine, with novasvg (using a bundled
     font shared with the layout step) for everything downstream of SVG. See
     DiagramBase for the full method list.
 
@@ -522,7 +490,7 @@ class Diagram(DiagramBase):
         theme: Optional[str] = None,
         config: Optional[dict] = None,
         css: Optional[str] = None,
-        raster: str = "resvg",
+        raster: str = "novasvg",
         **_ignored,
     ) -> None:
         if backend not in ("quickjs", "v8"):
@@ -537,9 +505,8 @@ class Diagram(DiagramBase):
     def _svg(self) -> str:
         engine = _get_engine_by_name(self.backend)  # raises ImportError first if backend="v8" but unavailable
         render_error = _QuickJSRenderError if self.backend == "quickjs" else _V8RenderError
-        config = _effective_mermaid_config(self._raster, self._config)
         try:
-            return engine.render_svg(self._source, self._theme or "default", config, self._css)
+            return engine.render_svg(self._source, self._theme or "default", self._config, self._css)
         except render_error as e:
             raise RuntimeError(f"Mermaid rendering failed: {e}") from e
 
@@ -547,10 +514,10 @@ class Diagram(DiagramBase):
 class DiagramRust(DiagramBase):
     """Any backend provided by the optional `mmdr` package (e.g. 'merman',
     'mermaid-rs-renderer' -- see mermaidx.backends()). Only _svg() is delegated
-    to mmdr; png/raw/numpy/pdf all go through *our* resvg + PDF writer
+    to mmdr; png/raw/numpy/pdf all go through *our* novasvg + PDF writer
     instead of mmdr's own, which means outputs mmdr doesn't natively
     support (its own Diagram.pdf() currently raises NotImplementedError)
-    work here anyway. The trade-off: rasterization fidelity is resvg's, not
+    work here anyway. The trade-off: rasterization fidelity is novasvg's, not
     mmdr's own Rust rasterizer -- only the SVG (i.e. the actual layout)
     comes from mmdr.
     """
@@ -580,9 +547,9 @@ def render(source: str, backend: Optional[str] = None, **opts) -> "DiagramBase":
         **opts:  Forwarded to the chosen backend.
                  'quickjs' / 'v8': theme, config, css
                  mmdr backends: theme, node_spacing, rank_spacing, aspect_ratio
-                 all backends: raster='resvg' (default) or 'novasvg' -- which
+                 all backends: raster='novasvg' -- the only (and default)
                  SVG->PNG rasterizer png()/raw()/numpy()/pdf() use. See
-                 mermaidx.raster_novasvg for why 'novasvg' exists.
+                 mermaidx.raster for why resvg was retired in its favor.
 
     Returns:
         A DiagramBase subclass instance (Diagram for 'quickjs'/'v8',
