@@ -1,16 +1,16 @@
 """
 mermaidx.font_metrics -- just enough of the TrueType/OpenType spec to answer
 one question: "how wide is this string, in this font, at this size?" (plus
-the per-codepoint advance TABLE mermaidx.engines.v8_engine needs to ship
-into a JS engine that can't call back into Python).
+the per-codepoint advance and kerning TABLES mermaidx.engines.v8_engine
+needs to ship into a JS engine that can't call back into Python).
 
 Previously this parsed the head/hhea/cmap/hmtx tables by hand (no fontTools
 dependency, no kerning/ligatures -- see git history for that version). It
 now delegates entirely to novasvg (github.com/mohammadraziei/novasvg), the
-same library mermaidx.raster_novasvg uses to actually paint the glyphs:
-novasvg's font stack is a vendored stb_truetype, exposed to Python as
-FontFace/Font (novasvg.FontFace.codepoints()/advance_width_units()/
-units_per_em, novasvg.Font.measure_text()). One engine measuring AND
+same library mermaidx.raster uses to actually paint the glyphs: novasvg's
+font stack is a vendored stb_truetype, exposed to Python as
+novasvg.fonts.FontFace/Font (FontFace.codepoints()/advance_width_units()/
+units_per_em, Font.measure_text()). One engine measuring AND
 painting means layout and paint can't drift apart from two separately
 maintained implementations -- which is the whole reason novasvg itself
 exists (see its README / COMPARISON.md).
@@ -29,7 +29,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Optional
 
-import novasvg as _novasvg
+import novasvg.fonts as _fonts
 
 _ASSETS_FONTS = Path(__file__).parent / "assets" / "fonts"
 _FAMILY = "DejaVu Sans"
@@ -38,8 +38,8 @@ _FAMILY = "DejaVu Sans"
 # pattern raster.py uses for the paint side, so "DejaVu Sans" resolves to
 # these exact bytes for both layout and paint regardless of what's
 # installed on the host.
-_novasvg.add_font_face_from_file(_FAMILY, False, False, str(_ASSETS_FONTS / "DejaVuSans.ttf"))
-_novasvg.add_font_face_from_file(_FAMILY, True, False, str(_ASSETS_FONTS / "DejaVuSans-Bold.ttf"))
+_fonts.add_font_face_from_file(_FAMILY, False, False, str(_ASSETS_FONTS / "DejaVuSans.ttf"))
+_fonts.add_font_face_from_file(_FAMILY, True, False, str(_ASSETS_FONTS / "DejaVuSans-Bold.ttf"))
 
 
 class Font:
@@ -51,11 +51,11 @@ class Font:
     it unchanged."""
 
     def __init__(self, bold: bool) -> None:
-        self._face = _novasvg.get_font_face(_FAMILY, bold, False)
+        self._face = _fonts.get_font_face(_FAMILY, bold, False)
 
     @lru_cache(maxsize=None)
-    def _at_size(self, size_px: float) -> "_novasvg.Font":
-        return _novasvg.Font(self._face, size_px)
+    def _at_size(self, size_px: float) -> "_fonts.Font":
+        return _fonts.Font(self._face, size_px)
 
     # -- per-string measurement (quickjs_engine's synchronous-callback path) --
 
@@ -83,6 +83,36 @@ class Font:
         full_advance_table() themselves fall back to for such a codepoint."""
         return self._face.notdef_advance_width_units
 
+    def ascii_kerning_pairs(self) -> dict:
+        """Sparse kerning-adjustment table (raw font design units) for
+        every printable-ASCII codepoint pair with a nonzero
+        kern/GPOS adjustment, keyed "cp1,cp2" -> units.
+
+        Why ASCII-scoped rather than exhaustive: see
+        novasvg.fonts.FontFace.kern_advance_units()'s own docstring for why
+        there's no cheap bulk enumeration of a font's *whole* kerning table
+        the way there is for its cmap (full_advance_table()) -- this
+        queries the O(95^2) printable-ASCII pairs one at a time instead
+        (still a fraction of a second; see this method's own call site),
+        which covers virtually all of a real diagram's actual text without
+        the cost of querying all ~35M pairs a 5906-codepoint font's full
+        cross product would need. A pair with no adjustment (the vast
+        majority) is left out entirely, keeping the shipped table small.
+
+        Exists only for mermaidx.engines.v8_engine, which -- unlike
+        quickjs_engine.py, which can call measure() itself per string --
+        has to reproduce Font::measureText()'s per-glyph-pair kerning
+        lookup as a local JS sum instead (see that module's
+        measureFull())."""
+        table = {}
+        codepoints = range(0x20, 0x7F)
+        for a in codepoints:
+            for b in codepoints:
+                k = self._face.kern_advance_units(a, b)
+                if k:
+                    table[f"{a},{b}"] = k
+        return table
+
     def metrics_summary(self) -> dict:
         """unitsPerEm/ascender/descender -- everything besides the
         advance table itself that's needed to reproduce measure() in JS."""
@@ -91,6 +121,18 @@ class Font:
             "ascender": self._face.ascent_units,
             "descender": self._face.descent_units,
         }
+
+    # -- <foreignObject> HTML label sizing (quickjs_engine's headless DOM shim) --
+
+    def foreign_object_metrics(self, html: str, size_px: float) -> dict:
+        """Height/width (and line count/line-height) novasvg's own
+        ForeignObjectSimple::render() will use when it later paints `html`
+        at this size -- see novasvg.fonts.measure_foreign_object()'s docstring
+        for why delegating to novasvg for this (rather than mermaidx
+        reimplementing its own line-counting logic) is what keeps a node
+        box mermaid.js sizes during headless layout from disagreeing with
+        what novasvg then actually paints into it."""
+        return _fonts.measure_foreign_object(html, self._at_size(size_px))
 
 
 # ── font selection ────────────────────────────────────────────────────────

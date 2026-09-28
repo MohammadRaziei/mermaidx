@@ -466,7 +466,21 @@ def test_multiline_edge_label_is_centered_on_its_background():
     line<br/>edge comment") rendered with its text baseline well outside
     its own background rectangle instead of centered inside it.
 
-    Root cause: __resolveTextPos() finds the tspan that really carries a
+    Default path (htmlLabels/textPlacement="fo", mermaid's own default --
+    see engines/quickjs_engine.py's base_config): the label is now always
+    a <foreignObject>, centered by translating its own <g class="label">
+    by exactly (-width/2, -height/2) of that foreignObject's own
+    (width, height) -- both come from the same
+    mermaidx.font_metrics.Font.foreign_object_metrics() call (see
+    dom_shim.js's getBoundingClientRect()), so there's no separate
+    tspan-position bookkeeping left to disagree with the actual painted
+    size at all; this path structurally can't reproduce the original bug.
+
+    Legacy path (config={"flowchart": {"htmlLabels": False}} explicitly,
+    forcing mermaid's native <text>/<tspan> renderer -- see
+    _svg_patches.py's own docstring for the one thing that's still true
+    either way): this is where the original bug actually lived.
+    __resolveTextPos() (dom_shim.js) finds the tspan that really carries a
     text element's paint position by walking down through single-child
     chains. That works for one-line labels (a single positioning tspan),
     but a multi-line label has one row-tspan PER LINE, so the walk broke
@@ -474,12 +488,10 @@ def test_multiline_edge_label_is_centered_on_its_background():
     non-"em" y attribute instead of the first row's real y="...em"
     dy="1.1em" position -- putting the computed bbox (and therefore the
     centering transform) tens of pixels off from where the text actually
-    paints.
-
-    This asserts the label's own background rect really encloses (rather
-    than merely sits near) the text after the two are combined by their
-    respective transforms -- computed straight from the raw SVG so it
-    catches a regression even if both elements "look" present.
+    paints. Asserts the label's own background rect really encloses
+    (rather than merely sits near) the text after the two are combined by
+    their respective transforms -- computed straight from the raw SVG so
+    it catches a regression even if both elements "look" present.
     """
     import re
 
@@ -487,22 +499,34 @@ def test_multiline_edge_label_is_centered_on_its_background():
         "graph TB\n"
         '    od>Odd shape]-- Two line<br/>edge comment --> ro(Rounded shape)\n'
     )
+
+    # -- default (foreignObject) path --
     svg = mermaidx.render(code).svg()
 
-    # Locate the edge label's own <g transform="translate(dx, dy)"> (the
-    # centering transform) and, inside it, the background rect plus the
-    # first row's accumulated y (own y="...em" + dy="1.1em").
+    m = re.search(
+        r'<g class="label"[^>]*transform="translate\(([-\d.]+), ?([-\d.]+)\)">'
+        r'<foreignObject width="([\d.]+)" height="([\d.]+)">',
+        svg,
+    )
+    assert m, "expected a positioned edge label with a foreignObject"
+    dx, dy, w, h = (float(v) for v in m.groups())
+    assert dx == pytest.approx(-w / 2, abs=0.01), f"label not horizontally centered: dx={dx}, width={w}"
+    assert dy == pytest.approx(-h / 2, abs=0.01), f"label not vertically centered: dy={dy}, height={h}"
+
+    # -- legacy (native <text>/<tspan>) path --
+    svg_legacy = mermaidx.render(code, config={"flowchart": {"htmlLabels": False}, "htmlLabels": False}).svg()
+
     m = re.search(
         r'<g class="label"[^>]*transform="translate\(([-\d.]+), ?([-\d.]+)\)">'
         r'.*?<rect class="background" x="([-\d.]+)" y="([-\d.]+)" '
         r'width="([-\d.]+)" height="([-\d.]+)">',
-        svg, re.S,
+        svg_legacy, re.S,
     )
     assert m, "expected a positioned edge label with a background rect"
     dx, dy, rx, ry, rw, rh = (float(v) for v in m.groups())
 
     # First row tspan: y="-0.1em" dy="1.1em" -> real font-size units.
-    row = re.search(r'<text[^>]*>\s*<tspan[^>]*y="(-?[\d.]+)em"[^>]*dy="([\d.]+)em"', svg)
+    row = re.search(r'<text[^>]*>\s*<tspan[^>]*y="(-?[\d.]+)em"[^>]*dy="([\d.]+)em"', svg_legacy)
     assert row, "expected the first row tspan with y/dy in em units"
     font_size_guess = 16  # mermaid's default flowchart edge-label font-size
     row_y = (float(row.group(1)) + float(row.group(2))) * font_size_guess

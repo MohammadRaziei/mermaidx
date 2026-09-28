@@ -211,6 +211,24 @@ def _translate_of(el) -> tuple[float, float]:
     return float(m.group(1)), float(m.group(2) or 0)
 
 
+def _label_center_of(label, ns_strip) -> tuple[float, float]:
+    """A label's own translate is that label box's *visual center* for a
+    native <text>-based label (text-anchor:middle renders centered on its
+    own local x=0), but is the box's *top-left corner* for an htmlLabels
+    <foreignObject>-based one -- mermaid centers that kind by translating
+    by (-width/2, -height/2) of the foreignObject's own measured size
+    (see mermaidx.engines.quickjs_engine/v8_engine's base_config default,
+    and dom_shim.js's getBoundingClientRect(), for why), so the actual
+    visual center is translate + (width/2, height/2), not translate
+    itself."""
+    tx, ty = _translate_of(label)
+    fo = next((c for c in label if ns_strip(c.tag) == "foreignObject"), None)
+    if fo is None:
+        return tx, ty
+    w, h = float(fo.get("width", 0)), float(fo.get("height", 0))
+    return tx + w / 2, ty + h / 2
+
+
 def _shape_local_bbox(el, ns_strip):
     """Local (pre-transform) bbox of a shape element, reusing the same
     parser already validated for mermaidx's own bbox computation."""
@@ -272,7 +290,7 @@ def test_sample_labels_inside_their_own_shape(name):
             continue
         sx, sy = _translate_of(shape)
         x0, y0, x1, y1 = bbox[0] + sx, bbox[1] + sy, bbox[2] + sx, bbox[3] + sy
-        lx, ly = _translate_of(label)
+        lx, ly = _label_center_of(label, ns_strip)
         cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
         # Generous relative to shape size, but centered on the shape's
         # actual center -- not just "somewhere inside the (padded) bbox",

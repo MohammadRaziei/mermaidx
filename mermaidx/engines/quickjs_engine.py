@@ -51,14 +51,18 @@ class MermaidRenderError(RuntimeError):
 
 class _TextMeasurer:
     """Real font metrics via mermaidx.font_metrics (bundled DejaVu Sans) --
-    the same font file resvg is told to use for final rendering, so layout
-    and paint always agree (see Engine._init_context / mermaidx.py)."""
+    the same font file mermaidx.raster (novasvg) is told to use for final
+    rendering, so layout and paint always agree (see Engine._init_context /
+    mermaidx.py)."""
 
     def width(self, text, size, family, weight, style) -> float:
         return get_font(weight).measure(text or "", float(size or 16))["width"]
 
     def full(self, text, size, family, weight, style) -> dict:
         return get_font(weight).measure(text or "", float(size or 16))
+
+    def foreign_object(self, html, size, family, weight, style) -> dict:
+        return get_font(weight).foreign_object_metrics(html or "", float(size or 16))
 
 
 class Engine:
@@ -113,11 +117,16 @@ class Engine:
             "__measureTextFull_raw",
             lambda t, s, f, w, st: json.dumps(self._measurer.full(t, s, f, w, st)),
         )
+        ctx.add_callable(
+            "__measureForeignObject_raw",
+            lambda h, s, f, w, st: json.dumps(self._measurer.foreign_object(h, s, f, w, st)),
+        )
 
         ctx.eval(
             "globalThis.__log = (s) => __log_raw(s);\n"
             "globalThis.__measureText = (t,s,f,w,st) => __measureText_raw(t,s,f,w,st);\n"
             "globalThis.__measureTextFull = (t,s,f,w,st) => JSON.parse(__measureTextFull_raw(t,s,f,w,st));\n"
+            "globalThis.__measureForeignObject = (h,s,f,w,st) => JSON.parse(__measureForeignObject_raw(h,s,f,w,st));\n"
         )
         # Path bbox is pure geometry -- no Python callback needed at all.
         ctx.eval(PATH_BBOX_JS)
@@ -153,30 +162,21 @@ class Engine:
         self._render_count += 1
         render_id = f"gd{self._render_count}"
 
-        # journey/timeline default to textPlacement="fo" (mermaid's own
-        # default) because their foreignObject boxes use a config-driven
-        # FIXED height (position:"fixed", not measured from content -- see
-        # mermaidx.engines._svg_patches's docstring for the two things that
-        # still need patching there), so this DOM shim's lack of real CSS
-        # text-wrapping/reflow never comes into it: novasvg (the sole
-        # rasterizer; mermaidx.raster) paints that foreignObject content
-        # directly, unlike the now-retired resvg.
-        #
-        # htmlLabels stays *off* (mermaid's non-default) everywhere else,
-        # deliberately: flowchart/state/class/etc. node labels use
-        # foreignObject boxes that must GROW to fit their content (e.g. a
-        # multi-line label via <br>), and that requires real HTML
-        # reflow/measurement this shim doesn't implement (its
-        # getBBox()/getComputedTextLength() bridge to real font metrics
-        # only covers the native <text>/<tspan> path) -- turning it on
-        # site-wide silently produces boxes sized for one line regardless
-        # of actual content. A key the caller's own `config=` sets
-        # explicitly always wins, so a caller who has verified their own
-        # diagrams are safe (no dynamically-sized multi-line HTML labels)
-        # can still opt in with config={"htmlLabels": True, "flowchart":
-        # {"htmlLabels": True}, ...}.
+        # htmlLabels/textPlacement="fo" -- mermaid.js's own defaults -- are
+        # set explicitly (not just left unset) because novasvg (the sole
+        # rasterizer as of this version; see mermaidx.raster) paints
+        # <foreignObject> HTML content directly, and this DOM shim's
+        # getBoundingClientRect() (see dom_shim.js) now sizes that content
+        # via novasvg.measure_foreign_object() itself -- the exact same
+        # line-counting logic novasvg later paints with -- rather than a
+        # separate, single-line-only approximation, so growing boxes (e.g.
+        # a multi-line label via <br>) size correctly. The old native
+        # <text>/<tspan> fallback this project used to force (for the
+        # now-retired resvg, which couldn't paint foreignObject at all) is
+        # still available by passing config explicitly -- base_config.update()
+        # below lets any key the caller sets win over these defaults.
         base_config = {"startOnLoad": False, "theme": theme or "default",
-                        "htmlLabels": False, "flowchart": {"htmlLabels": False},
+                        "htmlLabels": True, "flowchart": {"htmlLabels": True},
                         "journey": {"textPlacement": "fo"},
                         "timeline": {"textPlacement": "fo"}}
         if config:

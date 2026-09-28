@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Optional
 
 import novasvg as _novasvg
+import novasvg.fonts as _fonts
 
 from mermaidx.png_decode import decode_png_rgba
 
@@ -34,8 +35,8 @@ _FAMILY = "DejaVu Sans"
 # resolve to exactly these bytes regardless of what's installed on the
 # host, without touching the OS font config. mermaidx.font_metrics loads
 # the same two files the same way, for the same reason.
-_novasvg.add_font_face_from_file(_FAMILY, False, False, str(_FONTS_DIR / "DejaVuSans.ttf"))
-_novasvg.add_font_face_from_file(_FAMILY, True, False, str(_FONTS_DIR / "DejaVuSans-Bold.ttf"))
+_fonts.add_font_face_from_file(_FAMILY, False, False, str(_FONTS_DIR / "DejaVuSans.ttf"))
+_fonts.add_font_face_from_file(_FAMILY, True, False, str(_FONTS_DIR / "DejaVuSans-Bold.ttf"))
 
 
 def _parse_background(background: Optional[str]) -> int:

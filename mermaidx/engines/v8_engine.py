@@ -28,17 +28,26 @@ embedder for safety/deadlock reasons) -- but mermaid.js calls these DOM
 methods synchronously and can't be made to `await` them without editing
 mermaid.js itself, which this project deliberately never does.
 
-The fix used here isn't a callback at all: mermaidx.font_metrics.measure()
-does nothing but sum per-character advance widths (no kerning, no
-ligatures -- see that module's docstring), so instead of measuring text
-live, this engine ships the *entire* per-codepoint advance-width table for
-both the regular and bold bundled fonts into V8 once at boot
-(Font.full_advance_table()), and JS sums it locally. This is not an
-approximation -- it reproduces mermaidx.font_metrics.Font.measure() exactly
-(same tables, same formula), just computed in JS instead of Python. Any
-codepoint outside the table (extremely unlikely -- DejaVu Sans covers
-Latin/Greek/Cyrillic/general punctuation/symbols) falls back to the
-font's own notdef-glyph width, exactly like the Python path does.
+The fix used here isn't a callback at all: this engine ships the *entire*
+per-codepoint advance-width table for both the regular and bold bundled
+fonts into V8 once at boot (Font.full_advance_table()), plus a sparse
+kerning-adjustment table for printable-ASCII codepoint pairs
+(Font.ascii_kerning_pairs()), and JS sums both locally instead of
+measuring text live (see measureFull() below). This reproduces
+mermaidx.font_metrics.Font.measure() -- which, via novasvg's own
+Font.measureText(), *does* apply real kerning between every glyph pair --
+exactly for any text made up of printable ASCII characters (virtually all
+real diagram labels): same per-codepoint advances, same per-pair kerning
+adjustments where the font has any, same formula, just computed in JS
+instead of Python. A kerning adjustment between two NON-ASCII codepoints
+(rare in practice, and not something the bundled DejaVu Sans has much of
+outside Latin text anyway) isn't in the shipped table and so is silently
+treated as zero -- see Font.ascii_kerning_pairs()'s own docstring for why
+a full, exhaustive kerning table isn't cheap to build the way the
+per-codepoint advance table is. Any codepoint outside the advance table
+(extremely unlikely -- DejaVu Sans covers Latin/Greek/Cyrillic/general
+punctuation/symbols) falls back to the font's own notdef-glyph width,
+exactly like the Python path does.
 
 Why this runs in a subprocess, not a thread
 ---------------------------------------------
@@ -111,8 +120,10 @@ class MermaidRenderError(RuntimeError):
 @lru_cache(maxsize=None)
 def _measure_text_js() -> str:
     """Builds the one-time JS source that reproduces
-    mermaidx.font_metrics.Font.measure() exactly, using the same bundled
-    fonts' full per-codepoint advance tables -- see module docstring."""
+    mermaidx.font_metrics.Font.measure() for printable-ASCII text (see
+    module docstring for the non-ASCII-kerning caveat), using the same
+    bundled fonts' full per-codepoint advance tables plus a sparse
+    ASCII kerning table."""
     regular = get_font(None)
     bold = get_font("bold")
 
@@ -120,11 +131,13 @@ def _measure_text_js() -> str:
         "regular": {
             "advances": regular.full_advance_table(),
             "notdef": regular.notdef_advance_units(),
+            "kerning": regular.ascii_kerning_pairs(),
             **regular.metrics_summary(),
         },
         "bold": {
             "advances": bold.full_advance_table(),
             "notdef": bold.notdef_advance_units(),
+            "kerning": bold.ascii_kerning_pairs(),
             **bold.metrics_summary(),
         },
     }
@@ -146,10 +159,25 @@ def _measure_text_js() -> str:
     const font = pickFont(weight);
     const s = text == null ? "" : String(text);
     let totalUnits = 0;
+    let prevCp = null;
     for (const ch of s) {{
       const cp = ch.codePointAt(0);
       const adv = font.advances[cp];
       totalUnits += adv === undefined ? font.notdef : adv;
+      // Kerning between consecutive codepoints -- mirrors the pairwise
+      // lookup Font::measureText() itself does (see
+      // font_face_text_extents() in novasvg's detail/render/font.h) via a
+      // sparse, printable-ASCII-only table (see
+      // mermaidx.font_metrics.Font.ascii_kerning_pairs()'s docstring for
+      // why it's ASCII-scoped rather than exhaustive); a pair outside that
+      // table (either codepoint non-ASCII, or simply no adjustment for
+      // that pair) contributes 0, same as novasvg itself would for a pair
+      // with no kerning entry.
+      if (prevCp !== null) {{
+        const k = font.kerning[prevCp + "," + cp];
+        if (k !== undefined) totalUnits += k;
+      }}
+      prevCp = cp;
     }}
     const sizePx = Number(size) || 16;
     const scale = sizePx / font.unitsPerEm;
@@ -162,6 +190,100 @@ def _measure_text_js() -> str:
 
   globalThis.__measureTextFull = measureFull;
   globalThis.__measureText = (t, s, f, w, st) => measureFull(t, s, f, w, st).width;
+
+  // Mirrors novasvg's own foreignObjectPlainText()/wrapForeignObjectText()/
+  // foreignObjectLineHeight()/measureForeignObjectContent() (see
+  // include/novasvg/detail/svgelement.h in the novasvg repo) line-for-line, so a box sized from this never disagrees
+  // with what novasvg later actually paints into it. QuickJS doesn't need
+  // this mirror: it can call back synchronously into Python, which calls
+  // novasvg.measure_foreign_object() -- the real thing -- directly (see
+  // quickjs_engine.py's _TextMeasurer.foreign_object()). V8 can't make
+  // that synchronous call (this whole module exists because of that
+  // limitation -- see the module docstring), so this reimplements the
+  // same small, deliberately-simple algorithm instead, the same way
+  // measureFull() above reimplements Font::measureText() from a shipped
+  // advance table rather than calling back per string.
+  const BLOCK_TAGS = new Set(["br", "p", "div", "tr", "li"]);
+  const ENTITIES = {{ "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": '"', "&apos;": "'", "&nbsp;": " " }};
+
+  function foreignObjectPlainText(html) {{
+    let out = "";
+    let i = 0;
+    while (i < html.length) {{
+      const c = html[i];
+      if (c === "<") {{
+        const close = html.indexOf(">", i);
+        if (close === -1) break;
+        const tag = html.slice(i, close + 1);
+        const m = /^<\\s*\\/?\\s*([a-zA-Z]+)/.exec(tag);
+        const tagName = m ? m[1].toLowerCase() : "";
+        out += BLOCK_TAGS.has(tagName) ? "\\n" : " ";
+        i = close + 1;
+        continue;
+      }}
+      if (c === "&") {{
+        const ent = Object.keys(ENTITIES).find((e) => html.startsWith(e, i));
+        if (ent) {{ out += ENTITIES[ent]; i += ent.length; continue; }}
+      }}
+      out += c;
+      i += 1;
+    }}
+    // Collapse whitespace runs to a single space, preserving '\\n' as its
+    // own break marker (and dropping spaces touching one), same as
+    // foreignObjectPlainText()'s own second pass.
+    let collapsed = "";
+    let lastWasSpace = true;
+    for (let c of out.replace(/[\\t\\r]/g, " ")) {{
+      if (c === "\\n") {{
+        while (collapsed.endsWith(" ")) collapsed = collapsed.slice(0, -1);
+        collapsed += "\\n";
+        lastWasSpace = true;
+        continue;
+      }}
+      if (c === " ") {{
+        if (lastWasSpace) continue;
+        lastWasSpace = true;
+      }} else {{
+        lastWasSpace = false;
+      }}
+      collapsed += c;
+    }}
+    return collapsed.replace(/[ \\n]+$/, "");
+  }}
+
+  function wrapForeignObjectText(text) {{
+    const lines = text.split("\\n").filter((p) => p.length > 0);
+    return lines.length ? lines : [""];
+  }}
+
+  function foreignObjectLineHeight(rawHtml, fontSize) {{
+    const tagRe = /<[a-zA-Z][^>]*>/g;
+    let tag;
+    while ((tag = tagRe.exec(rawHtml))) {{
+      const styleMatch = /\\sstyle\\s*=\\s*"([^"]*)"/.exec(tag[0]);
+      if (!styleMatch) continue;
+      const declMatch = /(?:^|[;\\s])line-height\\s*:\\s*([0-9.]+)\\s*(px)?/.exec(styleMatch[1]);
+      if (declMatch) {{
+        const n = parseFloat(declMatch[1]);
+        return declMatch[2] === "px" ? n : n * fontSize;
+      }}
+    }}
+    return null;
+  }}
+
+  function measureForeignObject(html, size, family, weight, style) {{
+    const s = html == null ? "" : String(html);
+    const sizePx = Number(size) || 16;
+    const text = foreignObjectPlainText(s);
+    const lines = wrapForeignObjectText(text);
+    const lineHeight = foreignObjectLineHeight(s, sizePx) ?? (measureFull("M", sizePx, family, weight, style).ascent
+      + measureFull("M", sizePx, family, weight, style).descent) * 1.2;
+    let width = 0;
+    for (const line of lines) width = Math.max(width, measureFull(line, sizePx, family, weight, style).width);
+    return {{ height: lineHeight * lines.length, width, line_count: lines.length, line_height: lineHeight }};
+  }}
+
+  globalThis.__measureForeignObject = measureForeignObject;
 }})();
 """
 
@@ -193,29 +315,22 @@ def _render_svg_sync(ctx, render_count: int, code: str, theme: str,
                       config: Optional[dict], css: Optional[str]) -> str:
     render_id = f"gd{render_count}"
 
-    # journey/timeline default to textPlacement="fo" (mermaid's own
-    # default) because their foreignObject boxes use a config-driven FIXED
-    # height (position:"fixed", not measured from content -- see
-    # mermaidx.engines._svg_patches's docstring for the two things that
-    # still need patching there), so this DOM shim's lack of real CSS
-    # text-wrapping/reflow never comes into it: novasvg (the sole
-    # rasterizer; mermaidx.raster) paints that foreignObject content
-    # directly, unlike the now-retired resvg.
-    #
-    # htmlLabels stays *off* (mermaid's non-default) everywhere else,
-    # deliberately: flowchart/state/class/etc. node labels use
-    # foreignObject boxes that must GROW to fit their content (e.g. a
-    # multi-line label via <br>), and that requires real HTML
-    # reflow/measurement this shim doesn't implement (its
-    # getBBox()/getComputedTextLength() bridge to real font metrics only
-    # covers the native <text>/<tspan> path) -- turning it on site-wide
-    # silently produces boxes sized for one line regardless of actual
-    # content. A key the caller's own `config=` sets explicitly always
-    # wins, so a caller who has verified their own diagrams are safe (no
-    # dynamically-sized multi-line HTML labels) can still opt in with
-    # config={"htmlLabels": True, "flowchart": {"htmlLabels": True}, ...}.
+    # htmlLabels/textPlacement="fo" -- mermaid.js's own defaults -- are set
+    # explicitly (not just left unset) because novasvg (the sole rasterizer
+    # as of this version; see mermaidx.raster) paints <foreignObject> HTML
+    # content directly, and this DOM shim's getBoundingClientRect() (see
+    # dom_shim.js) sizes that content via measureForeignObject() above --
+    # a JS mirror of novasvg's own line-counting logic (see that
+    # function's own comment for why V8 needs a mirror rather than the
+    # real synchronous call quickjs_engine.py makes) -- rather than a
+    # separate, single-line-only approximation, so growing boxes (e.g. a
+    # multi-line label via <br>) size correctly. The old native
+    # <text>/<tspan> fallback this project used to force (for the
+    # now-retired resvg, which couldn't paint foreignObject at all) is
+    # still available by passing config explicitly -- base_config.update()
+    # below lets any key the caller sets win over these defaults.
     base_config = {"startOnLoad": False, "theme": theme or "default",
-                    "htmlLabels": False, "flowchart": {"htmlLabels": False},
+                    "htmlLabels": True, "flowchart": {"htmlLabels": True},
                     "journey": {"textPlacement": "fo"},
                     "timeline": {"textPlacement": "fo"}}
     if config:

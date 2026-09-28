@@ -534,7 +534,24 @@ class Element extends Node {
   // ---- SVG geometry: the important part ----
   getBBox() { return __computeBBox(this); }
   getBoundingClientRect() {
+    // HTML content (foreignObject labels): __measureForeignObject mirrors
+    // novasvg's own ForeignObjectSimple::render() line-counting/line-height
+    // logic exactly (see mermaidx.font_metrics.Font.foreign_object_metrics()
+    // and novasvg.measure_foreign_object()'s docstrings), so a box sized
+    // from this never disagrees with what novasvg then actually paints
+    // into it -- including growing correctly for multi-line content (e.g.
+    // a `<br>`-separated label), which a plain textContent-based single-line
+    // measurement (this method's own previous implementation) couldn't.
+    // Falls back to that simpler path for the innerHTML-serialization
+    // failing (nodeType!==1) or -- a pure SVG <text>/<tspan> node, where
+    // "innerHTML" has no meaning and getComputedTextLength() is the right
+    // call instead, not this one.
     const fontSize = __resolveHtmlFontSizePx(this);
+    if (this.nodeType === 1 && this.tagName !== "text" && this.tagName !== "tspan") {
+      const html = __serialize(this, true);
+      const m = globalThis.__measureForeignObject(html, fontSize, "DejaVu Sans", "normal", "normal");
+      return { x: 0, y: 0, width: m.width, height: m.height, top: 0, left: 0, right: m.width, bottom: m.height };
+    }
     const m = globalThis.__measureTextFull(this.textContent, fontSize, "DejaVu Sans", "normal", "normal");
     const width = m.width, height = m.ascent + m.descent + 4; // +line-box slack
     return { x: 0, y: 0, width, height, top: 0, left: 0, right: width, bottom: height };
@@ -885,6 +902,21 @@ function __computeBBox(el) {
     const cx=parseFloat(el.getAttribute("cx"))||0, cy=parseFloat(el.getAttribute("cy"))||0;
     const rx=parseFloat(el.getAttribute("rx"))||0, ry=parseFloat(el.getAttribute("ry"))||0;
     return { x: cx-rx, y: cy-ry, width: 2*rx, height: 2*ry };
+  }
+  if (el.tagName === "foreignObject") {
+    // Its own width/height attributes (set from getBoundingClientRect()
+    // above, itself backed by novasvg.measure_foreign_object() -- see
+    // that function's docstring) ARE its bbox; falling through to the
+    // generic "union of children" case below instead would try to call
+    // .getBBox() on its HTML children (<div>, <span>, <p>...), which
+    // don't have one -- silently reporting an empty/zero bbox and, for
+    // any diagram/label wide enough for that to matter, under-sizing the
+    // *overall* diagram bbox mermaid computes the final SVG viewBox
+    // from, clipping that content at the canvas edge despite the
+    // foreignObject's own box being sized and positioned correctly.
+    return { x: 0, y: 0,
+             width: parseFloat(el.getAttribute("width")) || 0,
+             height: parseFloat(el.getAttribute("height")) || 0 };
   }
   // group / unknown: union of children, each mapped through its own
   // transform first. getBBox() is defined to return a bbox in the
