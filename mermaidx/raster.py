@@ -75,14 +75,37 @@ def render_png(
 
 
 def _encode_png(bmp) -> bytes:
-    """novasvg's write_to_png() writes straight to a file path, not bytes --
-    round-trip through a temp file to keep this module's return type
-    (PNG bytes) stable regardless of how novasvg's own API evolves."""
+    """novasvg's Python Bitmap.write_to_png() writes straight to a file
+    path, not bytes -- round-trip through a temp file to keep this module's
+    return type (PNG bytes) stable regardless of how novasvg's own API
+    evolves.
+
+    The temp file is created and *closed* before novasvg opens it by name:
+    on Windows a file still held open by NamedTemporaryFile can't be
+    reopened by a second handle, so write_to_png() failed there -- and,
+    since it reports failure only via its bool return value, silently
+    (the old version never checked it, and returned b'' from the untouched
+    empty file). Deleted manually in `finally` for the same reason
+    (NamedTemporaryFile(delete=True) can't unlink a file that's reopened
+    elsewhere either)."""
+    import os
     import tempfile
-    with tempfile.NamedTemporaryFile(suffix=".png", delete=True) as f:
-        bmp.write_to_png(f.name)
-        f.seek(0)
-        return f.read()
+
+    fd, path = tempfile.mkstemp(suffix=".png")
+    os.close(fd)
+    try:
+        if not bmp.write_to_png(path):
+            raise RuntimeError(f"novasvg failed to write PNG to temporary file {path!r}")
+        with open(path, "rb") as f:
+            data = f.read()
+    finally:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+    if not data:
+        raise RuntimeError("novasvg produced an empty PNG")
+    return data
 
 
 def svg_to_png(

@@ -16,8 +16,8 @@ mermaid.js is a real, unmodified npm package — not a reimplementation, not a s
 flowchart LR
     subgraph py["Python process"]
         API["mermaidx.render()"] --> ENG["Engine\n(engine.py)"]
-        ENG -- "measureText / getBBox\npathBBox callbacks" --> FM["font_metrics.py\n(DejaVu Sans glyph widths)"]
-        ENG --> RAST["raster.py\n(resvg)"]
+        ENG -- "measureText / getBBox\npathBBox callbacks" --> FM["font_metrics.py\n(novasvg.fonts: glyph widths,\nkerning, foreignObject sizes)"]
+        ENG --> RAST["raster.py\n(novasvg)"]
         RAST --> OUT["PNG / PDF / numpy"]
     end
     subgraph qjs["QuickJS-ng context (one dedicated thread)"]
@@ -46,7 +46,7 @@ sequenceDiagram
     participant Q as QuickJS context
     participant S as dom_shim.js
     participant M as mermaid.js
-    participant R as resvg (raster.py)
+    participant R as novasvg (raster.py)
 
     U->>D: mermaidx.render(".mmd source")
     D->>E: render_svg(code, theme, config, css)
@@ -58,8 +58,8 @@ sequenceDiagram
     Q->>M: parse .mmd, build layout graph
     loop for every label / shape (100-300+ times per diagram)
         M->>S: text.getBBox() / div.getBoundingClientRect()
-        S->>E: __measureTextFull_raw(text, size, family, weight)
-        E->>E: font_metrics.py measures against<br/>the same DejaVu Sans file resvg uses
+        S->>E: __measureTextFull_raw(text, size, family, weight)<br/>or __measureForeignObject_raw(html, size, ...)
+        E->>E: font_metrics.py asks novasvg (same DejaVu Sans<br/>file novasvg paints with; kerning-aware)
         E-->>S: {width, ascent, descent}
         S-->>M: DOMRect-shaped result
         M->>S: shape.getBBox()  (after drawing a <path>/<polygon>)
@@ -148,7 +148,7 @@ Everything mermaid.js actually touches funnels through a handful of module-level
 |---|---|
 | `__computeBBox(el)` | The single most important function in the file — see §4. |
 | `__resolveFont(el)` / `__resolveTextAnchor(el)` / `__resolveTextPos(el, fontSize)` | Walk up the ancestor chain (and, for text-anchor, into the parsed `<style>` block) to resolve *computed* font/anchor/position — a real DOM never asks the element itself, it asks "what does CSS say applies here". |
-| `__getCssRules()` / `__resolveCssProp(el, prop)` | A tiny CSS parser + the same selector engine used for `querySelector`, reused to answer "what would `getComputedStyle` say" for the handful of properties mermaid's *layout* code actually reads (as opposed to properties that only affect paint, which resvg handles natively). |
+| `__getCssRules()` / `__resolveCssProp(el, prop)` | A tiny CSS parser + the same selector engine used for `querySelector`, reused to answer "what would `getComputedStyle` say" for the handful of properties mermaid's *layout* code actually reads (as opposed to properties that only affect paint, which novasvg handles natively). |
 | `__matches(el, sel)` / `__matchesCompound(el, part)` | A CSS selector engine covering descendant combinators, `.class`, `#id`, `[attr]`, and the pseudo-classes mermaid/d3 actually use (`:first-child`, `:last-child`, `:not(...)`) — enough for `d3.select(...).insert(tag, ":first-child")`, a pattern mermaid's shape-drawing code relies on constantly. |
 | `__makeCanvas2dContext(canvasEl)` | A Canvas 2D stub: every drawing method (`fillRect`, `arc`, `bezierCurveTo`, ...) is a no-op, since mindmap's cytoscape-based layout never has its pixels read back — only `measureText()` is real, because layout math depends on it. |
 | `__parseInto(parent, html)` / `__serialize(el, innerOnly)` | innerHTML get/set, used for mermaid's HTML-label code paths. |
@@ -164,7 +164,7 @@ flowchart TD
     START(["el.getBBox()"]) --> TAG{"el.tagName?"}
 
     TAG -- "text / tspan" --> POS["__resolveTextPos(el, fontSize)\nwalk into the ONE positioning\ntspan mermaid actually writes,\nhonoring y / dy in *em* units"]
-    POS --> MEAS["__measureTextFull(text, font)\n→ Python → font_metrics.py\n(real DejaVu Sans glyph widths,\nsame file resvg paints with)"]
+    POS --> MEAS["__measureTextFull(text, font)\n→ Python → font_metrics.py\n(real DejaVu Sans glyph widths + kerning,\nsame file novasvg paints with)"]
     MEAS --> ANCHOR["__resolveTextAnchor(el)\ninline style → external &lt;style&gt;\nrules → attribute → default 'start'"]
     ANCHOR --> TEXTOUT(["{x, y, width, height}\nadjusted for start/middle/end"])
 
@@ -275,7 +275,7 @@ flowchart TD
     ENGINE --> SVGSTR["raw SVG string\n(+ small targeted CSS patches\nfor documented mermaid.js gaps,\ne.g. mindmap label centering)"]
     SVGSTR --> DIAG["Diagram / DiagramBase\n(diagram.py) -- lazy, cached"]
     DIAG -->|".svg()"| SVGOUT["SVG string"]
-    DIAG -->|".png() / .pdf() / .numpy()"| RASTER["raster.py → resvg\n(same DejaVu Sans font file\nas font_metrics.py, so layout\nand paint agree by construction)"]
+    DIAG -->|".png() / .pdf() / .numpy()"| RASTER["raster.py → novasvg\n(same DejaVu Sans font file\nas font_metrics.py, so layout\nand paint agree by construction)"]
     DIAG -->|".ascii()"| ASCII["ascii.py → termaid"]
     RASTER --> PNGOUT["PNG bytes"]
     RASTER --> PDFOUT["pdf_writer.py\n→ PDF bytes"]
@@ -293,9 +293,9 @@ flowchart TD
 | `mermaidx/engine.py` | Owns the QuickJS context (one per process, one dedicated thread). Wires up the Python↔JS callback bridge (`__measureText`, `__measureTextFull`, `__pathBBox`). Implements `_path_bbox`/`_arc_extrema` (real SVG path geometry). Drives the job-pump loop. Applies the small set of documented post-render CSS patches. |
 | `mermaidx/assets/dom_shim.js` | The fake DOM/CSSOM/Canvas2D. `Node`/`Element`/`Document`/`TextNode`/`CSSStyleDecl`/`ClassList`. The `getBBox()` dispatch (§4). The CSS selector engine (`__matches`/`__matchesCompound`). The Canvas 2D stub. Timer/event polyfills. |
 | `mermaidx/assets/mermaid.js` | mermaid.js v11, unmodified, bundled via esbuild. Never patched directly — every gap is compensated for in the shim or engine.py instead, so upgrading this file doesn't mean re-auditing hand-edits. |
-| `mermaidx/font_metrics.py` | Reads real glyph advance widths from a bundled DejaVu Sans font file. The *only* source of text-measurement truth, shared by both the shim's `getBBox()` and (indirectly, via the same font file) resvg's final paint. |
-| `mermaidx/raster.py` | SVG → PNG via resvg, using that same font file. |
-| `mermaidx/pdf_writer.py` | PNG → PDF, hand-written (not resvg). |
+| `mermaidx/font_metrics.py` | Thin wrapper over `novasvg.fonts` (vendored stb_truetype): real glyph advances, kerning, and `<foreignObject>` label sizes for the bundled DejaVu Sans. The *only* source of text-measurement truth, shared by the shim's `getBBox()`/`getBoundingClientRect()` and — since it's the same engine — novasvg's final paint. For V8 (no synchronous callbacks) it also exports the advance table and a sparse ASCII kerning table for a JS-side mirror. |
+| `mermaidx/raster.py` | SVG → PNG via novasvg, using that same font file. |
+| `mermaidx/pdf_writer.py` | PNG → PDF, hand-written (not novasvg). |
 | `mermaidx/diagram.py` | `DiagramBase`/`Diagram`/`DiagramRust` — the lazy, cached public object `render()` returns. |
 | `mermaidx/backends.py` | Discovers optional `mmdr`-provided backends. |
 | `mermaidx/ascii.py` | SVG → ASCII/Unicode art via `termaid`. |
@@ -303,10 +303,18 @@ flowchart TD
 
 ---
 
+
+### `<foreignObject>` label sizing (htmlLabels)
+
+Two spots in `dom_shim.js` exist specifically so HTML labels size correctly with no real CSS engine underneath:
+
+- **`getBoundingClientRect()`** serializes the element's `innerHTML` and asks `__measureForeignObject` for `{width, height, line_count, line_height}`. QuickJS answers via a synchronous callback into `novasvg.fonts.measure_foreign_object()` (the exact line-counting / `line-height` logic novasvg's painter uses). V8 can't call back synchronously, so `v8_engine.py` ships a line-for-line JS mirror of that algorithm instead — the same pattern as its advance/kerning tables. Multi-line (`<br>`) labels grow their boxes correctly because of this.
+- **`__computeBBox()`** has an explicit `foreignObject` case returning its own `width`/`height` attributes. Without it, the generic "union of children" fallback asks HTML children for an SVG bbox they don't have, under-reports the diagram's extent, and mermaid sizes the final `viewBox` too tight (content touching/clipped at the canvas edge, e.g. state diagrams with two-way labelled edges).
+
 ## 9. Design principles, stated explicitly
 
 - **Verify with a rendered artifact, not just "did it throw."** A fix that stops an exception isn't necessarily correct — see §5's block-arrow label, which rendered without error for a long time while showing literal `&nbsp;&nbsp;&nbsp;` text instead of blank padding, and see §4's three silent-zero-bbox bugs, none of which raised anything either. The reliable check is comparing an actual rendered PNG (via the CLI) against what the diagram is supposed to look like, not just confirming `mermaid.render()` resolved.
 
-- **Never patch `mermaid.js` itself.** Every fix lives in `dom_shim.js` or `engine.py`. This means upgrading to a new mermaid.js release is a file swap, not a rebase of hand-edits — at the cost of occasionally needing a small compensating patch (§2, mindmap centering) when mermaid.js's own generated output has a gap that only shows up in the non-default (`htmlLabels:false`) configuration this project requires (`resvg` can't render `foreignObject`+HTML content, so `htmlLabels:false` isn't optional here).
-- **One font, two consumers.** `font_metrics.py` and `raster.py` are handed the *same* DejaVu Sans font file. Layout (what mermaid.js's JS thinks a label's size is) and paint (what resvg actually draws) agree by construction, not by coincidence.
+- **Never patch `mermaid.js` itself.** Every fix lives in `dom_shim.js` or `engine.py`. This means upgrading to a new mermaid.js release is a file swap, not a rebase of hand-edits — at the cost of occasionally needing a small compensating patch (§2, mindmap centering) when mermaid.js's own generated output has a gap that only shows up for the native `<text>` elements mermaid.js emits regardless of `textPlacement` (journey/timeline section headers, mindmap nodes). Labels themselves use mermaid's default `htmlLabels:true`: novasvg paints `<foreignObject>` directly (the retired resvg could not, which is why this project used to force `htmlLabels:false`).
+- **One font, two consumers.** `font_metrics.py` and `raster.py` are handed the *same* DejaVu Sans font file *and* the same engine (novasvg). Layout (what mermaid.js's JS thinks a label's size is) and paint (what novasvg actually draws) agree by construction, not by coincidence — including `<foreignObject>` box heights, which come from `novasvg.fonts.measure_foreign_object()`, the very logic novasvg's painter uses.
 - **Implement real geometry, not special cases.** Every fix in §4 replaced an approximation with the actual spec-defined behavior (real SVG arc math, real CSS cascade lookup, real transform composition) rather than a targeted patch for one failing sample — verified, each time, by testing against synthetic inputs unrelated to any sample diagram.

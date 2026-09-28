@@ -67,7 +67,7 @@ print(mermaidx.backends())
 | `mermaid-rs-renderer` | Native Rust (`mmdr`) | Alternative pure-Rust renderer from `mmdr`.² |
 
 ¹ Except `mindmap` — see the Mindmap Exception note above; `v8` falls back to `quickjs` there, in a separate child process so a stuck render can't leak memory.
-² Every backend shares the same `mermaidx` `DiagramBase` — only `svg()` differs per backend, everything downstream of it (PNG/PDF/raw/numpy) is the same resvg + PDF-writer pipeline for all of them, so PDF/raw/numpy come along for free here too.
+² Every backend shares the same `mermaidx` `DiagramBase` — only `svg()` differs per backend, everything downstream of it (PNG/PDF/raw/numpy) is the same novasvg + PDF-writer pipeline for all of them, so PDF/raw/numpy come along for free here too.
 
 ```python
 # Unified interface regardless of backend:
@@ -138,7 +138,7 @@ See [`examples/jupyter_demo.ipynb`](examples/jupyter_demo.ipynb) for a full walk
 flowchart LR
     A[Mermaid source] --> B["QuickJS-ng (or V8, optional)"]
     B -->|"mermaid.js v11 (bundled)"| C[SVG]
-    C --> D[resvg]
+    C --> D[novasvg]
     D --> E[PNG]
     C --> F["hand-written PDF writer<br/>(stdlib only)"]
     F --> G[PDF]
@@ -149,8 +149,8 @@ flowchart LR
 
 Everything happens in one process, no subprocess, no I/O — with one deliberate exception, `backend="v8"`, noted below.
 
-* **SVG** — mermaid.js runs inside QuickJS-ng (default, in-process) or, optionally, real V8 (`backend="v8"`, in its own child process) against a minimal fake DOM/SVG implementation. The one thing a fake DOM can't fabricate — real text metrics (`getBBox`/`getComputedTextLength`) — is bridged back into Python (QuickJS) or reproduced exactly from a precomputed per-glyph advance-width table (V8), both reading the same bundled font.
-* **PNG** — the SVG is rasterized by [resvg](https://pypi.org/project/resvg_py/), forced to use that *same* bundled font, so what mermaid measured during layout is exactly what gets painted.
+* **SVG** — mermaid.js runs inside QuickJS-ng (default, in-process) or, optionally, real V8 (`backend="v8"`, in its own child process) against a minimal fake DOM/SVG implementation. The one thing a fake DOM can't fabricate — real text metrics (`getBBox`/`getComputedTextLength`) — is bridged back into Python (QuickJS) or reproduced from a precomputed per-glyph advance-width table plus a sparse ASCII kerning table (V8) — both backed by [novasvg](https://github.com/mohammadraziei/novasvg)'s own font stack and the same bundled font.
+* **PNG** — the SVG is rasterized by [novasvg](https://github.com/mohammadraziei/novasvg), forced to use that *same* bundled font, so what mermaid measured during layout is exactly what gets painted. Unlike the resvg this project used before (retired in this version), novasvg paints `<foreignObject>` HTML labels directly, so mermaid.js's own default labels reach the pixels unmodified.
 * **PDF** — a small hand-written PDF writer (stdlib `zlib`/`struct` only) embeds the rendered pixels directly. No Pillow, no Cairo, no reportlab — every mainstream "put an image in a PDF" library pulls in Pillow as a transitive dependency; this avoids that entirely.
 * **ASCII** — a completely separate, lightweight path via [termaid](https://pypi.org/project/termaid/) (pure Python, ~700KB, zero dependencies), which parses the Mermaid source itself rather than going through the SVG.
 
@@ -326,7 +326,7 @@ pie charts, git graphs, and more.
 ## Requirements
 
 * Python 3.9+
-* `quickjs-ng`, `resvg_py`, `termaid` (installed automatically)
+* `quickjs-ng`, `novasvg`, `termaid` (installed automatically)
 * `mini-racer` (optional, `pip install mermaidx[v8engine]`, for the V8 engine)
 * No system packages, no Node.js, no npm, no browser
 
@@ -344,9 +344,10 @@ pytest tests/ -v
 ## History
 
 * **mmdc, powered by [phasma**](https://github.com/mohammadraziei/phasma) — the original version of this project. It bundled a real (if small — around 20MB) headless browser, PhantomJS, and exposed an `async` Python API to match: rendering meant talking to a subprocess, so `async`/`await` genuinely mattered for concurrency.
-* **0.6.x** — a full rewrite: PhantomJS's engine couldn't parse modern Mermaid (v11's ES2022+ syntax) at all, so the whole browser was replaced with mermaid.js running inside QuickJS-ng against a hand-written DOM/SVG shim, with resvg for rasterization. No subprocess left to wait on, so the API became synchronous. Three backends appeared: `js` (this engine), plus `merman` and `mermaid-rs-renderer` via the optional [`mmdr`](https://github.com/mohammadraziei/mmdr) package.
+* **0.6.x** — a full rewrite: PhantomJS's engine couldn't parse modern Mermaid (v11's ES2022+ syntax) at all, so the whole browser was replaced with mermaid.js running inside QuickJS-ng against a hand-written DOM/SVG shim, with resvg for rasterization (replaced by novasvg in a later release). No subprocess left to wait on, so the API became synchronous. Three backends appeared: `js` (this engine), plus `merman` and `mermaid-rs-renderer` via the optional [`mmdr`](https://github.com/mohammadraziei/mmdr) package.
 * **0.7.x, renamed to mermaidx** — same engine, new name. The old name, `mmdc`, was identical to the official Mermaid CLI's own binary name (`@mermaid-js/mermaid-cli` installs a command called `mmdc`) — a real collision, not just a branding concern. Renamed early, while it still could be. **If you have `mmdc` pinned anywhere (`requirements.txt`, a Dockerfile, CI config), switch it to `mermaidx` — the old name isn't maintained or published anymore.**
 * **Later 0.7.x** — the embedded-JS-engine backend split into `mermaidx/engines/` (`quickjs_engine.py` / `v8_engine.py`), and gained an optional real-V8 path (`pip install mermaidx[v8engine]`, `backend="v8"`) alongside the original QuickJS-ng one (`backend="quickjs"`, still the default) — same mermaid.js, same output, just a choice of engine.
+* **novasvg release** — resvg retired; [novasvg](https://github.com/mohammadraziei/novasvg) is now the sole rasterizer *and* the text-measurement engine (`font_metrics.py` no longer hand-parses TrueType tables). Because novasvg paints `<foreignObject>` directly, mermaid.js's default HTML labels are used again (`htmlLabels: true`), with their box sizes computed by novasvg itself (`novasvg.fonts.measure_foreign_object`) so layout and paint can't disagree.
 
 ---
 
