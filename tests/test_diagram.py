@@ -168,13 +168,13 @@ def test_save_format_override_png_with_odd_extension(tmp_path):
 def test_save_unknown_extension_raises(tmp_path):
     d = mermaidx.render(FLOWCHART)
     with pytest.raises(ValueError):
-        d.save(str(tmp_path / "d.bmp"))
+        d.save(str(tmp_path / "d.gif"))
 
 
 def test_save_unknown_format_override_raises(tmp_path):
     d = mermaidx.render(FLOWCHART)
     with pytest.raises(ValueError):
-        d.save(str(tmp_path / "d.svg"), format="bmp")
+        d.save(str(tmp_path / "d.svg"), format="gif")
 
 
 # ── misc ──────────────────────────────────────────────────────────────────
@@ -539,3 +539,82 @@ def test_multiline_edge_label_is_centered_on_its_background():
         f"text baseline y={text_absolute_y} falls outside its own "
         f"background rect [{rect_top}, {rect_bottom}]"
     )
+
+# --- JPEG / BMP / TGA output (novasvg's own Bitmap encoders, no Pillow) ---
+
+def _decode_first_pixel_rgba(png_bytes):
+    """Straight-RGBA of pixel (0,0), decoded independently of
+    mermaidx.png_decode so a regression in one can't hide the other's bug."""
+    import struct
+    import zlib
+
+    assert png_bytes[:8] == b"\x89PNG\r\n\x1a\n"
+    pos, idat, width = 8, b"", None
+    while pos < len(png_bytes):
+        length, kind = struct.unpack(">I4s", png_bytes[pos:pos + 8])
+        body = png_bytes[pos + 8:pos + 8 + length]
+        if kind == b"IHDR":
+            width, _, depth, ctype = struct.unpack(">IIBB", body[:10])
+            assert (depth, ctype) == (8, 6), "expected 8-bit RGBA"
+        elif kind == b"IDAT":
+            idat += body
+        pos += 12 + length
+    row = bytearray(zlib.decompress(idat)[: width * 4 + 1])
+    filt = row[0]
+    if filt == 1:  # Sub: value + left neighbor (0 for the leftmost pixel)
+        pass
+    elif filt != 0:
+        raise AssertionError(f"unexpected PNG row filter {filt} for a tiny solid-color image")
+    return tuple(row[1:5])
+
+
+def test_jpg_bmp_tga_produce_their_formats():
+    d = mermaidx.render(FLOWCHART)
+    jpg = d.jpg()
+    assert jpg[:2] == b"\xff\xd8" and jpg[-2:] == b"\xff\xd9"
+    assert d.bmp()[:2] == b"BM"
+    assert len(d.tga()) > 18
+
+
+def test_jpg_defaults_to_opaque_white_background():
+    """JPEG has no alpha; novasvg drops it, so an unset background would
+    otherwise come out black instead of the transparent the SVG asked for."""
+    import io
+
+    pytest.importorskip("PIL")
+    from PIL import Image
+
+    d = mermaidx.render("graph LR\n    A --> B")
+    im = Image.open(io.BytesIO(d.jpg())).convert("RGB")
+    # A corner well outside any node/edge should be pure background.
+    assert im.getpixel((2, 2)) != (0, 0, 0)
+
+
+def test_png_bytes_have_correct_un_premultiplied_color():
+    """Regression: an earlier version of mermaidx.raster called
+    Bitmap.convert_to_rgba() before Bitmap.to_png()/write_to_png(), and
+    novasvg's PNG encoder *also* converts internally -- converting twice
+    swapped red and blue and corrupted alpha. An asymmetric color (not
+    e.g. gray) so a channel swap can't hide behind a symmetric value."""
+    svg = '<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4"><rect width="4" height="4" fill="#336699"/></svg>'
+    png = mermaidx.svg_to_png(svg)
+    assert _decode_first_pixel_rgba(png) == (0x33, 0x66, 0x99, 255)
+
+
+def test_save_dispatches_jpg_bmp_tga_by_extension(tmp_path):
+    d = mermaidx.render(FLOWCHART)
+    for name, magic in [("out.jpg", b"\xff\xd8"), ("out.jpeg", b"\xff\xd8"), ("out.bmp", b"BM")]:
+        path = tmp_path / name
+        d.save(str(path))
+        assert path.read_bytes()[:2] == magic, name
+    tga_path = tmp_path / "out.tga"
+    d.save(str(tga_path))
+    assert tga_path.stat().st_size > 18
+
+
+def test_save_jpg_quality_kwarg_changes_size(tmp_path):
+    d = mermaidx.render(FLOWCHART)
+    lo, hi = tmp_path / "lo.jpg", tmp_path / "hi.jpg"
+    d.save(str(lo), quality=10)
+    d.save(str(hi), quality=95)
+    assert lo.stat().st_size < hi.stat().st_size

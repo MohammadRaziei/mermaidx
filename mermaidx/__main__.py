@@ -65,7 +65,7 @@ examples:
     parser.add_argument("-i", "--input", metavar="FILE",
                         help="Input Mermaid file, or '-' to read from stdin")
     parser.add_argument("-o", "--output", default=None, metavar="FILE",
-                        help="Output file (.svg/.png/.pdf). Omit to write SVG to stdout.")
+                        help="Output file (.svg/.png/.jpg/.jpeg/.bmp/.tga/.pdf). Omit to write SVG to stdout.")
     parser.add_argument("-w", "--width", type=float, default=None, metavar="N",
                         help="Output width in pixels (PNG/PDF-fit)")
     parser.add_argument("-H", "--height", type=float, default=None, metavar="N",
@@ -82,6 +82,9 @@ examples:
                         help="JSON config file for Mermaid (backend='quickjs'/'v8' only)")
     parser.add_argument("--css", metavar="FILE",
                         help="CSS file to inject into the diagram (backend='quickjs'/'v8' only)")
+    parser.add_argument("--quality", type=int, default=None, metavar="N",
+                        help="JPEG quality 1-100 (default: 90). JPEG output only. "
+                             "JPEG has no transparency: -b/--background defaults to white for it.")
     parser.add_argument("--pdf-format", default=None, metavar="FORMAT",
                         help="PDF paper format e.g. A4, Letter (default: fit to diagram)")
     parser.add_argument("--landscape", action="store_true",
@@ -167,6 +170,8 @@ def main() -> None:
                pdf_landscape=args.landscape, pdf_margin=args.margin)
     elif suffix == ".svg":
         d.save(str(output), **raster_kwargs, embed_font=args.embed_font)
+    elif suffix in (".jpg", ".jpeg") and args.quality is not None:
+        d.save(str(output), **raster_kwargs, quality=args.quality)
     else:
         d.save(str(output), **raster_kwargs)
 

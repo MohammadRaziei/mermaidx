@@ -20,7 +20,7 @@ mermaidx — Mermaid diagram rendering, no browser, Node.js, or npm required.
 from .__about__ import __version__
 from .diagram import Diagram, DiagramBase, DiagramRust, render
 from .backends import backends
-from .raster import svg_to_png, svg_to_raw
+from .raster import svg_to_png, svg_to_jpg, svg_to_image, svg_to_raw
 from .pool import render_many
 from .ascii import render_ascii
 
@@ -32,6 +32,8 @@ __all__ = [
     "DiagramRust",
     "backends",
     "svg_to_png",
+    "svg_to_jpg",
+    "svg_to_image",
     "svg_to_raw",
     "render_many",
     "render_ascii",

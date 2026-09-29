@@ -105,6 +105,7 @@ graph TD
 
 d.save("diagram.svg")
 d.save("diagram.png", scale=2.0)
+d.save("diagram.jpg", quality=90)       # also .jpeg / .bmp / .tga
 d.save("diagram.pdf", pdf_format="A4")
 print(d.ascii())
 ```
@@ -151,6 +152,7 @@ Everything happens in one process, no subprocess, no I/O — with one deliberate
 
 * **SVG** — mermaid.js runs inside QuickJS-ng (default, in-process) or, optionally, real V8 (`backend="v8"`, in its own child process) against a minimal fake DOM/SVG implementation. The one thing a fake DOM can't fabricate — real text metrics (`getBBox`/`getComputedTextLength`) — is bridged back into Python (QuickJS) or reproduced from a precomputed per-glyph advance-width table plus a sparse ASCII kerning table (V8) — both backed by [novasvg](https://github.com/mohammadraziei/novasvg)'s own font stack and the same bundled font.
 * **PNG** — the SVG is rasterized by [novasvg](https://github.com/mohammadraziei/novasvg), forced to use that *same* bundled font, so what mermaid measured during layout is exactly what gets painted. Unlike the resvg this project used before (retired in this version), novasvg paints `<foreignObject>` HTML labels directly, so mermaid.js's own default labels reach the pixels unmodified.
+* **JPEG / BMP / TGA** — the same rasterized bitmap, encoded by novasvg's own encoders (`Bitmap.to_jpg()`/`.to_bmp()`/`.to_tga()`) — no Pillow, no temp file. JPEG has no alpha channel, so `.jpg()`/`.save("x.jpg")` default to an opaque white background instead of novasvg's usual transparent (which would otherwise come out black).
 * **PDF** — a small hand-written PDF writer (stdlib `zlib`/`struct` only) embeds the rendered pixels directly. No Pillow, no Cairo, no reportlab — every mainstream "put an image in a PDF" library pulls in Pillow as a transitive dependency; this avoids that entirely.
 * **ASCII** — a completely separate, lightweight path via [termaid](https://pypi.org/project/termaid/) (pure Python, ~700KB, zero dependencies), which parses the Mermaid source itself rather than going through the SVG.
 
@@ -197,9 +199,15 @@ d.save("out.pdf", pdf_format="A4", pdf_margin="1cm")
 ```python
 d.save("out.svg")                       # -> svg
 d.save("out.png")                       # -> png
+d.save("out.jpg")                       # -> jpg  (also .jpeg; opaque white background by default)
+d.save("out.bmp")                       # -> bmp
+d.save("out.tga")                       # -> tga
 d.save("out.pdf")                       # -> pdf
 d.save("out.txt")                       # -> ascii
 d.save("out.whatever", format="png")    # force a format regardless of extension
+
+d.jpg(quality=90)                       # bytes, same defaults as .save(".jpg")
+d.bmp(); d.tga()                        # bytes
 ```
 
 ### Themes, config, CSS
@@ -239,7 +247,7 @@ print(mermaidx.render_ascii("graph LR; A-->B-->C"))
 
 ### Embedding the font for browser-accurate SVGs (optional)
 
-`.png()`/`.pdf()` always paint with exactly the font `mermaidx` measured with (see [How It Works](#how-it-works)), so they're guaranteed accurate. Opening the raw `.svg()` output directly in a browser is a different story: the SVG's own CSS just names a font (e.g. `"trebuchet ms"`), and the browser substitutes whatever it has installed for that name — not necessarily the same one `mermaidx` measured with — which can leave slightly mismatched whitespace around labels.
+`.png()`/`.jpg()`/`.bmp()`/`.tga()`/`.pdf()` always paint with exactly the font `mermaidx` measured with (see [How It Works](#how-it-works)), so they're guaranteed accurate. Opening the raw `.svg()` output directly in a browser is a different story: the SVG's own CSS just names a font (e.g. `"trebuchet ms"`), and the browser substitutes whatever it has installed for that name — not necessarily the same one `mermaidx` measured with — which can leave slightly mismatched whitespace around labels.
 
 ```bash
 pip install mermaidx[embed]   # adds fontTools, used only for this

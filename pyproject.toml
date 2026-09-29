@@ -23,14 +23,16 @@ classifiers = [
 ]
 dependencies = [
     "quickjs-ng>=0.15.1",
-    # novasvg is the sole SVG->PNG rasterizer (mermaidx.raster) and text
-    # measurer (mermaidx.font_metrics) as of this version; resvg_py has
+    # novasvg is the sole SVG->PNG/JPEG/BMP/TGA rasterizer (mermaidx.raster)
+    # and text/HTML-label measurer (mermaidx.font_metrics); resvg_py has
     # been retired (it couldn't paint <foreignObject> HTML labels, which
-    # mermaid.js uses by default). NOTE: this floor needs bumping once a
-    # novasvg release ships FontFace.codepoints()/advance_width_units()/
-    # units_per_em (added upstream alongside this change) -- v8_engine's
-    # advance-table export depends on them.
-    "novasvg>=0.5.0",
+    # mermaid.js uses by default). 0.7.1 has everything font/foreignObject
+    # related this project needs. NOTE: this floor needs bumping again once
+    # a novasvg release ships Bitmap.to_png()/to_jpg()/to_bmp()/to_tga()/
+    # to_bytes() (in-memory image encoders, added upstream alongside this
+    # comment) -- mermaidx.raster's render_image()/Diagram.jpg()/.bmp()/
+    # .tga() depend on them; 0.7.1 predates them and will import-error.
+    "novasvg>=0.7.1",
     "termaid>=0.7.1",
 ]
 

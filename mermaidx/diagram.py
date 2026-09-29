@@ -37,7 +37,7 @@ from mermaidx.engines.quickjs_engine import MermaidRenderError as _QuickJSRender
 from mermaidx.font_embed import embed_dejavu_font
 from mermaidx.pdf_writer import png_to_pdf
 from mermaidx.png_decode import decode_png_rgba, decode_png
-from mermaidx.raster import render_png as _render_png_novasvg
+from mermaidx.raster import render_png as _render_png_novasvg, render_image as _render_image_novasvg
 
 try:
     from mermaidx.engines.v8_engine import Engine as _V8Engine
@@ -99,11 +99,22 @@ _MISSING = object()
 # rasterizer can be added the same way this one was; raster='resvg' now
 # raises a clear error instead of silently doing nothing.
 _RASTER_BACKENDS = {"novasvg": _render_png_novasvg}
+# Same backends' generic "encode to png/jpg/bmp/tga" entry point -- what
+# .jpg()/.bmp()/.tga() (and save() for those extensions) go through.
+_IMAGE_BACKENDS = {"novasvg": _render_image_novasvg}
 
 
 def _render_png_fn(raster: str):
+    return _lookup_raster(_RASTER_BACKENDS, raster)
+
+
+def _render_image_fn(raster: str):
+    return _lookup_raster(_IMAGE_BACKENDS, raster)
+
+
+def _lookup_raster(table: dict, raster: str):
     try:
-        return _RASTER_BACKENDS[raster]
+        return table[raster]
     except KeyError:
         if raster == "resvg":
             raise ValueError(
@@ -138,6 +149,7 @@ class DiagramBase:
         self._opts = opts
         self._cache: dict = {}
         self._render_png = _render_png_fn(raster)
+        self._render_image = _render_image_fn(raster)
 
     # ------------------------------------------------------------------
     # memoization helper -- keyed by (method name, sorted kwargs)
@@ -218,6 +230,71 @@ class DiagramBase:
         """
         kwargs = dict(width=width, height=height, scale=scale, background=background)
         return self._cached("png", kwargs, lambda: self._png(**kwargs))
+
+    # ------------------------------------------------------------------
+    # JPEG / BMP / TGA
+    # ------------------------------------------------------------------
+
+    def _image(
+        self,
+        format: str,
+        width: Optional[float] = None,
+        height: Optional[float] = None,
+        scale: Optional[float] = None,
+        background: Optional[str] = None,
+        quality: int = 90,
+    ) -> bytes:
+        """Uncached raster encode in ``format`` (jpg / bmp / tga; png has its
+        own _png() hook). Rasterizes self.svg() via novasvg, then encodes in
+        memory."""
+        kwargs = dict(background=background, width=width, height=height, quality=quality)
+        if width is None and height is None and scale is not None:
+            kwargs["scale"] = scale
+        return self._render_image(self.svg(), format, **kwargs)
+
+    def jpg(
+        self,
+        width: Optional[float] = None,
+        height: Optional[float] = None,
+        scale: Optional[float] = None,
+        background: Optional[str] = None,
+        quality: int = 90,
+    ) -> bytes:
+        """Return the diagram as JPEG bytes.
+
+        Args:
+            width, height, scale: exactly as for :meth:`png`.
+            background: CSS color. **Opaque white by default** -- unlike
+                        :meth:`png`, since JPEG has no alpha channel
+                        (a transparent background would come out black).
+            quality:    JPEG quality, 1-100 (default 90).
+        """
+        kwargs = dict(width=width, height=height, scale=scale, background=background, quality=quality)
+        return self._cached("jpg", kwargs, lambda: self._image("jpg", **kwargs))
+
+    jpeg = jpg  # alias
+
+    def bmp(
+        self,
+        width: Optional[float] = None,
+        height: Optional[float] = None,
+        scale: Optional[float] = None,
+        background: Optional[str] = None,
+    ) -> bytes:
+        """Return the diagram as BMP bytes (arguments as for :meth:`png`)."""
+        kwargs = dict(width=width, height=height, scale=scale, background=background)
+        return self._cached("bmp", kwargs, lambda: self._image("bmp", **kwargs))
+
+    def tga(
+        self,
+        width: Optional[float] = None,
+        height: Optional[float] = None,
+        scale: Optional[float] = None,
+        background: Optional[str] = None,
+    ) -> bytes:
+        """Return the diagram as TGA bytes (arguments as for :meth:`png`)."""
+        kwargs = dict(width=width, height=height, scale=scale, background=background)
+        return self._cached("tga", kwargs, lambda: self._image("tga", **kwargs))
 
     # ------------------------------------------------------------------
     # Raw RGBA / numpy
@@ -349,6 +426,7 @@ class DiagramBase:
     # ------------------------------------------------------------------
 
     _EXTENSION_FORMATS = {".svg": "svg", ".png": "png", ".pdf": "pdf",
+                          ".jpg": "jpg", ".jpeg": "jpg", ".bmp": "bmp", ".tga": "tga",
                           ".txt": "ascii", ".ascii": "ascii"}
 
     def save(
@@ -364,12 +442,15 @@ class DiagramBase:
         """Save the diagram to *output*.
 
         Args:
-            format: Force the output format ("svg", "png", "pdf", or "ascii")
-                    regardless of the file extension. If omitted (the
-                    default), the format is inferred from *output*'s
-                    extension: ``.svg``, ``.png``, ``.pdf``, or ``.txt``/``.ascii``.
-            **format_opts: Forwarded to the matching method -- pdf_format/
-                    pdf_landscape/pdf_margin for "pdf", any termaid option for "ascii".
+            format: Force the output format ("svg", "png", "jpg", "bmp",
+                    "tga", "pdf", or "ascii") regardless of the file
+                    extension. If omitted (the default), the format is
+                    inferred from *output*'s extension: ``.svg``, ``.png``,
+                    ``.jpg``/``.jpeg``, ``.bmp``, ``.tga``, ``.pdf``, or
+                    ``.txt``/``.ascii``.
+            **format_opts: Forwarded to the matching method -- quality for
+                    "jpg", pdf_format/pdf_landscape/pdf_margin for "pdf",
+                    any termaid option for "ascii".
 
         Raises:
             ValueError: if the format can't be determined, or is unrecognised.
@@ -379,7 +460,7 @@ class DiagramBase:
         if fmt is None:
             raise ValueError(
                 f"Cannot infer output format from {output!r}. "
-                "Pass format=\"svg\"/\"png\"/\"pdf\"/\"ascii\" explicitly, "
+                "Pass format=\"svg\"/\"png\"/\"jpg\"/\"bmp\"/\"tga\"/\"pdf\"/\"ascii\" explicitly, "
                 "or use one of these extensions: "
                 f"{sorted(set(self._EXTENSION_FORMATS))}"
             )
@@ -388,6 +469,12 @@ class DiagramBase:
             path.write_text(self.svg(**format_opts), encoding="utf-8")
         elif fmt == "png":
             path.write_bytes(self.png(width=width, height=height, scale=scale, background=background))
+        elif fmt in ("jpg", "jpeg"):
+            path.write_bytes(self.jpg(width=width, height=height, scale=scale, background=background, **format_opts))
+        elif fmt == "bmp":
+            path.write_bytes(self.bmp(width=width, height=height, scale=scale, background=background))
+        elif fmt == "tga":
+            path.write_bytes(self.tga(width=width, height=height, scale=scale, background=background))
         elif fmt == "pdf":
             path.write_bytes(self.pdf(
                 width=width, height=height, scale=scale or 1.0,
@@ -397,7 +484,7 @@ class DiagramBase:
             path.write_text(self.ascii(**format_opts), encoding="utf-8")
         else:
             raise ValueError(
-                f"Unknown format {fmt!r}. Supported: svg, png, pdf, ascii"
+                f"Unknown format {fmt!r}. Supported: svg, png, jpg, bmp, tga, pdf, ascii"
             )
 
     # ------------------------------------------------------------------
@@ -478,6 +565,7 @@ class Diagram(DiagramBase):
         d.ascii()                        # ASCII/Unicode box-drawing art
         d.save("out.svg")
         d.save("out.png", width=1200)
+        d.save("out.jpg", quality=85)     # also .jpeg / .bmp / .tga; JPEG defaults to a white background
         d.save("out.pdf", pdf_format="A4", pdf_margin="1cm")
         d.save("out.png.bak", format="png")   # force format regardless of extension
     """

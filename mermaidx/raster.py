@@ -1,5 +1,5 @@
 """
-mermaidx.raster — SVG -> PNG via novasvg (github.com/mohammadraziei/novasvg).
+mermaidx.raster — SVG -> PNG / JPEG / BMP / TGA via novasvg (github.com/mohammadraziei/novasvg).
 
 The sole rasterizer as of this version: resvg_py has been retired (it
 couldn't paint text inside <foreignObject> -- mermaid.js's default markup
@@ -40,24 +40,51 @@ _fonts.add_font_face_from_file(_FAMILY, True, False, str(_FONTS_DIR / "DejaVuSan
 
 
 def _parse_background(background: Optional[str]) -> int:
-    """'#rrggbb' / '#rrggbbaa' -> packed 0xRRGGBBAA for render_to_bitmap();
-    None -> fully transparent."""
+    """A CSS-ish color -> packed 0xRRGGBBAA for render_to_bitmap(); None
+    (or empty) -> fully transparent.
+
+    Delegates to novasvg's own Color parsers rather than hand-rolling one:
+    '#rgb' / '#rgba' / '#rrggbb' / '#rrggbbaa' (the previous hand-rolled
+    version only understood the last two, and silently misread '#fff' as
+    0x00000fff) and the color names novasvg knows ('white', 'black', ...).
+    An unparsable value raises ValueError instead of silently rendering
+    some other color."""
     if not background:
         return 0x00000000
-    h = background.lstrip("#")
-    if len(h) == 6:
-        h += "ff"
-    return int(h, 16)
+    text = str(background).strip()
+    try:
+        if text.startswith("#"):
+            return _novasvg.Color.from_hash(text).to_int()
+        return _novasvg.Color.from_name(text.lower()).to_int()
+    except ValueError as exc:
+        raise ValueError(
+            f"Unrecognised background color {background!r} (use '#rgb', '#rrggbb', '#rrggbbaa' "
+            f"or a basic color name like 'white'): {exc}"
+        ) from None
 
 
-def render_png(
+# Formats novasvg's Bitmap can encode in memory (Bitmap.to_bytes()), keyed
+# by every spelling we accept. "jpeg" is spelled out as an alias since both
+# are common; the canonical name is what Bitmap.to_bytes() itself is given.
+_IMAGE_FORMATS = {"png": "png", "jpg": "jpg", "jpeg": "jpg", "bmp": "bmp", "tga": "tga"}
+
+# JPEG has no alpha channel: novasvg's encoder just drops it, so a
+# transparent pixel (rgb 0,0,0) comes out black. A transparent-by-default
+# diagram would otherwise turn into white-on-black nonsense, so JPEG
+# defaults to an opaque white background instead unless the caller picks one.
+_JPEG_DEFAULT_BACKGROUND = "#ffffff"
+
+
+def render_bitmap(
     svg_text: str,
     *,
     scale: float = 1.0,
     background: Optional[str] = None,
     width: Optional[float] = None,
     height: Optional[float] = None,
-) -> bytes:
+):
+    """Rasterize SVG text to a novasvg Bitmap (ARGB32 premultiplied -- the
+    shape every Bitmap encoder expects; see Bitmap.to_png()'s docs)."""
     doc = _novasvg.Document.load_from_data(svg_text)
     natural_w, natural_h = doc.width, doc.height
     if width is None and height is None:
@@ -69,43 +96,48 @@ def render_png(
         width = natural_w * (height / natural_h) if natural_h else height
     elif height is None:
         height = natural_h * (width / natural_w) if natural_w else width
-    bmp = doc.render_to_bitmap(max(1, round(width)), max(1, round(height)), _parse_background(background))
-    bmp.convert_to_rgba()
-    return _encode_png(bmp)
+    return doc.render_to_bitmap(max(1, round(width)), max(1, round(height)), _parse_background(background))
 
 
-def _encode_png(bmp) -> bytes:
-    """novasvg's Python Bitmap.write_to_png() writes straight to a file
-    path, not bytes -- round-trip through a temp file to keep this module's
-    return type (PNG bytes) stable regardless of how novasvg's own API
-    evolves.
+def render_image(
+    svg_text: str,
+    format: str = "png",
+    *,
+    scale: float = 1.0,
+    background: Optional[str] = None,
+    width: Optional[float] = None,
+    height: Optional[float] = None,
+    quality: int = 90,
+) -> bytes:
+    """Rasterize SVG text and encode it as ``format`` (png / jpg / jpeg /
+    bmp / tga), entirely in memory -- no temp file, no Pillow.
 
-    The temp file is created and *closed* before novasvg opens it by name:
-    on Windows a file still held open by NamedTemporaryFile can't be
-    reopened by a second handle, so write_to_png() failed there -- and,
-    since it reports failure only via its bool return value, silently
-    (the old version never checked it, and returned b'' from the untouched
-    empty file). Deleted manually in `finally` for the same reason
-    (NamedTemporaryFile(delete=True) can't unlink a file that's reopened
-    elsewhere either)."""
-    import os
-    import tempfile
+    ``quality`` (1-100) applies to JPEG only. JPEG has no alpha, so when no
+    ``background`` is given it defaults to opaque white rather than
+    novasvg's transparent (which would come out black)."""
+    canonical = _IMAGE_FORMATS.get(str(format).lower().lstrip("."))
+    if canonical is None:
+        raise ValueError(f"Unknown image format {format!r}. Supported: {', '.join(sorted(set(_IMAGE_FORMATS)))}")
+    if canonical == "jpg" and background is None:
+        background = _JPEG_DEFAULT_BACKGROUND
+    bmp = render_bitmap(svg_text, scale=scale, background=background, width=width, height=height)
+    # No bmp.convert_to_rgba() here, deliberately: the encoders already
+    # unpremultiply into their own scratch buffer, so converting the
+    # Bitmap in place first makes them convert a second time -- swapping
+    # red/blue and corrupting semi-transparent pixels (an earlier version
+    # of this module did exactly that).
+    return bmp.to_bytes(canonical, quality=quality)
 
-    fd, path = tempfile.mkstemp(suffix=".png")
-    os.close(fd)
-    try:
-        if not bmp.write_to_png(path):
-            raise RuntimeError(f"novasvg failed to write PNG to temporary file {path!r}")
-        with open(path, "rb") as f:
-            data = f.read()
-    finally:
-        try:
-            os.unlink(path)
-        except OSError:
-            pass
-    if not data:
-        raise RuntimeError("novasvg produced an empty PNG")
-    return data
+
+def render_png(
+    svg_text: str,
+    *,
+    scale: float = 1.0,
+    background: Optional[str] = None,
+    width: Optional[float] = None,
+    height: Optional[float] = None,
+) -> bytes:
+    return render_image(svg_text, "png", scale=scale, background=background, width=width, height=height)
 
 
 def svg_to_png(
@@ -116,6 +148,30 @@ def svg_to_png(
 ) -> bytes:
     """Rasterize any SVG string to PNG bytes (doesn't have to come from mermaidx)."""
     return render_png(svg, background=background, width=width, height=height)
+
+
+def svg_to_jpg(
+    svg: str,
+    width: Optional[float] = None,
+    height: Optional[float] = None,
+    background: Optional[str] = None,
+    quality: int = 90,
+) -> bytes:
+    """Rasterize any SVG string to JPEG bytes. ``background`` defaults to
+    opaque white (JPEG has no transparency)."""
+    return render_image(svg, "jpg", background=background, width=width, height=height, quality=quality)
+
+
+def svg_to_image(
+    svg: str,
+    format: str = "png",
+    width: Optional[float] = None,
+    height: Optional[float] = None,
+    background: Optional[str] = None,
+    quality: int = 90,
+) -> bytes:
+    """Rasterize any SVG string to ``format`` bytes (png / jpg / jpeg / bmp / tga)."""
+    return render_image(svg, format, background=background, width=width, height=height, quality=quality)
 
 
 def svg_to_raw(
