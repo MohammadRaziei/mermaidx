@@ -1,0 +1,10 @@
+sequenceDiagram
+    participant U as User
+    participant S as Server
+    participant D as Database
+    U->>+S: Request report
+    Note right of S: Validates input
+    S->>+D: SELECT rows
+    D-->>-S: 42 rows
+    Note over U,S: Two participants
+    S-->>-U: Report ready

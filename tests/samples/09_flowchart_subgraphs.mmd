@@ -1,0 +1,12 @@
+flowchart LR
+    subgraph Frontend
+        UI[Web UI] --> API[API Client]
+    end
+    subgraph Backend
+        GW[Gateway] --> SVC[Service]
+        SVC --> DB[(Postgres)]
+    end
+    API --> GW
+    SVC -.-> Cache[[Redis Cache]]
+    style UI fill:#f9f,stroke:#333,stroke-width:2px
+    style DB fill:#bbf,stroke:#f66,stroke-width:3px

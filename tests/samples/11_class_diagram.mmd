@@ -1,0 +1,17 @@
+classDiagram
+    class Animal {
+        +String name
+        +int age
+        +makeSound() void
+    }
+    class Dog {
+        +String breed
+        +fetch() void
+    }
+    class Cat {
+        +bool indoor
+        +purr() void
+    }
+    Animal <|-- Dog
+    Animal <|-- Cat
+    Dog "1" --> "*" Toy : plays with

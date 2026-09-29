@@ -339,7 +339,8 @@ function CSSStyleDecl(el) {
   return new Proxy(store, {
     get(t, p) {
       if (p === "cssText") return Object.entries(t).map(([k,v])=>`${k}:${v}`).join(";");
-      if (p === "setProperty") return (k,v) => { t[k]=v; };
+      if (p === "__entries") return Object.entries(t);
+      if (p === "setProperty") return (k,v) => __cssSet(t, k, v);
       if (p === "removeProperty") return (k) => { delete t[k]; };
       if (p === "getPropertyValue") return (k) => {
         if (Object.prototype.hasOwnProperty.call(t, k)) return t[k];
@@ -348,8 +349,72 @@ function CSSStyleDecl(el) {
       if (Object.prototype.hasOwnProperty.call(t, p)) return t[p];
       return fromAttr(p) ?? "";
     },
-    set(t, p, v) { t[p] = v; return true; }
+    set(t, p, v) {
+      if (p === "cssText") return true;
+      __cssSet(t, String(p).replace(/[A-Z]/g, (c) => "-" + c.toLowerCase()), v);
+      return true;
+    }
   });
+}
+// A CSSOM property setter accepts exactly ONE declaration value: null/undefined/""
+// removes the property, and a value that isn't a valid single value (e.g. it has
+// a top-level ";" -- mermaid's own fontFamily config ends in one) is silently
+// ignored and leaves the previous value untouched. Chrome does exactly that,
+// which is why real mermaid output has no inline font-family on sequence text.
+function __cssValueIsSingle(v) {
+  let q = null, depth = 0;
+  for (const ch of v) {
+    if (q) { if (ch === q) q = null; continue; }
+    if (ch === '"' || ch === "'") { q = ch; continue; }
+    if (ch === "(") depth++;
+    else if (ch === ")") depth--;
+    else if (depth === 0 && (ch === ";" || ch === "{" || ch === "}")) return false;
+  }
+  return true;
+}
+function __cssSet(store, k, v) {
+  if (v == null || String(v).trim() === "") { delete store[k]; return; }
+  v = String(v).trim();
+  if (!__cssValueIsSingle(v)) return;
+  store[k] = __cssCanonCommas(__cssCanonColors(v));
+}
+// Chrome serializes an sRGB color that went through the CSSOM as rgb()/rgba():
+// "#ECECFF" -> "rgb(236, 236, 255)", "hsl(80, 100%, 56.27%)" -> "rgb(181, 255, 32)".
+// Named colors, "none", "currentColor", "url(...)" etc. are left alone.
+function __cssCanonColors(v) {
+  const hex = /^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.exec(v);
+  if (hex) {
+    let h = hex[1];
+    if (h.length <= 4) h = h.split("").map((c) => c + c).join("");
+    const n = [0, 2, 4, 6].map((i) => (h.length > i ? parseInt(h.slice(i, i + 2), 16) : null));
+    return n[3] === null || n[3] === 255
+      ? `rgb(${n[0]}, ${n[1]}, ${n[2]})`
+      : `rgba(${n[0]}, ${n[1]}, ${n[2]}, ${+(n[3] / 255).toFixed(3)})`;
+  }
+  const hsl = /^hsla?\(\s*([-\d.]+)(?:deg)?\s*,\s*([\d.]+)%\s*,\s*([\d.]+)%\s*(?:,\s*([\d.]+)\s*)?\)$/i.exec(v);
+  if (hsl) {
+    const h = ((parseFloat(hsl[1]) % 360) + 360) % 360, sat = parseFloat(hsl[2]) / 100, l = parseFloat(hsl[3]) / 100;
+    const a = sat * Math.min(l, 1 - l);
+    const f = (n) => { const k = (n + h / 30) % 12; return l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1)); };
+    const rgb = [f(0), f(8), f(4)].map((x) => Math.round(x * 255));
+    return hsl[4] === undefined || parseFloat(hsl[4]) === 1
+      ? `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`
+      : `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${parseFloat(hsl[4])})`;
+  }
+  return v;
+}
+// Chrome serializes comma-separated values with ", " ("1,0" -> "1, 0"),
+// except inside quoted strings.
+function __cssCanonCommas(v) {
+  let out = "", q = null;
+  for (let i = 0; i < v.length; i++) {
+    const ch = v[i];
+    if (q) { out += ch; if (ch === q) q = null; continue; }
+    if (ch === '"' || ch === "'") { q = ch; out += ch; continue; }
+    if (ch === ",") { out += ", "; while (v[i + 1] === " ") i++; continue; }
+    out += ch;
+  }
+  return out;
 }
 
 class ClassList {
@@ -548,9 +613,23 @@ class Element extends Node {
     // call instead, not this one.
     const fontSize = __resolveHtmlFontSizePx(this);
     if (this.nodeType === 1 && this.tagName !== "text" && this.tagName !== "tspan") {
-      const html = __serialize(this, true);
+      // outerHTML, not innerHTML: mermaid measures the wrapping <div> itself,
+      // and that div's own style="line-height:1.5" is what novasvg's
+      // foreignObjectLineHeight() has to see -- innerHTML drops it and the
+      // height silently falls back to font.height()*1.2 (22.35 vs the 24 a
+      // browser gives).
+      const html = __serialize(this, false);
       const m = globalThis.__measureForeignObject(html, fontSize, "DejaVu Sans", "normal", "normal");
-      return { x: 0, y: 0, width: m.width, height: m.height, top: 0, left: 0, right: m.width, bottom: m.height };
+      // A browser gives a block with no text (and no <br>) zero height and
+      // zero width -- e.g. mermaid's empty edge labels. novasvg paints
+      // nothing for it either (ForeignObjectSimple::render() returns early),
+      // so 0x0 is also what paint agrees with.
+      const hasContent = /\S/.test(html.replace(/<[^>]*>/g, "")) || /<br\b/i.test(html);
+      if (!hasContent) return { x: 0, y: 0, width: 0, height: 0, top: 0, left: 0, right: 0, bottom: 0 };
+      // Browsers lay out in 1/64px LayoutUnits and round a shrink-to-fit
+      // width UP to the next one.
+      const w = Math.ceil(m.width * 64) / 64;
+      return { x: 0, y: 0, width: w, height: m.height, top: 0, left: 0, right: w, bottom: m.height };
     }
     const m = globalThis.__measureTextFull(this.textContent, fontSize, "DejaVu Sans", "normal", "normal");
     const width = m.width, height = m.ascent + m.descent + 4; // +line-box slack
@@ -834,6 +913,7 @@ function __rowTspans(el) {
   return rows;
 }
 
+const __BBOX_SKIP = new Set(["defs","marker","style","script","title","desc","metadata","clipPath","mask","symbol","pattern","linearGradient","radialGradient","filter"]);
 function __computeBBox(el) {
   if (el.tagName === "text" || el.tagName === "tspan") {
     const font = __resolveFont(el);
@@ -929,6 +1009,7 @@ function __computeBBox(el) {
   let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity, any=false;
   for (const c of el.childNodes) {
     if (c.nodeType !== 1) continue;
+    if (__BBOX_SKIP.has(c.tagName)) continue;
     const b = c.getBBox ? c.getBBox() : null;
     if (!b || (b.width===0 && b.height===0 && b.x===0 && b.y===0)) continue;
     const [dx, dy] = __translateOf(c);
@@ -1063,6 +1144,7 @@ function __decodeStrayLabelEntities(s) {
   return String(s).replace(/&([a-zA-Z]+);/g, (m0, name) =>
     name in _EXTRA_TEXT_ENTITIES ? _EXTRA_TEXT_ENTITIES[name] : m0);
 }
+const __SER_VOID = new Set(["br","hr","img","input","meta","link","area","base","col","embed","param","source","track","wbr"]);
 function __serialize(el, innerOnly) {
   function ser(n) {
     if (n.nodeType === 3) return __esc(__decodeStrayLabelEntities(n.textContent));
@@ -1074,10 +1156,22 @@ function __serialize(el, innerOnly) {
     // (one from _attrs, one from n.style.cssText) is invalid SVG/XML and
     // novasvg (and any strict XML parser) rejects it outright ("attribute 'style' ... already defined").
     const attrStyle = n._attrs && n._attrs.style;
-    const liveStyle = n.style && n.style.cssText;
-    const combinedStyle = [attrStyle, liveStyle].filter(Boolean).join(";");
-    const styleAttr = combinedStyle ? ` style="${__esc(combinedStyle)}"` : "";
+    const live = (n.style && n.style.__entries) || [];
+    let styleAttr = "";
+    if (live.length === 0) {
+      // Only setAttribute("style", ...) touched it: a browser keeps that string
+      // verbatim -- including an explicitly empty style="".
+      if (attrStyle !== undefined) styleAttr = ` style="${__esc(attrStyle)}"`;
+    } else {
+      // Live CSSOM writes re-serialize the WHOLE attribute canonically
+      // ("k: v; k2: v2;"), attribute-declared properties first, a repeated
+      // property keeping its original position.
+      const merged = new Map(Object.entries(__parseStyleAttr(attrStyle)));
+      for (const [k, v] of live) merged.set(k, v);
+      styleAttr = ` style="${__esc(Array.from(merged, ([k, v]) => `${k}: ${v};`).join(" "))}"`;
+    }
     const inner = n.childNodes.map(ser).join("");
+    if (!inner && __SER_VOID.has(n.tagName)) return `<${n.tagName}${attrs}${styleAttr}/>`;
     return `<${n.tagName}${attrs}${styleAttr}>${inner}</${n.tagName}>`;
   }
   if (innerOnly) return el.childNodes.map(ser).join("");
