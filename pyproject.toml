@@ -26,14 +26,14 @@ dependencies = [
     # novasvg is the sole SVG->PNG/JPEG/BMP/TGA rasterizer (mermaidx.raster)
     # and text/HTML-label measurer (mermaidx.font_metrics); resvg_py has
     # been retired (it couldn't paint <foreignObject> HTML labels, which
-    # mermaid.js uses by default). 0.7.1 has everything font/foreignObject
+    # mermaid.js uses by default). 0.7.2 has everything font/foreignObject
     # related this project needs. NOTE: this floor needs bumping again once
     # a novasvg release ships Bitmap.to_png()/to_jpg()/to_bmp()/to_tga()/
     # to_bytes() (in-memory image encoders, added upstream alongside this
     # comment) -- mermaidx.raster's render_image()/Diagram.jpg()/.bmp()/
-    # .tga() depend on them; 0.7.1 predates them and will import-error.
-    "novasvg>=0.7.1",
-    "termaid>=0.7.1",
+    # .tga() depend on them; 0.7.2 predates them and will import-error.
+    "novasvg>=0.7.2",
+    "termaid",
 ]
 
 [project.optional-dependencies]
