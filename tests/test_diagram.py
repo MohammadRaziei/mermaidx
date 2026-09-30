@@ -519,7 +519,7 @@ def test_multiline_edge_label_is_centered_on_its_background():
     m = re.search(
         r'<g class="label"[^>]*transform="translate\(([-\d.]+), ?([-\d.]+)\)">'
         r'.*?<rect class="background" x="([-\d.]+)" y="([-\d.]+)" '
-        r'width="([-\d.]+)" height="([-\d.]+)">',
+        r'width="([-\d.]+)" height="([-\d.]+)"[^>]*>',
         svg_legacy, re.S,
     )
     assert m, "expected a positioned edge label with a background rect"

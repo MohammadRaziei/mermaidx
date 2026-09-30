@@ -176,7 +176,7 @@ class Engine:
         # still available by passing config explicitly -- base_config.update()
         # below lets any key the caller sets win over these defaults.
         base_config = {"startOnLoad": False, "theme": theme or "default",
-                        "htmlLabels": True, "flowchart": {"htmlLabels": True},
+                        "flowchart": {"htmlLabels": True},
                         "journey": {"textPlacement": "fo"},
                         "timeline": {"textPlacement": "fo"}}
         if config:

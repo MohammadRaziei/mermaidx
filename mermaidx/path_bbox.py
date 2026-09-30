@@ -42,6 +42,15 @@ def _arc_extrema(x1, y1, rx, ry, rot_deg, large_arc, sweep, x2, y2):
     denom = rxsq * y1p * y1p + rysq * x1p * x1p
     if denom == 0:
         return [(x1, y1), (x2, y2)]
+    # SVG 1.1 F.6.6: radii too small to span the endpoints are scaled up
+    # uniformly until they just fit (a half ellipse), which is what browsers do.
+    lam = (x1p * x1p) / rxsq + (y1p * y1p) / rysq
+    if lam > 1:
+        rx *= math.sqrt(lam)
+        ry *= math.sqrt(lam)
+        rxsq, rysq = rx * rx, ry * ry
+        num = rxsq * rysq - rxsq * y1p * y1p - rysq * x1p * x1p
+        denom = rxsq * y1p * y1p + rysq * x1p * x1p
     co = math.sqrt(max(0.0, num / denom))
     if large_arc == sweep:
         co = -co
@@ -70,22 +79,73 @@ def _arc_extrema(x1, y1, rx, ry, rot_deg, large_arc, sweep, x2, y2):
     lo, hi = min(theta1, theta2), max(theta1, theta2)
     for k in range(4):
         ang = k * math.pi / 2
-        a = ang
-        while a < lo:
-            a += 2 * math.pi
+        # Bring the axis angle into [lo, lo + 2*pi) -- in BOTH directions: the
+        # swept range can be negative (e.g. [-pi, 0]), where 3*pi/2 must map
+        # to -pi/2, not stay above `hi` and get dropped.
+        a = ang - 2 * math.pi * math.floor((ang - lo) / (2 * math.pi))
         if a <= hi:
             pts.append((cx + rx * math.cos(a) * cos_p - ry * math.sin(a) * sin_p,
                         cy + rx * math.cos(a) * sin_p + ry * math.sin(a) * cos_p))
     return pts
 
 
+def _quad_ts(p0, p1, p2):
+    d = p0 - 2 * p1 + p2
+    if abs(d) < 1e-12:
+        return []
+    t = (p0 - p1) / d
+    return [t] if 0 < t < 1 else []
+
+
+def _cubic_ts(p0, p1, p2, p3):
+    a = p3 - 3 * p2 + 3 * p1 - p0
+    b = 2 * (p2 - 2 * p1 + p0)
+    c = p1 - p0
+    ts = []
+    if abs(a) < 1e-12:
+        if abs(b) > 1e-12:
+            ts.append(-c / b)
+    else:
+        disc = b * b - 4 * a * c
+        if disc >= 0:
+            r = math.sqrt(disc)
+            ts += [(-b + r) / (2 * a), (-b - r) / (2 * a)]
+    return [t for t in ts if 0 < t < 1]
+
+
+def _quad_at(p0, p1, p2, t):
+    m = 1 - t
+    return m * m * p0 + 2 * m * t * p1 + t * t * p2
+
+
+def _cubic_at(p0, p1, p2, p3, t):
+    m = 1 - t
+    return m * m * m * p0 + 3 * m * m * t * p1 + 3 * m * t * t * p2 + t * t * t * p3
+
+
+def _quad_extrema(x0, y0, x1, y1, x2, y2):
+    """Endpoint plus the true (derivative-root) extrema of a quadratic bezier.
+    Browsers' getBBox() is tight; folding in the control points overshoots."""
+    pts = [(x2, y2)]
+    for t in _quad_ts(x0, x1, x2) + _quad_ts(y0, y1, y2):
+        pts.append((_quad_at(x0, x1, x2, t), _quad_at(y0, y1, y2, t)))
+    return pts
+
+
+def _cubic_extrema(x0, y0, x1, y1, x2, y2, x3, y3):
+    pts = [(x3, y3)]
+    for t in _cubic_ts(x0, x1, x2, x3) + _cubic_ts(y0, y1, y2, y3):
+        pts.append((_cubic_at(x0, x1, x2, x3, t), _cubic_at(y0, y1, y2, y3, t)))
+    return pts
+
+
 def path_bbox(d: str) -> dict:
     """Bbox from an SVG path's `d` string, via a real (if minimal) parser.
 
-    Exact geometry isn't the goal (this only feeds getBBox() for layout), so
-    bezier control points are folded in as extra points around the
-    endpoints, but arcs get their true extrema since they're common in
-    mermaid's shape library (cylinders, stadiums, rounded corners).
+    Matches a browser's tight getBBox(): arcs and bezier curves contribute
+    their true extrema (derivative roots), not their control points -- layout
+    (node sizes, viewBox) is computed from this, so overshooting shifts
+    everything downstream.
     """
     if not d:
         return {"x": 0, "y": 0, "width": 0, "height": 0}
@@ -95,6 +155,8 @@ def path_bbox(d: str) -> dict:
     cx = cy = 0.0
     start_x = start_y = 0.0
     cmd = None
+    prev_type = None
+    last_ctrl = None
     i, n = 0, len(d)
     first_pair_of_cmd = True
     while i < n:
@@ -151,16 +213,41 @@ def path_bbox(d: str) -> dict:
             pts = _arc_extrema(cx, cy, rx, ry, rot, laf, sf, nx, ny)
             xs.extend(p[0] for p in pts)
             ys.extend(p[1] for p in pts)
-        else:  # M, L, C, S, Q, T
-            for k in range(0, len(group), 2):
-                px, py = group[k], group[k + 1]
-                if is_rel:
-                    px += cx
-                    py += cy
-                xs.append(px)
-                ys.append(py)
-            nx, ny = xs[-1], ys[-1]
+        elif effective_cmd in ("M", "L"):
+            nx = group[0] + cx if is_rel else group[0]
+            ny = group[1] + cy if is_rel else group[1]
+            xs.append(nx); ys.append(ny)
+        else:  # C, S, Q, T -- curves
+            ox, oy = (cx, cy) if is_rel else (0.0, 0.0)
+            g = [v + (ox if k % 2 == 0 else oy) for k, v in enumerate(group)]
+            if effective_cmd == "C":
+                c1x, c1y, c2x, c2y, nx, ny = g
+                pts = _cubic_extrema(cx, cy, c1x, c1y, c2x, c2y, nx, ny)
+                last_ctrl = (c2x, c2y)
+            elif effective_cmd == "S":
+                c2x, c2y, nx, ny = g
+                if prev_type in ("C", "S") and last_ctrl:
+                    c1x, c1y = 2 * cx - last_ctrl[0], 2 * cy - last_ctrl[1]
+                else:
+                    c1x, c1y = cx, cy
+                pts = _cubic_extrema(cx, cy, c1x, c1y, c2x, c2y, nx, ny)
+                last_ctrl = (c2x, c2y)
+            elif effective_cmd == "Q":
+                c1x, c1y, nx, ny = g
+                pts = _quad_extrema(cx, cy, c1x, c1y, nx, ny)
+                last_ctrl = (c1x, c1y)
+            else:  # T
+                nx, ny = g
+                if prev_type in ("Q", "T") and last_ctrl:
+                    c1x, c1y = 2 * cx - last_ctrl[0], 2 * cy - last_ctrl[1]
+                else:
+                    c1x, c1y = cx, cy
+                pts = _quad_extrema(cx, cy, c1x, c1y, nx, ny)
+                last_ctrl = (c1x, c1y)
+            xs.extend(p[0] for p in pts)
+            ys.extend(p[1] for p in pts)
 
+        prev_type = effective_cmd
         cx, cy = nx, ny
         if effective_cmd == "M":
             start_x, start_y = cx, cy
@@ -195,7 +282,17 @@ globalThis.__pathBBox = (function () {
     const num = rxsq * rysq - rxsq * y1p * y1p - rysq * x1p * x1p;
     const denom = rxsq * y1p * y1p + rysq * x1p * x1p;
     if (denom === 0) return [[x1, y1], [x2, y2]];
-    let co = Math.sqrt(Math.max(0, num / denom));
+    // SVG 1.1 F.6.6: radii too small to span the endpoints are scaled up.
+    const lam = (x1p * x1p) / rxsq + (y1p * y1p) / rysq;
+    let num2 = num, denom2 = denom;
+    if (lam > 1) {
+      const sq = Math.sqrt(lam);
+      rx *= sq; ry *= sq;
+      const rxsq2 = rx * rx, rysq2 = ry * ry;
+      num2 = rxsq2 * rysq2 - rxsq2 * y1p * y1p - rysq2 * x1p * x1p;
+      denom2 = rxsq2 * y1p * y1p + rysq2 * x1p * x1p;
+    }
+    let co = Math.sqrt(Math.max(0, num2 / denom2));
     if (largeArc === sweep) co = -co;
     const cxp = (co * rx * y1p) / ry;
     const cyp = (-co * ry * x1p) / rx;
@@ -220,8 +317,9 @@ globalThis.__pathBBox = (function () {
     const pts = [[x1, y1], [x2, y2]];
     const lo = Math.min(theta1, theta2), hi = Math.max(theta1, theta2);
     for (let k = 0; k < 4; k++) {
-      let a = (k * Math.PI) / 2;
-      while (a < lo) a += 2 * Math.PI;
+      const ang = (k * Math.PI) / 2;
+      // into [lo, lo + 2*pi) in BOTH directions (the range can be negative)
+      const a = ang - 2 * Math.PI * Math.floor((ang - lo) / (2 * Math.PI));
       if (a <= hi) {
         pts.push([
           cx + rx * Math.cos(a) * cosP - ry * Math.sin(a) * sinP,
@@ -232,12 +330,43 @@ globalThis.__pathBBox = (function () {
     return pts;
   }
 
+  function quadTs(p0, p1, p2) {
+    const d = p0 - 2 * p1 + p2;
+    if (Math.abs(d) < 1e-12) return [];
+    const t = (p0 - p1) / d;
+    return t > 0 && t < 1 ? [t] : [];
+  }
+  function cubicTs(p0, p1, p2, p3) {
+    const a = p3 - 3 * p2 + 3 * p1 - p0, b = 2 * (p2 - 2 * p1 + p0), c = p1 - p0;
+    let ts = [];
+    if (Math.abs(a) < 1e-12) { if (Math.abs(b) > 1e-12) ts.push(-c / b); }
+    else {
+      const disc = b * b - 4 * a * c;
+      if (disc >= 0) { const r = Math.sqrt(disc); ts.push((-b + r) / (2 * a), (-b - r) / (2 * a)); }
+    }
+    return ts.filter((t) => t > 0 && t < 1);
+  }
+  const quadAt = (p0, p1, p2, t) => { const m = 1 - t; return m * m * p0 + 2 * m * t * p1 + t * t * p2; };
+  const cubicAt = (p0, p1, p2, p3, t) => { const m = 1 - t; return m * m * m * p0 + 3 * m * m * t * p1 + 3 * m * t * t * p2 + t * t * t * p3; };
+  // Endpoint + the true (derivative-root) extrema, like a browser's tight getBBox().
+  function quadExtrema(x0, y0, x1, y1, x2, y2) {
+    const pts = [[x2, y2]];
+    for (const t of quadTs(x0, x1, x2).concat(quadTs(y0, y1, y2))) pts.push([quadAt(x0, x1, x2, t), quadAt(y0, y1, y2, t)]);
+    return pts;
+  }
+  function cubicExtrema(x0, y0, x1, y1, x2, y2, x3, y3) {
+    const pts = [[x3, y3]];
+    for (const t of cubicTs(x0, x1, x2, x3).concat(cubicTs(y0, y1, y2, y3))) pts.push([cubicAt(x0, x1, x2, x3, t), cubicAt(y0, y1, y2, y3, t)]);
+    return pts;
+  }
+
   return function pathBBox(d) {
     if (!d) return { x: 0, y: 0, width: 0, height: 0 };
 
     const xs = [], ys = [];
     let cx = 0, cy = 0, startX = 0, startY = 0;
     let cmd = null;
+    let prevType = null, lastCtrl = null;
     let i = 0;
     const n = d.length;
     let firstPairOfCmd = true;
@@ -291,15 +420,39 @@ globalThis.__pathBBox = (function () {
         rx = Math.abs(rx); ry = Math.abs(ry);
         const pts = arcExtrema(cx, cy, rx, ry, rot, laf, sf, nx, ny);
         for (const p of pts) { xs.push(p[0]); ys.push(p[1]); }
-      } else {
-        for (let k = 0; k < group.length; k += 2) {
-          let px = group[k], py = group[k + 1];
-          if (isRel) { px += cx; py += cy; }
-          xs.push(px); ys.push(py);
+      } else if (effectiveCmd === "M" || effectiveCmd === "L") {
+        nx = isRel ? cx + group[0] : group[0];
+        ny = isRel ? cy + group[1] : group[1];
+        xs.push(nx); ys.push(ny);
+      } else { // C, S, Q, T -- curves
+        const ox = isRel ? cx : 0, oy = isRel ? cy : 0;
+        const g = group.map((v, k) => v + (k % 2 === 0 ? ox : oy));
+        let pts, c1x, c1y;
+        if (effectiveCmd === "C") {
+          nx = g[4]; ny = g[5];
+          pts = cubicExtrema(cx, cy, g[0], g[1], g[2], g[3], nx, ny);
+          lastCtrl = [g[2], g[3]];
+        } else if (effectiveCmd === "S") {
+          nx = g[2]; ny = g[3];
+          if ((prevType === "C" || prevType === "S") && lastCtrl) { c1x = 2 * cx - lastCtrl[0]; c1y = 2 * cy - lastCtrl[1]; }
+          else { c1x = cx; c1y = cy; }
+          pts = cubicExtrema(cx, cy, c1x, c1y, g[0], g[1], nx, ny);
+          lastCtrl = [g[0], g[1]];
+        } else if (effectiveCmd === "Q") {
+          nx = g[2]; ny = g[3];
+          pts = quadExtrema(cx, cy, g[0], g[1], nx, ny);
+          lastCtrl = [g[0], g[1]];
+        } else { // T
+          nx = g[0]; ny = g[1];
+          if ((prevType === "Q" || prevType === "T") && lastCtrl) { c1x = 2 * cx - lastCtrl[0]; c1y = 2 * cy - lastCtrl[1]; }
+          else { c1x = cx; c1y = cy; }
+          pts = quadExtrema(cx, cy, c1x, c1y, nx, ny);
+          lastCtrl = [c1x, c1y];
         }
-        nx = xs[xs.length - 1]; ny = ys[ys.length - 1];
+        for (const p of pts) { xs.push(p[0]); ys.push(p[1]); }
       }
 
+      prevType = effectiveCmd;
       cx = nx; cy = ny;
       if (effectiveCmd === "M") { startX = cx; startY = cy; }
       firstPairOfCmd = false;

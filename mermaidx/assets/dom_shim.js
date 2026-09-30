@@ -619,7 +619,8 @@ class Element extends Node {
       // height silently falls back to font.height()*1.2 (22.35 vs the 24 a
       // browser gives).
       const html = __serialize(this, false);
-      const m = globalThis.__measureForeignObject(html, fontSize, "DejaVu Sans", "normal", "normal");
+      const m = globalThis.__measureForeignObject(html, fontSize, "DejaVu Sans",
+        __resolveHtmlFontWeight(this), __resolveHtmlFontStyle(this));
       // A browser gives a block with no text (and no <br>) zero height and
       // zero width -- e.g. mermaid's empty edge labels. novasvg paints
       // nothing for it either (ForeignObjectSimple::render() returns early),
@@ -751,17 +752,63 @@ function __resolveElementSizePx(el, dim) {
   return 1000;
 }
 
+// Inline declaration of `prop` on el: the live CSSOM store (el.style.x = ...) wins over a
+// raw setAttribute("style", ...) string, exactly as a later write would in a browser.
+function __inlineStyleProp(el, prop) {
+  const re = new RegExp("(?:^|;)\\s*" + prop + ":\\s*([^;]+)");
+  const live = el.style && el.style.cssText;
+  let m = live && re.exec(live);
+  if (m) return m[1].trim();
+  const attr = el._attrs && el._attrs.style;
+  m = attr && re.exec(attr);
+  return m ? m[1].trim() : null;
+}
 function __resolveHtmlFontSizePx(el) {
+  // font-size inherits, so the NEAREST ancestor that declares one wins; on a
+  // single node inline style outranks the stylesheet. The stylesheet matters:
+  // e.g. mermaid's ER theme sets `.edgeLabel .label{font-size:14px}` on the
+  // <g> that wraps the label's foreignObject, and a browser lays the text out
+  // at 14px, not the 16px default.
   let n = el;
   while (n && n.nodeType === 1) {
-    const s = n.style;
-    if (s && s.cssText) {
-      const m = /font-size:\s*([\d.]+)px/.exec(s.cssText);
+    const inl = __inlineStyleProp(n, "font-size");
+    if (inl) {
+      const m = /^([\d.]+)px$/.exec(inl);
+      if (m) return parseFloat(m[1]);
+    }
+    const css = __resolveCssProp(n, "font-size");
+    if (css) {
+      const m = /^\s*([\d.]+)px\s*$/.exec(css);
       if (m) return parseFloat(m[1]);
     }
     n = n.parentNode;
   }
   return 16;
+}
+
+// Nearest-ancestor lookup of an inherited font property for HTML (foreignObject)
+// content: inline style first, then the stylesheet, per node, walking up.
+function __resolveHtmlFontProp(el, prop) {
+  let n = el;
+  while (n && n.nodeType === 1) {
+    const inl = __inlineStyleProp(n, prop);
+    if (inl) return inl;
+    const css = __resolveCssProp(n, prop);
+    if (css) return css.replace(/!important/i, "").trim();
+    n = n.parentNode;
+  }
+  return null;
+}
+function __resolveHtmlFontWeight(el) {
+  const v = __resolveHtmlFontProp(el, "font-weight");
+  if (!v) return "normal";
+  if (v === "bold" || v === "bolder") return "bold";
+  const num = parseInt(v, 10);
+  return !Number.isNaN(num) && num >= 600 ? "bold" : "normal";
+}
+function __resolveHtmlFontStyle(el) {
+  const v = __resolveHtmlFontProp(el, "font-style");
+  return v === "italic" || v === "oblique" ? "italic" : "normal";
 }
 
 function __makeCanvas2dContext(canvasEl) {
