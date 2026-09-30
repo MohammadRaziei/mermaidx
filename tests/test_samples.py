@@ -150,7 +150,12 @@ def _nonwhite_mask(rgba):
     return opaque & nonwhite
 
 
-@pytest.mark.parametrize("name", [n for n in SAMPLE_NAMES if n not in KNOWN_UNSUPPORTED])
+# Diagrams whose design is full-bleed: a gantt's per-section background bands run from x=0 to
+# the right edge (in Chrome/mmdc too), so ink touching the canvas edge is not clipping there.
+_FULL_BLEED = {"13_gantt"}
+
+
+@pytest.mark.parametrize("name", [n for n in SAMPLE_NAMES if n not in KNOWN_UNSUPPORTED and n not in _FULL_BLEED])
 def test_sample_content_not_clipped_by_canvas(name):
     """Rendered content must not touch the PNG's own edge. If it does, the
     viewBox mermaid computed was too tight and part of the diagram (a

@@ -376,6 +376,9 @@ function __cssSet(store, k, v) {
   if (v == null || String(v).trim() === "") { delete store[k]; return; }
   v = String(v).trim();
   if (!__cssValueIsSingle(v)) return;
+  // `font-size: 14` (mermaid's journey does this on SVG <text>): Chrome accepts a bare
+  // number as px for SVG elements and serializes it as "14px".
+  if (k === "font-size" && /^-?[\d.]+$/.test(v)) v += "px";
   store[k] = __cssCanonCommas(__cssCanonColors(v));
 }
 // Chrome serializes an sRGB color that went through the CSSOM as rgb()/rgba():
@@ -597,8 +600,9 @@ class Element extends Node {
   set innerHTML(html) { this.childNodes = []; __parseInto(this, html); }
   get outerHTML() { return __serialize(this, false); }
   // ---- SVG geometry: the important part ----
-  getBBox() { return __computeBBox(this); }
-  getBoundingClientRect() {
+  getBBox() { return __f32rect(__computeBBox(this)); }
+  getBoundingClientRect() { return __f32rect(this.__boundingClientRect()); }
+  __boundingClientRect() {
     // HTML content (foreignObject labels): __measureForeignObject mirrors
     // novasvg's own ForeignObjectSimple::render() line-counting/line-height
     // logic exactly (see mermaidx.font_metrics.Font.foreign_object_metrics()
@@ -629,23 +633,56 @@ class Element extends Node {
       if (!hasContent) return { x: 0, y: 0, width: 0, height: 0, top: 0, left: 0, right: 0, bottom: 0 };
       // Browsers lay out in 1/64px LayoutUnits and round a shrink-to-fit
       // width UP to the next one.
-      const w = Math.ceil(m.width * 64) / 64;
+      let w = Math.ceil(m.width * 64) / 64;
+      // CSS box width: an explicit px `width` IS the box's width (mermaid's wrap mode
+      // is `display:table; white-space:break-spaces; width:200px` and a browser
+      // reports exactly 200 for it, not the widest line); and a natural width is
+      // clamped to `max-width`. That clamp is what mermaid keys off: it sets
+      // max-width:<wrappingWidth> on the label, and only when the measured width
+      // comes back EQUAL to it does it switch the label into wrap mode.
+      const px = (v) => { const mm = v && /^([\d.]+)px$/.exec(v); return mm ? parseFloat(mm[1]) : null; };
+      const declW = px(__inlineStyleProp(this, "width")), maxW = px(__inlineStyleProp(this, "max-width"));
+      if (declW !== null) w = declW;
+      if (maxW !== null && w > maxW) w = maxW;
       return { x: 0, y: 0, width: w, height: m.height, top: 0, left: 0, right: w, bottom: m.height };
     }
     const m = globalThis.__measureTextFull(this.textContent, fontSize, "DejaVu Sans", "normal", "normal");
-    const width = m.width, height = m.ascent + m.descent + 4; // +line-box slack
+    // layout-unit rounding: a text box's width rounds UP to the next 1/64px
+    const width = Math.ceil(m.width * 64) / 64, height = m.ascent + m.descent + 4; // +line-box slack
     return { x: 0, y: 0, width, height, top: 0, left: 0, right: width, bottom: height };
   }
   getComputedTextLength() {
     if (this.tagName !== "text" && this.tagName !== "tspan") return 0;
     const font = __resolveFont(this);
-    return globalThis.__measureText(this.textContent, font.size, font.family, font.weight, font.style);
+    return globalThis.__measureText(__svgTextForMeasure(this), font.size, font.family, font.weight, font.style);
   }
   getScreenCTM() { return { a:1,b:0,c:0,d:1,e:0,f:0, inverse(){return this;}, multiply(){return this;} }; }
   createSVGMatrix() { return this.getScreenCTM(); }
 }
 
 // --- bbox computation --------------------------------------------------
+// DejaVu Sans x-height / em (1120 / 2048) -- what a browser's `ex` unit resolves to
+// for the only font this shim measures with.
+const __X_HEIGHT = 1120 / 2048;
+
+// A CSS <length> to px. Relative units resolve against `parentPx` (the parent's font
+// size, which is what em/ex/% mean *inside a font-size declaration*); a bare number
+// is px, as it is for SVG presentation attributes.
+function __lenToPx(v, parentPx) {
+  const m = /^\s*(-?[\d.]+)\s*(px|em|ex|rem|%|pt)?\s*$/i.exec(String(v));
+  if (!m) return null;
+  const n = parseFloat(m[1]);
+  switch ((m[2] || "px").toLowerCase()) {
+    case "px": return n;
+    case "em": return n * parentPx;
+    case "ex": return n * parentPx * __X_HEIGHT;
+    case "rem": return n * 16;
+    case "%": return (n * parentPx) / 100;
+    case "pt": return (n * 4) / 3;
+  }
+  return null;
+}
+
 function __resolveFont(el) {
   // Walk up for inherited font properties. Nearer (more specific) values
   // must win over farther ancestors' -- e.g. the diagram title only carries
@@ -655,13 +692,13 @@ function __resolveFont(el) {
   // match found for each property is the closest and must not be
   // overwritten by a later (farther) one. Within a single node, inline
   // style/attribute still outrank that node's own CSS class rule.
-  let size, family, weight, style = "normal";
+  let size, sizeNode, family, weight, style = "normal";
   let n = el;
   while (n && n.nodeType === 1) {
     let nSize, nFamily, nWeight;
 
     const cssSize = __resolveCssProp(n, "font-size");
-    if (cssSize) { const v = parseFloat(cssSize); if (!Number.isNaN(v)) nSize = v; }
+    if (cssSize) nSize = cssSize.trim();
     const cssFamily = __resolveCssProp(n, "font-family");
     if (cssFamily) nFamily = cssFamily.trim();
     const cssWeight = __resolveCssProp(n, "font-weight");
@@ -669,19 +706,25 @@ function __resolveFont(el) {
 
     const s = n.style;
     if (s && s.cssText) {
-      const fs = /font-size:\s*([0-9.]+)px/.exec(s.cssText); if (fs) nSize = parseFloat(fs[1]);
+      const fs = /font-size:\s*([^;]+)/.exec(s.cssText); if (fs) nSize = fs[1].trim();
       const ff = /font-family:\s*([^;]+)/.exec(s.cssText); if (ff) nFamily = ff[1].trim();
       const fw = /font-weight:\s*([^;]+)/.exec(s.cssText); if (fw) nWeight = fw[1].trim();
     }
-    if (n.hasAttribute && n.hasAttribute("font-size")) nSize = parseFloat(n.getAttribute("font-size"));
+    if (n.hasAttribute && n.hasAttribute("font-size")) nSize = n.getAttribute("font-size");
     if (n.hasAttribute && n.hasAttribute("font-family")) nFamily = n.getAttribute("font-family");
 
-    if (size === undefined && nSize !== undefined) size = nSize;
+    if (size === undefined && nSize !== undefined && __lenToPx(nSize, 16) !== null) { size = nSize; sizeNode = n; }
     if (family === undefined && nFamily !== undefined) family = nFamily;
     if (weight === undefined && nWeight !== undefined) weight = nWeight;
     n = n.parentNode;
   }
   if (size === undefined) size = 16;
+  else {
+    // em/ex/% are relative to the PARENT's resolved font size.
+    const p = sizeNode.parentNode;
+    const parentPx = p && p.nodeType === 1 ? __resolveFont(p).size : 16;
+    size = __lenToPx(size, parentPx);
+  }
   if (family === undefined) family = "sans-serif";
   if (weight === undefined) weight = "normal";
   return { size, family, weight, style };
@@ -961,12 +1004,39 @@ function __rowTspans(el) {
 }
 
 const __BBOX_SKIP = new Set(["defs","marker","style","script","title","desc","metadata","clipPath","mask","symbol","pattern","linearGradient","radialGradient","filter"]);
+// SVG <text> default white-space handling (xml:space="default"): newlines/tabs become
+// spaces, runs of spaces collapse to one, and leading/trailing space is dropped -- a
+// browser measures "Design      " as "Design". Left alone under xml:space="preserve"
+// or a `white-space: pre*` style.
+function __svgTextForMeasure(el) {
+  const raw = el.textContent;
+  for (let n = el; n && n.nodeType === 1; n = n.parentNode) {
+    if (n.getAttribute && n.getAttribute("xml:space") === "preserve") return raw;
+    const ws = __inlineStyleProp(n, "white-space");
+    if (ws && /^(pre|pre-wrap|break-spaces)$/.test(ws)) return raw;
+  }
+  return raw.replace(/[\t\n\r ]+/g, " ").replace(/^ | $/g, "");
+}
+
+// Browsers hand these boxes back as single-precision floats. Layout code
+// (dagre) then does its double-precision math on those, so feeding it the
+// f32-rounded values -- not our exact doubles -- is what makes downstream
+// coordinates agree with a browser's to the last digit.
+function __f32rect(r) {
+  const o = {};
+  for (const k in r) o[k] = typeof r[k] === "number" ? Math.fround(r[k]) : r[k];
+  return o;
+}
+
 function __computeBBox(el) {
   if (el.tagName === "text" || el.tagName === "tspan") {
     const font = __resolveFont(el);
-    const m = globalThis.__measureTextFull(el.textContent, font.size, font.family, font.weight, font.style);
+    const m = globalThis.__measureTextFull(__svgTextForMeasure(el), font.size, font.family, font.weight, font.style);
     const pos = __resolveTextPos(el, font.size);
     const anchor = __resolveTextAnchor(el);
+    // Chrome sizes a text's box from font metrics rounded to whole pixels
+    // (ascent 14.85 -> 15, descent 3.78 -> 4: a 19px line, not 18.625).
+    const asc = Math.round(m.ascent), desc = Math.round(m.descent);
 
     // Multi-line: measuring the whole textContent as one line (below) under-reports the
     // height, so mermaid sizes the node for a single line and lines 2+ overflow the box.
@@ -979,7 +1049,7 @@ function __computeBBox(el) {
           r.textContent, font.size, font.family, font.weight, font.style);
         if (rm.width > maxW) maxW = rm.width;
       }
-      const height = m.ascent + m.descent + (rows.length - 1) * 1.1 * font.size;
+      const height = asc + desc + (rows.length - 1) * 1.1 * font.size;
       // The outer <text>'s own y is a vestigial placeholder (see
       // __resolveTextPos above) that only gets overridden once a *single*
       // positioning tspan is reached -- but a multi-line label has one row
@@ -990,14 +1060,14 @@ function __computeBBox(el) {
       let lx = pos.x;
       if (anchor === "middle") lx -= maxW / 2;
       else if (anchor === "end") lx -= maxW;
-      const top = pos.y - m.ascent;
+      const top = pos.y - asc;
       return { x: lx, y: top, width: maxW, height, top, left: lx, right: lx + maxW, bottom: top + height };
     }
 
     let x = pos.x;
     if (anchor === "middle") x -= m.width / 2;
     else if (anchor === "end") x -= m.width;
-    return { x, y: pos.y - m.ascent, width: m.width, height: m.ascent + m.descent };
+    return { x, y: pos.y - asc, width: m.width, height: asc + desc };
   }
   if (el.tagName === "rect") {
     return { x: parseFloat(el.getAttribute("x"))||0, y: parseFloat(el.getAttribute("y"))||0,
@@ -1164,6 +1234,10 @@ function __querySelectorAll(root, sel) {
 
 // --- serialize / parse (very small, enough for mermaid's own output) ---
 function __esc(s) { return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+// Attribute values additionally escape \n \r \t (as XMLSerializer does): a raw newline in an
+// attribute is turned into a space by any XML parser, silently changing the value
+// (e.g. mermaid's multi-line path data).
+function __escAttr(s) { return __esc(s).replace(/\n/g,"&#10;").replace(/\r/g,"&#13;").replace(/\t/g,"&#9;"); }
 
 // mermaid.js's non-HTML-labels tspan builder (the `Mse` helper in the
 // bundle, at the time of writing) only decodes &amp;/&lt;/&gt; when it
@@ -1196,7 +1270,7 @@ function __serialize(el, innerOnly) {
   function ser(n) {
     if (n.nodeType === 3) return __esc(__decodeStrayLabelEntities(n.textContent));
     const attrEntries = Object.entries(n._attrs||{}).filter(([k]) => k !== "style");
-    const attrs = attrEntries.map(([k,v])=>` ${k}="${__esc(v)}"`).join("");
+    const attrs = attrEntries.map(([k,v])=>` ${k}="${__escAttr(v)}"`).join("");
     // A "style" set via setAttribute("style", ...) and properties set via
     // the live el.style.foo = ... API both need to end up in the SAME
     // style="..." attribute -- emitting two separate style= attributes
@@ -1208,14 +1282,14 @@ function __serialize(el, innerOnly) {
     if (live.length === 0) {
       // Only setAttribute("style", ...) touched it: a browser keeps that string
       // verbatim -- including an explicitly empty style="".
-      if (attrStyle !== undefined) styleAttr = ` style="${__esc(attrStyle)}"`;
+      if (attrStyle !== undefined) styleAttr = ` style="${__escAttr(attrStyle)}"`;
     } else {
       // Live CSSOM writes re-serialize the WHOLE attribute canonically
       // ("k: v; k2: v2;"), attribute-declared properties first, a repeated
       // property keeping its original position.
       const merged = new Map(Object.entries(__parseStyleAttr(attrStyle)));
       for (const [k, v] of live) merged.set(k, v);
-      styleAttr = ` style="${__esc(Array.from(merged, ([k, v]) => `${k}: ${v};`).join(" "))}"`;
+      styleAttr = ` style="${__escAttr(Array.from(merged, ([k, v]) => `${k}: ${v};`).join(" "))}"`;
     }
     const inner = n.childNodes.map(ser).join("");
     if (!inner && __SER_VOID.has(n.tagName)) return `<${n.tagName}${attrs}${styleAttr}/>`;

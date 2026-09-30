@@ -26,13 +26,17 @@ dependencies = [
     # novasvg is the sole SVG->PNG/JPEG/BMP/TGA rasterizer (mermaidx.raster)
     # and text/HTML-label measurer (mermaidx.font_metrics); resvg_py has
     # been retired (it couldn't paint <foreignObject> HTML labels, which
-    # mermaid.js uses by default). 0.7.2 has everything font/foreignObject
-    # related this project needs. NOTE: this floor needs bumping again once
-    # a novasvg release ships Bitmap.to_png()/to_jpg()/to_bmp()/to_tga()/
-    # to_bytes() (in-memory image encoders, added upstream alongside this
-    # comment) -- mermaidx.raster's render_image()/Diagram.jpg()/.bmp()/
-    # .tga() depend on them; 0.7.2 predates them and will import-error.
-    "novasvg>=0.7.2",
+    # mermaid.js uses by default). 0.7.3 is required for:
+    #  - Bitmap.to_png()/to_jpg()/to_bmp()/to_tga()/to_bytes() (in-memory
+    #    image encoders; mermaidx.raster's render_image()/Diagram.jpg()/.bmp()/
+    #    .tga() depend on them -- 0.7.2 predates them and will import-error),
+    #  - <foreignObject> soft-wrapping driven by the HTML's own `white-space`
+    #    plus measure_foreign_object(html, font, max_width=None): without them
+    #    mermaid's wrapped labels (long text, `white-space: break-spaces`) get
+    #    squeezed onto one line and every wrapped box is the wrong size,
+    #  - GSUB f-ligatures in Font.measure_text()/painting ("Off", "office"...),
+    #    which browsers apply and which change label widths by ~0.2px.
+    "novasvg>=0.7.3",
     "termaid",
 ]
 

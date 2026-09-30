@@ -149,7 +149,9 @@ def test_single_word_line_bbox_matches_hand_computed_position():
     pos.y = (-0.1 + 1.1) * FONT_SIZE = 1.0 * FONT_SIZE, and
     bbox.y = pos.y - ascent."""
     bbox = _bbox_single_word()
-    ascent = FONT_SIZE * 0.8
+    # A browser sizes a text box from font metrics rounded to whole pixels, so
+    # the stub's fractional ascent (0.8 * size) is rounded before use.
+    ascent = round(FONT_SIZE * 0.8)
     expected_y = (1.0 * FONT_SIZE) - ascent
     assert bbox["y"] == pytest.approx(expected_y)
     assert bbox["x"] == 0
@@ -190,7 +192,7 @@ def test_multiline_label_uses_first_row_not_outer_text_y():
     # text concatenated together.
     assert multi["width"] == pytest.approx(len("edge comment") * FONT_SIZE * 0.5)
     # Height = one line box + one extra 1.1em line-step for the 2nd row.
-    ascent, descent = FONT_SIZE * 0.8, FONT_SIZE * 0.2
+    ascent, descent = round(FONT_SIZE * 0.8), round(FONT_SIZE * 0.2)  # whole-pixel metrics, as a browser
     assert multi["height"] == pytest.approx((ascent + descent) + 1.1 * FONT_SIZE)
 
 
