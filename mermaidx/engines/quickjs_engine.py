@@ -34,8 +34,6 @@ from typing import Optional
 
 import quickjs
 
-from mermaidx.engines._svg_patches import patch_journey_task_text_color, patch_mindmap_centering
-from mermaidx.engines._purify import sanitize_attributes
 from mermaidx.font_metrics import get_font
 from mermaidx.path_bbox import PATH_BBOX_JS
 
@@ -215,12 +213,7 @@ class Engine:
         svg = ctx.eval("globalThis.__renderResult")
         if not svg:
             raise MermaidRenderError("mermaid.render() produced no output (unknown error)")
-        svg = str(svg)
-        # mermaid.js ends render() with DOMPurify.sanitize() (not for securityLevel "sandbox"),
-        # which DOMPurify can't do inside this DOM shim -- see engines/_purify.py.
-        if (config or {}).get("securityLevel") != "sandbox":
-            svg = sanitize_attributes(svg)
-        return patch_journey_task_text_color(patch_mindmap_centering(svg))
+        return str(svg)
 
     # -- public, thread-safe entry point ---------------------------------------
 

@@ -299,8 +299,8 @@ def test_issue_31_journey_task_labels_not_missing():
     default to mermaid's `textPlacement: "fo"` config, which places every
     task *description* label inside a `<foreignObject><div>...</div>`
     rather than a native SVG `<text>` element (section headers and score
-    labels remain native `<text>` either way -- see
-    mermaidx.engines._svg_patches). The now-retired resvg couldn't render
+    labels remain native `<text>` either way;
+    novasvg paints them via <switch>). The now-retired resvg couldn't render
     foreignObject/HTML content at all, so every task description label
     silently vanished from the output while the surrounding boxes and the
     diagram title (a plain `<text>` element) still rendered fine.
@@ -334,13 +334,17 @@ def test_issue_31_journey_task_labels_not_missing():
     ):
         assert f">{label}<" in svg, f"missing task/section label: {label}"
 
-    # Section-header/score labels stay native <text> regardless of
-    # textPlacement (see _svg_patches.py) and default to an invisible
-    # white `fill` (from mermaid's `sectionColours` theme var) unless
-    # patched. `!important` is required: section-header labels share a
-    # "section-type-N" class with their own background <rect>, and
-    # mermaid's #<id>-scoped theme CSS for that class has higher
-    # specificity than a bare class+tag rule, so without it the label
-    # silently repaints to match its own box.
-    assert "text.task,text.journey-section" in svg
-    assert "!important" in svg
+    # The labels must actually be PAINTED, not merely present in the markup: each
+    # label is `<switch><foreignObject>..</foreignObject><text>fallback</text></switch>`
+    # and novasvg used to skip a <switch> and everything inside it, leaving every
+    # task/section box empty while all the asserts above still passed. Check real
+    # ink (dark pixels) inside each box.
+    import re
+    boxes = [tuple(float(v) for v in g) for g in re.findall(
+        r'<rect x="([\d.]+)" y="([\d.]+)"[^>]*? width="([\d.]+)" height="([\d.]+)"[^>]*class="(?:task|journey-section)\b', svg)]
+    assert len(boxes) >= 8, boxes
+    rgba = mermaidx.render(code).numpy()
+    for x, y, w, h in boxes:
+        region = rgba[int(y) + 2:int(y + h) - 2, int(x) + 2:int(x + w) - 2]
+        dark = ((region[:, :, 3] > 0) & (region[:, :, :3].sum(axis=2) < 300)).sum()
+        assert dark > 10, f"box at ({x},{y}) {w}x{h} has no painted label text"

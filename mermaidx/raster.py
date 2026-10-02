@@ -5,8 +5,8 @@ The sole rasterizer as of this version: resvg_py has been retired (it
 couldn't paint text inside <foreignObject> -- mermaid.js's default markup
 for every diagram label -- which forced every render through a native
 <text>/<tspan> fallback and a set of side-effect patches to correct for
-what that fallback broke; see mermaidx.engines._svg_patches and the git
-history of mermaidx.engines.quickjs_engine/v8_engine for the specifics).
+what that fallback broke; see the git history of
+mermaidx.engines.quickjs_engine/v8_engine for the specifics).
 novasvg paints <foreignObject> content directly (see COMPARISON.md in the
 novasvg repo), so mermaid.js's own HTML-label output -- proper wrapping,
 multi-line text, styled spans -- now reaches the final pixels unmodified.

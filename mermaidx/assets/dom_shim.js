@@ -460,6 +460,7 @@ class Node {
     return c;
   }
   removeChild(c) {
+    for (const it of __liveNodeIterators) it._preRemove(c);
     const i = this.childNodes.indexOf(c);
     if (i !== -1) this.childNodes.splice(i, 1);
     c.parentNode = null;
@@ -1233,7 +1234,10 @@ function __querySelectorAll(root, sel) {
 }
 
 // --- serialize / parse (very small, enough for mermaid's own output) ---
-function __esc(s) { return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+// Text content escapes only & < > (what a browser's serializer does -- a literal " in text,
+// e.g. inside <style>, stays a "); attribute values additionally escape the quote.
+function __escText(s) { return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+function __esc(s) { return __escText(s).replace(/"/g,"&quot;"); }
 // Attribute values additionally escape \n \r \t (as XMLSerializer does): a raw newline in an
 // attribute is turned into a space by any XML parser, silently changing the value
 // (e.g. mermaid's multi-line path data).
@@ -1268,7 +1272,7 @@ function __decodeStrayLabelEntities(s) {
 const __SER_VOID = new Set(["br","hr","img","input","meta","link","area","base","col","embed","param","source","track","wbr"]);
 function __serialize(el, innerOnly) {
   function ser(n) {
-    if (n.nodeType === 3) return __esc(__decodeStrayLabelEntities(n.textContent));
+    if (n.nodeType === 3) return __escText(__decodeStrayLabelEntities(n.textContent));
     const attrEntries = Object.entries(n._attrs||{}).filter(([k]) => k !== "style");
     const attrs = attrEntries.map(([k,v])=>` ${k}="${__escAttr(v)}"`).join("");
     // A "style" set via setAttribute("style", ...) and properties set via
@@ -1298,41 +1302,59 @@ function __serialize(el, innerOnly) {
   if (innerOnly) return el.childNodes.map(ser).join("");
   return ser(el);
 }
-function __parseInto(parent, html) {
-  const doc = globalThis.__document;
+// Named entities beyond the five XML ones that mermaid's own label decoding
+// (innerHTML on a scratch element, read back as textContent) relies on a real
+// parser to resolve. mermaid's own label entity-decoding ("entityDecode") sets
+// innerHTML on a scratch element and reads textContent back -- the trick a
+// browser's parser makes work for any named/numeric entity. A named entity not
+// listed here (e.g. &nbsp; is a real non-breaking space in a label, not visible
+// text that should read "&nbsp;") would pass through unchanged.
+const __NAMED_ENTITIES = {
+  nbsp: "\u00A0", copy: "\u00A9", reg: "\u00AE", trade: "\u2122",
+  mdash: "\u2014", ndash: "\u2013", hellip: "\u2026",
+  larr: "\u2190", uarr: "\u2191", rarr: "\u2192", darr: "\u2193",
+  deg: "\u00B0", plusmn: "\u00B1", times: "\u00D7", divide: "\u00F7",
+  sect: "\u00A7", para: "\u00B6", middot: "\u00B7",
+  laquo: "\u00AB", raquo: "\u00BB",
+  euro: "\u20AC", pound: "\u00A3", yen: "\u00A5", cent: "\u00A2",
+};
+// One pass, so "&amp;lt;" decodes to the text "&lt;" (not to "<"), as a browser does.
+function __decodeEntities(text) {
+  return text.replace(/&(?:#x([0-9a-fA-F]+)|#(\d+)|([a-zA-Z]+));/g, (m0, hex, dec, name) => {
+    if (hex !== undefined) return String.fromCodePoint(parseInt(hex, 16));
+    if (dec !== undefined) return String.fromCodePoint(parseInt(dec, 10));
+    if (name in __NAMED_ENTITIES) return __NAMED_ENTITIES[name];
+    return name === "lt" ? "<" : name === "gt" ? ">" : name === "quot" ? '"' :
+           name === "apos" ? "'" : name === "amp" ? "&" : m0;
+  });
+}
+
+// Namespace a parsed element gets when parsing like an HTML document does: <svg> starts
+// the SVG namespace, which its descendants inherit except under an HTML integration
+// point (<foreignObject>, <desc>, <title>), where content is XHTML again.
+function __parsedNamespace(tag, parent) {
+  if (tag.toLowerCase() === "svg") return SVG_NS;
+  const pns = parent && parent.namespaceURI;
+  if (pns === SVG_NS) {
+    const pt = parent.tagName;
+    return pt === "foreignObject" || pt === "desc" || pt === "title" ? XHTML_NS : SVG_NS;
+  }
+  return pns || XHTML_NS;
+}
+
+// opts.doc: owner document for created nodes (default: the global one);
+// opts.namespaces: assign SVG/XHTML namespaces by HTML-parsing rules (DOMParser path).
+function __parseInto(parent, html, opts) {
+  const doc = (opts && opts.doc) || globalThis.__document;
   const s = String(html == null ? "" : html);
   const tagRe = /<!--[\s\S]*?-->|<\/([a-zA-Z][\w:-]*)\s*>|<([a-zA-Z][\w:-]*)((?:\s+[\w:-]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+))?)*)\s*(\/?)>/g;
   const VOID = new Set(["br","hr","img","input","meta","link","area","base","col","embed","param","source","track","wbr"]);
   let stack = [parent];
   let last = 0;
   let m;
-  // mermaid's own label entity-decoding (Rje/"entityDecode") works by
-  // setting innerHTML on a scratch element and reading textContent back --
-  // the same trick a real browser's parser performs, which decodes any
-  // named or numeric HTML entity, not just the 5 XML ones. A named entity
-  // mermaidx doesn't know here (e.g. &nbsp; -- reported as issue: it's a
-  // real, meaningful non-breaking space character in a label, not visible
-  // text that should read literally "&nbsp;") passes through unchanged and
-  // ends up serialized back out as literal "&nbsp;" text in the SVG.
-  const NAMED_ENTITIES = {
-    nbsp: "\u00A0", copy: "\u00A9", reg: "\u00AE", trade: "\u2122",
-    mdash: "\u2014", ndash: "\u2013", hellip: "\u2026",
-    larr: "\u2190", uarr: "\u2191", rarr: "\u2192", darr: "\u2193",
-    deg: "\u00B0", plusmn: "\u00B1", times: "\u00D7", divide: "\u00F7",
-    sect: "\u00A7", para: "\u00B6", middot: "\u00B7",
-    laquo: "\u00AB", raquo: "\u00BB",
-    euro: "\u20AC", pound: "\u00A3", yen: "\u00A5", cent: "\u00A2",
-  };
   function pushText(text) {
     if (!text) return;
-    const t = text
-      .replace(/&#x([0-9a-fA-F]+);/g, (_, h) => String.fromCodePoint(parseInt(h, 16)))
-      .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(parseInt(d, 10)))
-      .replace(/&([a-zA-Z]+);/g, (m0, name) =>
-        name in NAMED_ENTITIES ? NAMED_ENTITIES[name] :
-        name === "lt" ? "<" : name === "gt" ? ">" :
-        name === "quot" ? '"' : name === "apos" ? "'" :
-        name === "amp" ? "&" : m0);
+    const t = __decodeEntities(text);
     if (t.length) stack[stack.length-1].appendChild(doc.createTextNode(t));
   }
   while ((m = tagRe.exec(s))) {
@@ -1346,13 +1368,15 @@ function __parseInto(parent, html) {
       continue;
     }
     const tag = m[2], attrStr = m[3] || "", selfClose = m[4] === "/";
-    const el = doc.createElement(tag);
+    const el = opts && opts.namespaces
+      ? new Element(tag, __parsedNamespace(tag, stack[stack.length-1]))
+      : doc.createElement(tag);
     const attrRe = /([\w:-]+)(?:\s*=\s*("([^"]*)"|'([^']*)'|[^\s>]+))?/g;
     let am;
     while ((am = attrRe.exec(attrStr))) {
       const name = am[1];
       const val = am[3] !== undefined ? am[3] : (am[4] !== undefined ? am[4] : (am[2] || ""));
-      el.setAttribute(name, val.replace(/&quot;/g,'"').replace(/&amp;/g,"&"));
+      el.setAttribute(name, __decodeEntities(val));
     }
     stack[stack.length-1].appendChild(el);
     if (!selfClose && !VOID.has(tag)) stack.push(el);
@@ -1376,6 +1400,154 @@ class Document extends Node {
   }
   dispatchEvent() { return true; }
 }
+
+
+// ===== what DOMPurify (bundled inside mermaid.js) needs from a browser =====================
+// mermaid.render() ends with DOMPurify.sanitize(svg, ...), which in a real browser drops
+// every attribute outside its allowlist (mermaid's own layout scratch attributes such as
+// `label-offset-y`, `text-height`, journey's `position`) and trims attribute values.
+// DOMPurify switches itself off (`isSupported = false`) unless the page provides an HTML
+// parser (DOMParser / document.implementation), NodeFilter + NodeIterator, and a handful of
+// DOM interfaces and accessors -- so those are provided here and DOMPurify itself does the
+// sanitizing, exactly as in a browser.
+
+// DOMPurify reads parentNode/childNodes/nextSibling/cloneNode/remove from Element.prototype
+// (lookupGetter) and, when it can't find one, silently does nothing -- including NOT removing
+// a node it decided to remove. This shim keeps parentNode/childNodes as own data properties
+// (the rest of the shim reads and writes them directly), so also expose them as prototype
+// accessors that defer to the own property.
+for (const prop of ["parentNode", "childNodes"]) {
+  Object.defineProperty(Node.prototype, prop, {
+    configurable: true,
+    get() { const d = Object.getOwnPropertyDescriptor(this, prop); return d ? d.value : (prop === "childNodes" ? [] : null); },
+    set(v) { Object.defineProperty(this, prop, { value: v, writable: true, enumerable: true, configurable: true }); },
+  });
+}
+Object.defineProperties(Node.prototype, {
+  nodeName: { configurable: true, get() { return this.nodeType === 3 ? "#text" : this.nodeType === 9 ? "#document" : this.tagName; } },
+});
+Node.prototype.hasChildNodes = function () { return this.childNodes.length > 0; };
+Node.prototype.remove = function () { if (this.parentNode) this.parentNode.removeChild(this); };
+Object.defineProperty(Element.prototype, "attributes", {
+  configurable: true,
+  get() {
+    // a snapshot is fine: DOMPurify walks it backwards while removing/updating attributes
+    return Object.keys(this._attrs).map((name) => ({ name, localName: name, value: this._attrs[name], namespaceURI: null, specified: true }));
+  },
+});
+
+const NodeFilter = {
+  FILTER_ACCEPT: 1, FILTER_REJECT: 2, FILTER_SKIP: 3,
+  SHOW_ALL: 0xFFFFFFFF, SHOW_ELEMENT: 0x1, SHOW_ATTRIBUTE: 0x2, SHOW_TEXT: 0x4, SHOW_CDATA_SECTION: 0x8,
+  SHOW_PROCESSING_INSTRUCTION: 0x40, SHOW_COMMENT: 0x80, SHOW_DOCUMENT: 0x100,
+};
+
+// DOM Standard NodeIterator (traverse + pre-removing steps): DOMPurify removes and inserts
+// nodes while iterating, and the iterator has to keep a valid position through that.
+const __liveNodeIterators = new Set();
+function __followingNode(node, root, skipChildren) {
+  if (!skipChildren && node.childNodes.length) return node.childNodes[0];
+  for (let n = node; n && n !== root; n = n.parentNode) {
+    const sib = n.nextSibling;
+    if (sib) return sib;
+  }
+  return null;
+}
+function __lastInclusiveDescendant(n) {
+  while (n.childNodes.length) n = n.childNodes[n.childNodes.length - 1];
+  return n;
+}
+class NodeIterator {
+  constructor(root, whatToShow) {
+    this.root = root;
+    this.whatToShow = whatToShow === undefined ? 0xFFFFFFFF : whatToShow >>> 0;
+    this.referenceNode = root;
+    this.pointerBeforeReferenceNode = true;
+    __liveNodeIterators.add(this);
+  }
+  _accepts(node) { return ((1 << (node.nodeType - 1)) & this.whatToShow) !== 0; }
+  nextNode() {
+    let node = this.referenceNode, before = this.pointerBeforeReferenceNode;
+    for (;;) {
+      if (!before) {
+        node = __followingNode(node, this.root, false);
+        if (!node) { __liveNodeIterators.delete(this); return null; }
+      } else before = false;
+      if (this._accepts(node)) {
+        this.referenceNode = node; this.pointerBeforeReferenceNode = false;
+        return node;
+      }
+    }
+  }
+  detach() { __liveNodeIterators.delete(this); }
+  _preRemove(removed) {
+    if (removed === this.root) return;
+    let inside = false;
+    for (let n = this.referenceNode; n; n = n.parentNode) if (n === removed) { inside = true; break; }
+    if (!inside) return;
+    if (this.pointerBeforeReferenceNode) {
+      const next = __followingNode(removed, this.root, true);
+      if (next) { this.referenceNode = next; return; }
+      this.pointerBeforeReferenceNode = false;
+    }
+    const prev = removed.previousSibling;
+    this.referenceNode = prev ? __lastInclusiveDescendant(prev) : removed.parentNode;
+  }
+}
+
+function __makeDocument() {
+  const d = new Document();
+  d.documentElement = d.appendChild(new Element("html"));
+  d.head = d.documentElement.appendChild(new Element("head"));
+  d.body = d.documentElement.appendChild(new Element("body"));
+  return d;
+}
+Document.prototype.createNodeIterator = function (root, whatToShow) { return new NodeIterator(root, whatToShow); };
+Document.prototype.importNode = function (node, deep) { return node.cloneNode(!!deep); };
+Document.prototype.getElementsByTagName = function (tag) {
+  const out = [], want = String(tag).toLowerCase();
+  (function walk(n) {
+    for (const c of n.childNodes) {
+      if (c.nodeType !== 1) continue;
+      if (want === "*" || c.tagName.toLowerCase() === want) out.push(c);
+      walk(c);
+    }
+  })(this);
+  return out;
+};
+Object.defineProperty(Document.prototype, "implementation", {
+  configurable: true,
+  get() {
+    return {
+      createHTMLDocument() { return __makeDocument(); },
+      createDocument(ns, qualifiedName) {
+        const d = new Document();
+        d.documentElement = d.appendChild(new Element(qualifiedName || "html", ns));
+        return d;
+      },
+    };
+  },
+});
+
+// A document parsed like an HTML document: <svg> content in the SVG namespace, children of
+// <foreignObject> back in XHTML.
+class DOMParser {
+  parseFromString(markup) {
+    const d = __makeDocument();
+    __parseInto(d.body, markup, { doc: d, namespaces: true });
+    return d;
+  }
+}
+// Interfaces DOMPurify names (instanceof / destructuring); never instantiated here.
+class HTMLFormElement extends Element {}
+class NamedNodeMap {}
+class DocumentFragment extends Node {}
+globalThis.NodeFilter = NodeFilter;
+globalThis.NodeIterator = NodeIterator;
+globalThis.DOMParser = DOMParser;
+globalThis.HTMLFormElement = HTMLFormElement;
+globalThis.NamedNodeMap = NamedNodeMap;
+globalThis.DocumentFragment = DocumentFragment;
 
 const document_ = new Document();
 document_.documentElement = document_.appendChild(new Element("html"));

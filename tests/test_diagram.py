@@ -477,9 +477,8 @@ def test_multiline_edge_label_is_centered_on_its_background():
     size at all; this path structurally can't reproduce the original bug.
 
     Legacy path (config={"flowchart": {"htmlLabels": False}} explicitly,
-    forcing mermaid's native <text>/<tspan> renderer -- see
-    _svg_patches.py's own docstring for the one thing that's still true
-    either way): this is where the original bug actually lived.
+    forcing mermaid's native <text>/<tspan> renderer): this is where
+    the original bug actually lived.
     __resolveTextPos() (dom_shim.js) finds the tspan that really carries a
     text element's paint position by walking down through single-child
     chains. That works for one-line labels (a single positioning tspan),
