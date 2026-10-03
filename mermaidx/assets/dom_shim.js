@@ -1029,6 +1029,23 @@ function __f32rect(r) {
   return o;
 }
 
+// Chrome's getBBox() on an SVG <text> is not the advance width: each glyph contributes its outline's
+// ink box, rounded OUT to whole pixels relative to where that glyph is painted, and the result is
+// the union of those boxes with the advance box [0, advance]. So "PK" at 16px (advance 20.141) is
+// 20.648 wide -- K's ink ends at 10.828 -> 11, painted at 9.648 -- and a leading "T" (ink starts at
+// -0.047) pushes the left edge to -1. (Verified against Chrome on PK, Toy, Design, Implement, Test.)
+// getComputedTextLength() and HTML text still use the plain advance, as in Chrome.
+// Returns the box's left edge and right edge relative to the text's start-of-run origin.
+function __inkExtent(text, font, advance) {
+  let left = 0, right = advance;
+  if (typeof globalThis.__measureGlyphs !== "function") return { left, right };
+  for (const [pen, inkL, inkR] of globalThis.__measureGlyphs(text, font.size, font.family, font.weight, font.style)) {
+    left = Math.min(left, pen + Math.floor(inkL));
+    right = Math.max(right, pen + Math.ceil(inkR));
+  }
+  return { left, right };
+}
+
 function __computeBBox(el) {
   if (el.tagName === "text" || el.tagName === "tspan") {
     const font = __resolveFont(el);
@@ -1044,12 +1061,11 @@ function __computeBBox(el) {
     // Width = the widest line; height = one line box + (n-1) line steps (dy="1.1em").
     const rows = __rowTspans(el);
     if (rows.length > 1) {
-      let maxW = 0;
-      for (const r of rows) {
+      const rowBoxes = rows.map((r) => {
         const rm = globalThis.__measureTextFull(
           r.textContent, font.size, font.family, font.weight, font.style);
-        if (rm.width > maxW) maxW = rm.width;
-      }
+        return { adv: rm.width, ink: __inkExtent(r.textContent, font, rm.width) };
+      });
       const height = asc + desc + (rows.length - 1) * 1.1 * font.size;
       // The outer <text>'s own y is a vestigial placeholder (see
       // __resolveTextPos above) that only gets overridden once a *single*
@@ -1058,9 +1074,14 @@ function __computeBBox(el) {
       // itself and would silently use the wrong, non-"em" y here. Resolve
       // position via the first row's own y="...em" dy="1.1em" instead.
       const pos = __accumulatePos(__chainTo(el, rows[0]), font.size);
-      let lx = pos.x;
-      if (anchor === "middle") lx -= maxW / 2;
-      else if (anchor === "end") lx -= maxW;
+      // Each row is anchored on its own advance; the box is the union of the rows' ink boxes.
+      let lx = Infinity, rx = -Infinity;
+      for (const { adv, ink } of rowBoxes) {
+        const o = pos.x - (anchor === "middle" ? adv / 2 : anchor === "end" ? adv : 0);
+        lx = Math.min(lx, o + ink.left);
+        rx = Math.max(rx, o + ink.right);
+      }
+      const maxW = rx - lx;
       const top = pos.y - asc;
       return { x: lx, y: top, width: maxW, height, top, left: lx, right: lx + maxW, bottom: top + height };
     }
@@ -1068,7 +1089,8 @@ function __computeBBox(el) {
     let x = pos.x;
     if (anchor === "middle") x -= m.width / 2;
     else if (anchor === "end") x -= m.width;
-    return { x, y: pos.y - asc, width: m.width, height: asc + desc };
+    const ink = __inkExtent(__svgTextForMeasure(el), font, m.width);
+    return { x: x + ink.left, y: pos.y - asc, width: ink.right - ink.left, height: asc + desc };
   }
   if (el.tagName === "rect") {
     return { x: parseFloat(el.getAttribute("x"))||0, y: parseFloat(el.getAttribute("y"))||0,

@@ -60,6 +60,9 @@ class _TextMeasurer:
     def full(self, text, size, family, weight, style) -> dict:
         return get_font(weight).measure(text or "", float(size or 16))
 
+    def glyphs(self, text, size, family, weight, style) -> list:
+        return get_font(weight).glyph_boxes(text or "", float(size or 16))
+
     def foreign_object(self, html, size, family, weight, style) -> dict:
         return get_font(weight).foreign_object_metrics(html or "", float(size or 16))
 
@@ -117,6 +120,10 @@ class Engine:
             lambda t, s, f, w, st: json.dumps(self._measurer.full(t, s, f, w, st)),
         )
         ctx.add_callable(
+            "__measureGlyphs_raw",
+            lambda t, s, f, w, st: json.dumps(self._measurer.glyphs(t, s, f, w, st)),
+        )
+        ctx.add_callable(
             "__measureForeignObject_raw",
             lambda h, s, f, w, st: json.dumps(self._measurer.foreign_object(h, s, f, w, st)),
         )
@@ -125,6 +132,7 @@ class Engine:
             "globalThis.__log = (s) => __log_raw(s);\n"
             "globalThis.__measureText = (t,s,f,w,st) => __measureText_raw(t,s,f,w,st);\n"
             "globalThis.__measureTextFull = (t,s,f,w,st) => JSON.parse(__measureTextFull_raw(t,s,f,w,st));\n"
+            "globalThis.__measureGlyphs = (t,s,f,w,st) => JSON.parse(__measureGlyphs_raw(t,s,f,w,st));\n"
             "globalThis.__measureForeignObject = (h,s,f,w,st) => JSON.parse(__measureForeignObject_raw(h,s,f,w,st));\n"
         )
         # Path bbox is pure geometry -- no Python callback needed at all.

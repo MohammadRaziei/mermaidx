@@ -36,7 +36,7 @@ dependencies = [
     #    squeezed onto one line and every wrapped box is the wrong size,
     #  - GSUB f-ligatures in Font.measure_text()/painting ("Off", "office"...),
     #    which browsers apply and which change label widths by ~0.2px.
-    "novasvg>=0.7.3",
+    "novasvg>=0.7.5",
     "termaid",
 ]
 

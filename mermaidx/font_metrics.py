@@ -67,6 +67,12 @@ class Font:
             "descent": -font.descent,  # novasvg: negative; this module's convention: positive
         }
 
+    def glyph_boxes(self, text: str, size_px: float) -> list:
+        """[(pen_x, ink_left, ink_right), ...] in px for every glyph with an outline (spaces
+        skipped), walked exactly like measure(): raw outline extents straight from novasvg.
+        mermaidx's DOM shim turns these into the box a browser reports for an SVG <text>."""
+        return [list(b) for b in self._at_size(size_px).glyph_boxes(text)]
+
     # -- size-independent bulk export (v8_engine's no-callback path) --
 
     def full_advance_table(self) -> dict:

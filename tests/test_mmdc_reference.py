@@ -5,10 +5,6 @@ The references in tests/samples/mmdc/ come from mmdc running mermaid.js in Chrom
 are compared one by one; the only things normalised away are what mmdc itself adds on top of
 mermaid.js's output: the root `background-color` (its -b option) and the 3-decimal rounding of the
 root `max-width` (it re-writes the style through the CSSOM), plus the per-render svg id.
-
-A few attribute values still differ because Chrome sizes an SVG <text> by its glyph *ink* bounds
-while novasvg only reports advance widths; KNOWN_RESIDUAL pins exactly how many, so this test fails
-if the gap grows and also tells you (by failing) when it shrinks and the number should be lowered.
 """
 import glob
 import os
@@ -21,9 +17,6 @@ import mermaidx
 
 HERE = os.path.dirname(__file__)
 SAMPLES = sorted(os.path.splitext(os.path.basename(p))[0] for p in glob.glob(os.path.join(HERE, "samples", "*.mmd")))
-
-# sample -> number of attribute values that still differ (see module docstring)
-KNOWN_RESIDUAL = {"07_complex_erd": 3, "11_class_diagram": 1, "13_gantt": 3}
 
 _NUM = re.compile(r"-?\d+(?:\.\d+)?(?:e-?\d+)?")
 
@@ -85,7 +78,4 @@ def test_svg_matches_mmdc(name):
     same_structure, differing, css_same = _diff(ours, ref)
     assert same_structure, f"{name}: element sequence differs from mmdc's"
     assert css_same, f"{name}: <style> rules differ from mmdc's"
-    expected = KNOWN_RESIDUAL.get(name, 0)
-    assert differing == expected, (
-        f"{name}: {differing} attribute value(s) differ from mmdc, expected {expected}"
-        + (" -- lower KNOWN_RESIDUAL if this improved" if differing < expected else ""))
+    assert differing == 0, f"{name}: {differing} attribute value(s) differ from mmdc"

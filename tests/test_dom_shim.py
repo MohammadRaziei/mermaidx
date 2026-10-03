@@ -56,9 +56,10 @@ _DOM_SHIM_JS = (
 FONT_SIZE = 16  # matches mermaid's default flowchart label font-size
 
 
-def _make_ctx():
+def _make_ctx(glyphs=None):
     """A bare QuickJS context with only the DOM shim loaded (no mermaid.js)
-    and a deterministic fake text measurer wired in."""
+    and a deterministic fake text measurer wired in. `glyphs`, if given, is
+    what the fake __measureGlyphs returns: [(pen, ink_left, ink_right), ...]."""
     ctx = quickjs.Context()
     ctx.add_callable("__log_raw", lambda s: None)
     ctx.add_callable(
@@ -76,6 +77,9 @@ def _make_ctx():
         "globalThis.__measureTextFull = (t,s,f,w,st) => "
         "JSON.parse(__measureTextFull_raw(t,s,f,w,st));\n"
     )
+    if glyphs is not None:
+        ctx.add_callable("__measureGlyphs_raw", lambda t, s, f, w, st: json.dumps(glyphs))
+        ctx.eval("globalThis.__measureGlyphs = (t,s,f,w,st) => JSON.parse(__measureGlyphs_raw(t,s,f,w,st));")
     ctx.eval(_DOM_SHIM_JS)
     return ctx
 
@@ -202,6 +206,58 @@ def test_multiline_label_uses_first_row_not_outer_text_y():
 # built-in URL; mermaid's click-href sanitizer calls `URL.canParse()` and
 # `new URL(...).toString()` for absolute http(s) links.
 # ---------------------------------------------------------------------------
+
+
+# --- Chrome's ink-bounds rule for an SVG <text> box ---------------------------------------------
+# The fake measurer gives "abc" at 16px an advance of 3 * 16 * 0.5 = 24. Chrome's getBBox() is the
+# union of the advance box [0, 24] with every glyph's ink box rounded OUT to whole pixels relative
+# to the glyph's own pen position (see __inkExtent in dom_shim.js).
+
+def _text_bbox(glyphs, anchor=None, x=10):
+    ctx = _make_ctx(glyphs)
+    attrs = f'el.setAttribute("text-anchor", "{anchor}");' if anchor else ""
+    return json.loads(ctx.eval(f"""
+    const el = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    el.setAttribute("x", "{x}"); el.setAttribute("y", "20"); {attrs}
+    el.textContent = "abc";
+    JSON.stringify(el.getBBox());
+    """))
+
+
+def test_text_bbox_without_glyph_data_is_the_advance_box():
+    assert _text_bbox(None)["width"] == 24 and _text_bbox(None)["x"] == 10
+
+
+def test_text_bbox_ink_inside_the_advance_changes_nothing():
+    box = _text_bbox([[0, 1.2, 9.8], [12, 1.0, 10.9]])  # 12 + ceil(10.9) = 23 < 24
+    assert (box["x"], box["width"]) == (10, 24)
+
+
+def test_text_bbox_ink_past_the_advance_grows_right_by_whole_pixels():
+    # last glyph painted at pen 20 with ink up to 9.2 -> ceil = 10 -> right edge 30, not 24 or 29.2
+    box = _text_bbox([[0, 1.0, 9.0], [20, 1.0, 9.2]])
+    assert (box["x"], box["width"]) == (10, 20 + 10)
+
+
+def test_text_bbox_negative_left_bearing_grows_left_by_whole_pixels():
+    # ink starts 0.047px left of the pen -> floor = -1 -> box starts 1px early, x moves left by 1
+    box = _text_bbox([[0, -0.047, 9.8]])
+    assert (box["x"], box["width"]) == (10 - 1, 24 + 1)
+
+
+def test_text_bbox_anchor_uses_the_advance_then_ink_offsets_apply():
+    # text-anchor:middle shifts by half the ADVANCE (12); the ink left edge (-1) is added on top.
+    box = _text_bbox([[0, -0.047, 9.8], [20, 1.0, 9.2]], anchor="middle", x=100)
+    assert box["x"] == 100 - 12 - 1
+    assert box["width"] == 30 + 1
+
+
+def test_get_computed_text_length_stays_the_plain_advance():
+    ctx = _make_ctx([[20, 1.0, 9.2]])
+    assert ctx.eval('''
+    const el = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    el.textContent = "abc"; el.getComputedTextLength();
+    ''') == 24
 
 
 def test_url_polyfill_parses_https_url_parts():
