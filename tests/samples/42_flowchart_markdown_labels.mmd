@@ -1,0 +1,11 @@
+flowchart LR
+    A["`**Bold** and _italic_ text`"] --> B["`A long line that should wrap automatically
+    when it exceeds the max width of the node box`"]
+    B --> C{"`Is it **really** working?`"}
+    C -- "`yes, it
+    is`" --> D[Done]
+    C -- no --> E["Line one<br/>Line two<br>Line three"]
+    subgraph S1 ["`**Group** one`"]
+        D
+        E
+    end

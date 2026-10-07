@@ -1,0 +1,17 @@
+gantt
+    dateFormat YYYY-MM-DD
+    title Release plan
+    axisFormat %b %d
+    todayMarker off
+    excludes weekends
+    section Design
+    Research        :done,    des1, 2024-01-01, 2024-01-05
+    Wireframes      :active,  des2, after des1, 4d
+    Review          :milestone, m1, after des2, 0d
+    section Build
+    Backend         :crit, done, bld1, 2024-01-10, 5d
+    Frontend        :crit, active, bld2, after bld1, 6d
+    Integration     :crit, bld3, after bld2, 3d
+    section Launch
+    QA              :qa1, after bld3, 4d
+    Release         :milestone, m2, after qa1, 0d

@@ -1,0 +1,14 @@
+sequenceDiagram
+    actor Alice
+    participant B@{ "type": "database" }
+    participant C@{ "type": "queue" }
+    create participant D as Dynamic
+    Alice->>D: spawn
+    Alice->>B: query
+    B-->>Alice: result
+    Alice-)C: publish
+    C--)Alice: ack
+    destroy D
+    Alice-xD: kill
+    Alice->>Alice: self call
+    Note right of B: remember<br/>this

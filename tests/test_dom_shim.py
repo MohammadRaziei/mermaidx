@@ -59,7 +59,7 @@ FONT_SIZE = 16  # matches mermaid's default flowchart label font-size
 def _make_ctx(glyphs=None):
     """A bare QuickJS context with only the DOM shim loaded (no mermaid.js)
     and a deterministic fake text measurer wired in. `glyphs`, if given, is
-    what the fake __measureGlyphs returns: [(pen, ink_left, ink_right), ...]."""
+    what the fake __measureGlyphs returns: [(pen, ink_left, ink_right, ink_top, ink_bottom), ...]."""
     ctx = quickjs.Context()
     ctx.add_callable("__log_raw", lambda s: None)
     ctx.add_callable(
@@ -214,6 +214,8 @@ def test_multiline_label_uses_first_row_not_outer_text_y():
 # to the glyph's own pen position (see __inkExtent in dom_shim.js).
 
 def _text_bbox(glyphs, anchor=None, x=10):
+    # horizontal-only cases: keep the ink vertically inside the font's [-13, 3] box at 16px
+    glyphs = glyphs and [g + [-5, 2] if len(g) == 3 else g for g in glyphs]
     ctx = _make_ctx(glyphs)
     attrs = f'el.setAttribute("text-anchor", "{anchor}");' if anchor else ""
     return json.loads(ctx.eval(f"""
@@ -258,6 +260,92 @@ def test_get_computed_text_length_stays_the_plain_advance():
     const el = document.createElementNS("http://www.w3.org/2000/svg", "text");
     el.textContent = "abc"; el.getComputedTextLength();
     ''') == 24
+
+
+def test_text_bbox_vertical_ink_grows_the_box_by_whole_pixels():
+    # fake font at 16px: ascent 12.8 -> 13, descent 3.2 -> 3 (box is [-13, 3] around the baseline, y=20).
+    plain = _text_bbox([[0, 1, 9, -5, 2]])
+    assert (plain["y"], plain["height"]) == (20 - 13, 16)
+    # a descender reaching 3.4 below the baseline -> ceil = 4: one pixel taller at the bottom
+    desc = _text_bbox([[0, 1, 9, -5, 3.4]])
+    assert (desc["y"], desc["height"]) == (20 - 13, 17)
+    # an ascender reaching 13.2 above -> floor(-13.2) = -14: one pixel taller at the top
+    asc = _text_bbox([[0, 1, 9, -13.2, 2]])
+    assert (asc["y"], asc["height"]) == (20 - 14, 17)
+
+
+def test_element_id_reflects_the_attribute():
+    # mermaid clones a marker and renames the clone with `clone.id = ...`
+    ctx = _make_ctx()
+    assert ctx.eval('''
+    const a = document.createElementNS("http://www.w3.org/2000/svg", "marker");
+    a.setAttribute("id", "m1");
+    const b = a.cloneNode(true);
+    b.id = "m1_red";
+    [a.id, b.id, b.getAttribute("id"), a.getAttribute("id")].join("|");
+    ''') == "m1|m1_red|m1_red|m1"
+
+
+def test_stylesheet_rules_are_serialized_like_the_cssom():
+    ctx = _make_ctx()
+    out = json.loads(ctx.eval('''
+    const sheet = new CSSStyleSheet();
+    sheet.insertRule(".good > * { fill:#d4edda !important; stroke-dasharray: 5 5 !important; stroke-width:2px }", 0);
+    sheet.insertRule(':root { --mermaid-font-family: "trebuchet ms",verdana }', 1);
+    sheet.insertRule("@media print { a { color: red } }", 2);
+    JSON.stringify(sheet.cssRules.map((r) => r.cssText));
+    '''))
+    assert out[0] == ".good > * { fill: rgb(212, 237, 218) !important; stroke-dasharray: 5, 5 !important; stroke-width: 2px; }"
+    assert out[1] == ':root { --mermaid-font-family: "trebuchet ms",verdana; }'  # custom properties stay verbatim
+    assert out[2] == "@media print { a { color: red } }"                         # at-rules are left alone
+
+
+def test_stylesheet_replace_sync_makes_one_rule_per_block():
+    ctx = _make_ctx()
+    assert json.loads(ctx.eval('''
+    const s = new CSSStyleSheet();
+    s.replaceSync(".a{color:#fff} .b{margin:0}");
+    JSON.stringify(s.cssRules.map((r) => r.cssText));
+    ''')) == [".a { color: rgb(255, 255, 255); }", ".b { margin: 0; }"]
+
+
+def test_style_attribute_values_are_canonicalized_once_the_cssom_rewrites_the_block():
+    ctx = _make_ctx()
+    # setAttribute alone stays verbatim; a later CSSOM write re-serializes the whole block canonically
+    assert ctx.eval('''
+    const d = document.createElement("div");
+    d.setAttribute("style", "color:#155724 !important");
+    d.outerHTML;
+    ''').count("#155724") == 1
+    assert "color: rgb(21, 87, 36) !important; display: table-cell;" in ctx.eval('''
+    const e = document.createElement("div");
+    e.setAttribute("style", "color:#155724 !important");
+    e.style.setProperty("display", "table-cell");
+    e.outerHTML;
+    ''')
+
+
+def _group_bbox(transform):
+    ctx = _make_ctx()
+    return json.loads(ctx.eval(f'''
+    const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    const r = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    r.setAttribute("width", "10"); r.setAttribute("height", "20");
+    r.setAttribute("transform", "{transform}");
+    g.appendChild(r);
+    JSON.stringify(g.getBBox());
+    '''))
+
+
+def test_group_bbox_maps_children_through_the_whole_transform_list():
+    assert _group_bbox("translate(5 7)") == {"x": 5, "y": 7, "width": 10, "height": 20}
+    box = _group_bbox("rotate(90)")  # (x, y) -> (-y, x): the 10x20 box becomes 20x10 at x=-20
+    assert (box["x"], box["y"], box["width"], box["height"]) == (-20, 0, 20, 10)
+    box = _group_bbox("translate(100 0) scale(2 3)")
+    assert (box["x"], box["y"], box["width"], box["height"]) == (100, 0, 20, 60)
+    # rotation about a centre: 90deg around (5,10) keeps the 10x20 box's centre and swaps its sides
+    box = _group_bbox("rotate(90, 5, 10)")
+    assert (round(box["x"], 6), round(box["y"], 6), round(box["width"], 6), round(box["height"], 6)) == (-5, 5, 20, 10)
 
 
 def test_url_polyfill_parses_https_url_parts():

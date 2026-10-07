@@ -1,0 +1,43 @@
+sequenceDiagram
+    autonumber
+    box rgb(240,240,255) Frontend
+        participant U as User
+        participant W as Web
+    end
+    box Aqua Backend
+        participant A as API
+        participant D as DB
+    end
+    U->>+W: open page
+    W->>+A: GET /items
+    alt cache hit
+        A-->>W: 200 cached
+    else cache miss
+        A->>+D: SELECT *
+        D-->>-A: rows
+        A-->>W: 200 fresh
+    end
+    opt user is admin
+        W->>A: GET /audit
+    end
+    par notify
+        A-)U: email
+    and log
+        A-)D: INSERT log
+    end
+    loop every 5s
+        W->>A: poll
+    end
+    critical establish connection
+        A->>D: connect
+    option timeout
+        A-xU: error
+    end
+    rect rgb(200,255,200)
+        U->>W: click
+        break when failed
+            W-->>U: show error
+        end
+    end
+    Note over U,W: end of flow
+    deactivate W

@@ -1,0 +1,22 @@
+flowchart TD
+    A[Start] --> B(Rounded)
+    B --> C([Stadium])
+    C --> D[[Subroutine]]
+    D --> E[(Database)]
+    E --> F((Circle))
+    F --> G>Asymmetric]
+    G --> H{Decision}
+    H -->|yes| I{{Hexagon}}
+    H -.->|maybe| J[/Parallelogram/]
+    I ==>|thick| K[\Alt parallelogram\]
+    J --- K
+    K --> L[/Trapezoid\]
+    L --> M[\Inverse trapezoid/]
+    M --> N(((Double circle)))
+    classDef good fill:#d4edda,stroke:#155724,stroke-width:2px,color:#155724
+    classDef bad fill:#f8d7da,stroke:#721c24,stroke-dasharray: 5 5
+    class A,I good
+    class J,K bad
+    style N fill:#fff3cd,stroke:#856404
+    linkStyle 0 stroke:#ff3,stroke-width:4px
+    linkStyle 3,4 stroke:red,color:red

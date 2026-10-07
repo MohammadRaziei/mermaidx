@@ -1,0 +1,26 @@
+stateDiagram-v2
+    [*] --> Idle
+    Idle --> Validate: submit
+    state fork_state <<fork>>
+    state join_state <<join>>
+    state choice_state <<choice>>
+    Validate --> choice_state
+    choice_state --> fork_state: valid
+    choice_state --> Idle: invalid
+    fork_state --> Charge
+    fork_state --> Reserve
+    Charge --> join_state
+    Reserve --> join_state
+    join_state --> Shipped
+    Shipped --> [*]
+    note right of Validate
+        Runs schema and
+        business checks
+    end note
+    state Shipped {
+        [*] --> Packing
+        Packing --> InTransit
+        --
+        [*] --> Tracking
+        Tracking --> Delivered
+    }

@@ -1,6 +1,6 @@
 """
 Regression tests using a small corpus of real Mermaid source files, each
-paired with a reference SVG rendered by mermaid.ink (the official/browser
+paired with a reference SVG rendered by mmdc (mermaid-cli in Chromium, the official/browser
 rendering, via a real Chrome instance).
 
 These caught real bugs this package's own hand-written test diagrams never

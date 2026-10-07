@@ -41,10 +41,20 @@ class CSSStyleSheet {
   constructor() { this.cssRules = []; }
   insertRule(ruleText, index) {
     const i = index === undefined ? this.cssRules.length : index;
-    this.cssRules.splice(i, 0, { cssText: ruleText });
+    this.cssRules.splice(i, 0, { cssText: __cssCanonRule(ruleText) });
     return i;
   }
-  replaceSync(text) { this.cssRules = [{ cssText: text }]; }
+  replaceSync(text) {
+    // one CSSRule per top-level `{...}` block, each serialized the way the CSSOM does
+    const rules = []; let depth = 0, cur = "";
+    for (const ch of text) {
+      cur += ch;
+      if (ch === "{") depth++;
+      else if (ch === "}" && --depth === 0) { rules.push(cur.trim()); cur = ""; }
+    }
+    if (cur.trim()) rules.push(cur.trim());
+    this.cssRules = rules.map((r) => ({ cssText: __cssCanonRule(r) }));
+  }
 }
 globalThis.CSSStyleSheet = CSSStyleSheet;
 
@@ -372,14 +382,57 @@ function __cssValueIsSingle(v) {
   }
   return true;
 }
+// One declaration value as the CSSOM serializes it (an "!important" flag is split off, canonicalized
+// around, and put back). Custom properties (--x) keep their text exactly.
+function __cssCanonValue(k, v) {
+  if (k.startsWith("--")) return v;
+  let important = "";
+  const imp = /\s*!\s*important\s*$/i.exec(v);
+  if (imp) { important = " !important"; v = v.slice(0, imp.index); }
+  // `font-size: 14` (mermaid's journey does this on SVG <text>): Chrome accepts a bare
+  // number as px for SVG elements and serializes it as "14px".
+  if (k === "font-size" && /^-?[\d.]+$/.test(v)) v += "px";
+  // stroke-dasharray is a list; Chrome writes it comma-separated: "5 5" -> "5, 5".
+  if (k === "stroke-dasharray" && /^[\d.\s,%a-z-]+$/i.test(v) && v !== "none") v = v.trim().split(/[\s,]+/).join(",");
+  return __cssCanonCommas(__cssCanonColors(v)) + important;
+}
 function __cssSet(store, k, v) {
   if (v == null || String(v).trim() === "") { delete store[k]; return; }
   v = String(v).trim();
   if (!__cssValueIsSingle(v)) return;
-  // `font-size: 14` (mermaid's journey does this on SVG <text>): Chrome accepts a bare
-  // number as px for SVG elements and serializes it as "14px".
-  if (k === "font-size" && /^-?[\d.]+$/.test(v)) v += "px";
-  store[k] = __cssCanonCommas(__cssCanonColors(v));
+  store[k] = __cssCanonValue(k, v);
+}
+// `a: b; c: d !important` -> the rule text Chrome's CSSOM gives back (`.x { a: b; c: d !important; }`).
+function __cssSplitTop(text, sep) {
+  const out = []; let q = null, depth = 0, cur = "";
+  for (const ch of text) {
+    if (q) { cur += ch; if (ch === q) q = null; continue; }
+    if (ch === '"' || ch === "'") { q = ch; cur += ch; continue; }
+    if (ch === "(") depth++; else if (ch === ")") depth--;
+    if (depth === 0 && ch === sep) { out.push(cur); cur = ""; continue; }
+    cur += ch;
+  }
+  out.push(cur);
+  return out;
+}
+function __cssCanonRule(text) {
+  const m = /^\s*([^{}@][^{}]*)\{([^{}]*)\}\s*$/.exec(text);
+  if (!m) return text; // at-rules / nested blocks: left exactly as written
+  const decls = new Map();
+  for (const d of __cssSplitTop(m[2], ";")) {
+    const i = d.indexOf(":");
+    if (i < 0) continue;
+    let name = d.slice(0, i).trim();
+    const value = d.slice(i + 1).trim();
+    if (!name || value === "" || !__cssValueIsSingle(value)) continue;
+    if (!name.startsWith("--")) name = name.toLowerCase();
+    const canon = __cssCanonValue(name, value);
+    const prev = decls.get(name);
+    if (prev && /!important$/.test(prev) && !/!important$/.test(canon)) continue; // important wins
+    decls.delete(name); decls.set(name, canon);
+  }
+  const body = [...decls].map(([k, v]) => `${k}: ${v};`).join(" ");
+  return `${m[1].trim()} { ${body}${body ? " " : ""}}`;
 }
 // Chrome serializes an sRGB color that went through the CSSOM as rgb()/rgba():
 // "#ECECFF" -> "rgb(236, 236, 255)", "hsl(80, 100%, 56.27%)" -> "rgb(181, 255, 32)".
@@ -561,6 +614,9 @@ class Element extends Node {
   get classList() { return new ClassList(this); }
   get className() { return this.getAttribute("class") || ""; }
   set className(v) { this.setAttribute("class", v); }
+  // `id` reflects the attribute (mermaid clones a marker and re-ids it with `clone.id = ...`).
+  get id() { return this.getAttribute("id") || ""; }
+  set id(v) { this.setAttribute("id", v); }
   setAttribute(k, v) { this._attrs[k] = String(v); }
   getAttribute(k) { return Object.prototype.hasOwnProperty.call(this._attrs,k) ? this._attrs[k] : null; }
   hasAttribute(k) { return k in this._attrs; }
@@ -595,7 +651,10 @@ class Element extends Node {
   }
   set textContent(v) {
     this.childNodes = [];
-    if (v) this.appendChild(new TextNode(v));
+    // DOM: null -> "", everything else is stringified (so `0` is the text "0", not nothing -- the
+    // packet diagram labels its first bit with a number 0), and "" leaves the element childless.
+    const text = v === null ? "" : String(v);
+    if (text !== "") this.appendChild(new TextNode(text));
   }
   get innerHTML() { return __serialize(this, true); }
   set innerHTML(html) { this.childNodes = []; __parseInto(this, html); }
@@ -646,6 +705,11 @@ class Element extends Node {
       if (declW !== null) w = declW;
       if (maxW !== null && w > maxW) w = maxW;
       return { x: 0, y: 0, width: w, height: m.height, top: 0, left: 0, right: w, bottom: m.height };
+    }
+    if (this.nodeType === 1 && (this.tagName === "text" || this.tagName === "tspan")) {
+      // An SVG text's client rect is its bounding box (ink rule included), moved into screen space.
+      const b = __computeBBox(this);
+      return { x: b.x, y: b.y, width: b.width, height: b.height, top: b.y, left: b.x, right: b.x + b.width, bottom: b.y + b.height };
     }
     const m = globalThis.__measureTextFull(this.textContent, fontSize, "DejaVu Sans", "normal", "normal");
     // layout-unit rounding: a text box's width rounds UP to the next 1/64px
@@ -1031,19 +1095,26 @@ function __f32rect(r) {
 
 // Chrome's getBBox() on an SVG <text> is not the advance width: each glyph contributes its outline's
 // ink box, rounded OUT to whole pixels relative to where that glyph is painted, and the result is
-// the union of those boxes with the advance box [0, advance]. So "PK" at 16px (advance 20.141) is
+// the union of those boxes with the advance box [0, advance rounded UP to 1/64px (LayoutUnit)]. So
+// "PK" at 16px (advance 20.141) is
 // 20.648 wide -- K's ink ends at 10.828 -> 11, painted at 9.648 -- and a leading "T" (ink starts at
 // -0.047) pushes the left edge to -1. (Verified against Chrome on PK, Toy, Design, Implement, Test.)
 // getComputedTextLength() and HTML text still use the plain advance, as in Chrome.
 // Returns the box's left edge and right edge relative to the text's start-of-run origin.
-function __inkExtent(text, font, advance) {
-  let left = 0, right = advance;
-  if (typeof globalThis.__measureGlyphs !== "function") return { left, right };
-  for (const [pen, inkL, inkR] of globalThis.__measureGlyphs(text, font.size, font.family, font.weight, font.style)) {
+// Vertically the same rule applies: the box is the font's (rounded) [-ascent, descent] around the
+// baseline, grown by each glyph's ink rounded OUT to whole pixels. That only shows at small sizes,
+// where e.g. 10px DejaVu has descent 2.36 -> 2 but a "g" reaches 2.08 below the baseline -> 3.
+// Returns edges relative to the run's origin / baseline (y grows downward).
+function __inkExtent(text, font, advance, asc, desc) {
+  let left = 0, right = Math.ceil(advance * 64) / 64, top = -asc, bottom = desc;
+  if (typeof globalThis.__measureGlyphs !== "function") return { left, right, top, bottom };
+  for (const [pen, inkL, inkR, inkT, inkB] of globalThis.__measureGlyphs(text, font.size, font.family, font.weight, font.style)) {
     left = Math.min(left, pen + Math.floor(inkL));
     right = Math.max(right, pen + Math.ceil(inkR));
+    top = Math.min(top, Math.floor(inkT));
+    bottom = Math.max(bottom, Math.ceil(inkB));
   }
-  return { left, right };
+  return { left, right, top, bottom };
 }
 
 function __computeBBox(el) {
@@ -1064,9 +1135,8 @@ function __computeBBox(el) {
       const rowBoxes = rows.map((r) => {
         const rm = globalThis.__measureTextFull(
           r.textContent, font.size, font.family, font.weight, font.style);
-        return { adv: rm.width, ink: __inkExtent(r.textContent, font, rm.width) };
+        return { adv: rm.width, ink: __inkExtent(r.textContent, font, rm.width, asc, desc) };
       });
-      const height = asc + desc + (rows.length - 1) * 1.1 * font.size;
       // The outer <text>'s own y is a vestigial placeholder (see
       // __resolveTextPos above) that only gets overridden once a *single*
       // positioning tspan is reached -- but a multi-line label has one row
@@ -1075,22 +1145,25 @@ function __computeBBox(el) {
       // position via the first row's own y="...em" dy="1.1em" instead.
       const pos = __accumulatePos(__chainTo(el, rows[0]), font.size);
       // Each row is anchored on its own advance; the box is the union of the rows' ink boxes.
-      let lx = Infinity, rx = -Infinity;
-      for (const { adv, ink } of rowBoxes) {
+      // Rows sit one line step (dy="1.1em") apart, each on its own baseline.
+      let lx = Infinity, rx = -Infinity, top = Infinity, bot = -Infinity;
+      rowBoxes.forEach(({ adv, ink }, i) => {
         const o = pos.x - (anchor === "middle" ? adv / 2 : anchor === "end" ? adv : 0);
+        const base = pos.y + i * 1.1 * font.size;
         lx = Math.min(lx, o + ink.left);
         rx = Math.max(rx, o + ink.right);
-      }
-      const maxW = rx - lx;
-      const top = pos.y - asc;
+        top = Math.min(top, base + ink.top);
+        bot = Math.max(bot, base + ink.bottom);
+      });
+      const maxW = rx - lx, height = bot - top;
       return { x: lx, y: top, width: maxW, height, top, left: lx, right: lx + maxW, bottom: top + height };
     }
 
     let x = pos.x;
     if (anchor === "middle") x -= m.width / 2;
     else if (anchor === "end") x -= m.width;
-    const ink = __inkExtent(__svgTextForMeasure(el), font, m.width);
-    return { x: x + ink.left, y: pos.y - asc, width: ink.right - ink.left, height: asc + desc };
+    const ink = __inkExtent(__svgTextForMeasure(el), font, m.width, asc, desc);
+    return { x: x + ink.left, y: pos.y + ink.top, width: ink.right - ink.left, height: ink.bottom - ink.top };
   }
   if (el.tagName === "rect") {
     return { x: parseFloat(el.getAttribute("x"))||0, y: parseFloat(el.getAttribute("y"))||0,
@@ -1152,13 +1225,27 @@ function __computeBBox(el) {
     if (__BBOX_SKIP.has(c.tagName)) continue;
     const b = c.getBBox ? c.getBBox() : null;
     if (!b || (b.width===0 && b.height===0 && b.x===0 && b.y===0)) continue;
-    const [dx, dy] = __translateOf(c);
     any = true;
-    minX = Math.min(minX, b.x+dx); minY = Math.min(minY, b.y+dy);
-    maxX = Math.max(maxX, b.x+b.width+dx); maxY = Math.max(maxY, b.y+b.height+dy);
+    const M = __transformMatrix(c);
+    if (M && (M[0] !== 1 || M[1] !== 0 || M[2] !== 0 || M[3] !== 1)) {
+      // rotate / scale / skew / matrix: the child's box becomes the bounding box of its 4 mapped corners
+      const xs = [], ys = [];
+      for (const [px, py] of [[b.x, b.y], [b.x + b.width, b.y], [b.x, b.y + b.height], [b.x + b.width, b.y + b.height]]) {
+        xs.push(Math.fround(M[0] * px + M[2] * py + M[4]));
+        ys.push(Math.fround(M[1] * px + M[3] * py + M[5]));
+      }
+      minX = Math.min(minX, ...xs); maxX = Math.max(maxX, ...xs);
+      minY = Math.min(minY, ...ys); maxY = Math.max(maxY, ...ys);
+      continue;
+    }
+    const [dx, dy] = M ? [M[4], M[5]] : [0, 0];
+    // Blink unions FloatRects: every coordinate, edge and extent is a single-precision value.
+    const cx = Math.fround(b.x + dx), cy = Math.fround(b.y + dy);
+    minX = Math.min(minX, cx); minY = Math.min(minY, cy);
+    maxX = Math.max(maxX, Math.fround(cx + b.width)); maxY = Math.max(maxY, Math.fround(cy + b.height));
   }
   if (!any) return { x:0,y:0,width:0,height:0 };
-  return { x:minX, y:minY, width:maxX-minX, height:maxY-minY };
+  return { x:minX, y:minY, width:Math.fround(maxX-minX), height:Math.fround(maxY-minY) };
 }
 
 // Extracts the (dx, dy) translation from an element's `transform` attribute.
@@ -1166,6 +1253,37 @@ function __computeBBox(el) {
 // for node/edge positioning -- other transform functions (rotate, scale,
 // matrix) are ignored (treated as 0,0) rather than attempted, since a wrong
 // partial transform is worse than a clearly-incomplete one.
+// The element's whole `transform` list as one matrix [a, b, c, d, e, f] (x' = a*x + c*y + e,
+// y' = b*x + d*y + f), composed left to right like the SVG spec says. null = no/identity transform.
+function __transformMatrix(el) {
+  const t = el.getAttribute && el.getAttribute("transform");
+  if (!t) return null;
+  const mul = (m, n) => [m[0]*n[0] + m[2]*n[1], m[1]*n[0] + m[3]*n[1],
+                         m[0]*n[2] + m[2]*n[3], m[1]*n[2] + m[3]*n[3],
+                         m[0]*n[4] + m[2]*n[5] + m[4], m[1]*n[4] + m[3]*n[5] + m[5]];
+  const rad = (d) => d * Math.PI / 180;
+  let M = [1, 0, 0, 1, 0, 0], any = false;
+  const re = /([a-zA-Z]+)\s*\(([^)]*)\)/g;
+  let m;
+  while ((m = re.exec(t))) {
+    const a = m[2].trim().split(/[\s,]+/).filter(Boolean).map(Number);
+    let n = null;
+    switch (m[1]) {
+      case "translate": n = [1, 0, 0, 1, a[0] || 0, a[1] || 0]; break;
+      case "scale": n = [a[0], 0, 0, a.length > 1 ? a[1] : a[0], 0, 0]; break;
+      case "rotate": {
+        const c = Math.cos(rad(a[0])), s = Math.sin(rad(a[0])), cx = a[1] || 0, cy = a[2] || 0;
+        n = [c, s, -s, c, cx - c * cx + s * cy, cy - s * cx - c * cy]; break;
+      }
+      case "skewX": n = [1, 0, Math.tan(rad(a[0])), 1, 0, 0]; break;
+      case "skewY": n = [1, Math.tan(rad(a[0])), 0, 1, 0, 0]; break;
+      case "matrix": n = a.length === 6 ? a : null; break;
+    }
+    if (n && n.every(Number.isFinite)) { M = mul(M, n); any = true; }
+  }
+  return any ? M : null;
+}
+
 function __translateOf(el) {
   const t = el.getAttribute && el.getAttribute("transform");
   if (!t) return [0, 0];
@@ -1313,7 +1431,10 @@ function __serialize(el, innerOnly) {
       // Live CSSOM writes re-serialize the WHOLE attribute canonically
       // ("k: v; k2: v2;"), attribute-declared properties first, a repeated
       // property keeping its original position.
-      const merged = new Map(Object.entries(__parseStyleAttr(attrStyle)));
+      // The attribute-declared values are parsed (and so canonicalized) in that same pass.
+      const merged = new Map();
+      for (const [k, v] of Object.entries(__parseStyleAttr(attrStyle)))
+        if (v !== "" && __cssValueIsSingle(v)) merged.set(k, __cssCanonValue(k, v));
       for (const [k, v] of live) merged.set(k, v);
       styleAttr = ` style="${__escAttr(Array.from(merged, ([k, v]) => `${k}: ${v};`).join(" "))}"`;
     }

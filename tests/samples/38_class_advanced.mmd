@@ -1,0 +1,38 @@
+classDiagram
+    direction LR
+    class Animal {
+        <<abstract>>
+        +String name
+        -int age
+        #double weight
+        +makeSound()* void
+        +move(int distance) bool
+        +getAge()$ int
+    }
+    class Duck {
+        +String beakColor
+        +swim() void
+        +quack() void
+    }
+    class Fish {
+        -int sizeInFeet
+        -canEat() bool
+    }
+    class Shape~T~ {
+        +List~T~ items
+        +add(T item) void
+    }
+    class Color {
+        <<enumeration>>
+        RED
+        GREEN
+        BLUE
+    }
+    Animal <|-- Duck
+    Animal <|-- Fish
+    Animal "1" *-- "many" Color : has
+    Duck o-- Shape : uses
+    Fish ..> Color : depends
+    Duck ..|> Shape : implements
+    Fish --> Duck : eats
+    note for Duck "Can fly and swim"
