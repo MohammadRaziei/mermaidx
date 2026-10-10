@@ -517,12 +517,14 @@ def test_multiline_edge_label_is_centered_on_its_background():
 
     m = re.search(
         r'<g class="label"[^>]*transform="translate\(([-\d.]+), ?([-\d.]+)\)">'
-        r'.*?<rect class="background" x="([-\d.]+)" y="([-\d.]+)" '
-        r'width="([-\d.]+)" height="([-\d.]+)"[^>]*>',
+        r'.*?(<rect class="background"[^>]*>)',
         svg_legacy, re.S,
     )
     assert m, "expected a positioned edge label with a background rect"
-    dx, dy, rx, ry, rw, rh = (float(v) for v in m.groups())
+    dx, dy = float(m.group(1)), float(m.group(2))
+    # by name, not position: a browser writes style="" wherever mermaid set it
+    rect = dict(re.findall(r'([\w-]+)="([^"]*)"', m.group(3)))
+    rx, ry, rw, rh = (float(rect[k]) for k in ("x", "y", "width", "height"))
 
     # First row tspan: y="-0.1em" dy="1.1em" -> real font-size units.
     row = re.search(r'<text[^>]*>\s*<tspan[^>]*y="(-?[\d.]+)em"[^>]*dy="([\d.]+)em"', svg_legacy)

@@ -1,15 +1,15 @@
-"""mermaidx's SVG vs the SVG real mermaid-cli (mmdc) produces for the same diagram.
+"""mermaidx's SVG vs the SVG real mermaid-cli (mmdc) produces for the same diagram -- byte for byte.
 
-The references next to each sample in tests/samples/ come from mmdc running mermaid.js in Chromium with DejaVu Sans
-(see tests/samples/README.md for the exact recipe). Elements, attributes and the <style> rules
-are compared one by one; the only things normalised away are what mmdc itself adds on top of
-mermaid.js's output: the root `background-color` (its -b option) and the 3-decimal rounding of the
-root `max-width` (it re-writes the style through the CSSOM), plus the per-render svg id.
+The references next to each sample in tests/samples/ come from mmdc running mermaid.js in Chromium with
+DejaVu Sans (see tests/samples/README.md for the exact recipe). mermaidx runs the same mermaid.js and does for
+it what mmdc's page does (see mermaidx/assets/mmdc_driver.js): render into #container, round-trip the SVG
+text through the HTML parser, set the background colour through CSSOM, serialize with XMLSerializer. So
+nothing is normalised here except the ids mermaid.js itself draws at random (RANDOM_IDS below): the
+references would not match a second mmdc run on those either.
 """
 import glob
 import os
 import re
-import xml.etree.ElementTree as ET
 
 import pytest
 
@@ -17,6 +17,21 @@ import mermaidx
 
 HERE = os.path.dirname(__file__)
 SAMPLES = sorted(os.path.splitext(os.path.basename(p))[0] for p in glob.glob(os.path.join(HERE, "samples", "*.mmd")))
+
+# Ids mermaid.js generates from Math.random()/a hash on every run, in mmdc as much as in mermaidx:
+#   state diagrams:  <svg-id>-state-id-<random>-<n>   (mermaid's generateId)
+#   architecture:    IconifyId<random hex>             (the icon renderer's own id)
+RANDOM_IDS = [
+    (re.compile(r"(state-id)-[0-9a-z]+-"), r"\1-#-"),
+    (re.compile(r"IconifyId[0-9a-f]+"), "IconifyId#"),
+]
+
+
+def _mask(svg):
+    for pattern, replacement in RANDOM_IDS:
+        svg = pattern.sub(replacement, svg)
+    return svg
+
 
 # Samples whose SVG still differs from mmdc's, each with what is known about why. These are strict
 # xfails: the day one of them starts matching, the suite fails and the entry has to be removed here.
@@ -36,75 +51,24 @@ KNOWN_DIFFERENT = {
                                     "('Group one' 83.57 vs Chrome 89.72 = bold('Group') + regular(' one'))",
 }
 
-_NUM = re.compile(r"-?\d+(?:\.\d+)?(?:e-?\d+)?")
-
-
-def _local(tag):
-    return tag.split("}")[-1]
-
-
-def _norm(value, svg_id):
-    value = value.replace(svg_id, "ID")
-    value = re.sub(r"\s*background-color:\s*(?:white|transparent);?", "", value).strip()
-    return re.sub(r"max-width: ([\d.]+)px", lambda m: "max-width: %spx" % round(float(m.group(1)), 3), value)
-
-
-def _rules(css, svg_id):
-    css = re.sub(r"\s+", " ", css.replace(svg_id, "ID"))
-    out, depth, cur = [], 0, ""
-    for ch in css:
-        cur += ch
-        if ch == "{":
-            depth += 1
-        elif ch == "}":
-            depth -= 1
-            if depth == 0:
-                out.append(cur.strip())
-                cur = ""
-    return out
-
-
-def _svg_id(svg):
-    return re.search(r'<svg[^>]*\bid="([^"]+)"', svg).group(1)
-
-
-def _diff(ours, ref):
-    """-> (structure_ok, number_of_differing_attribute_values, css_rules_identical)"""
-    io, ir = _svg_id(ours), _svg_id(ref)
-    a = [e for e in ET.fromstring(ours).iter() if _local(e.tag) != "style"]
-    b = [e for e in ET.fromstring(ref).iter() if _local(e.tag) != "style"]
-    # a diagram may have no <style> at all (wardley); then both must have none
-    def css(s, i):
-        m = re.search(r"<style>(.*?)</style>", s, re.S)
-        return None if m is None else _rules(m.group(1), i)
-    css_same = css(ours, io) == css(ref, ir)
-    if [_local(e.tag) for e in a] != [_local(e.tag) for e in b]:
-        return False, -1, css_same
-    bad = 0
-    for x, y in zip(a, b):
-        # the text inside an element is part of the output too (a label that came out empty is a diff)
-        for own, other in ((x.text, y.text), (x.tail, y.tail)):
-            if (own or "").replace(io, "ID") != (other or "").replace(ir, "ID"):
-                bad += 1
-        for k in set(x.attrib) | set(y.attrib):
-            if k == "id":
-                continue
-            if _norm(x.get(k, "<none>"), io) != _norm(y.get(k, "<none>"), ir):
-                bad += 1
-    return True, bad, css_same
-
 
 @pytest.mark.parametrize(
     "name",
     [pytest.param(n, marks=pytest.mark.xfail(strict=True, reason=KNOWN_DIFFERENT[n])) if n in KNOWN_DIFFERENT else n
      for n in SAMPLES],
 )
-def test_svg_matches_mmdc(name):
+def test_svg_is_byte_identical_to_mmdc(name):
     src = open(os.path.join(HERE, "samples", name + ".mmd"), encoding="utf-8").read()
     ref = open(os.path.join(HERE, "samples", name + ".svg"), encoding="utf-8").read()
     ours = mermaidx.render(src, config={"handDrawnSeed": 1}).svg()
+    assert _mask(ours) == _mask(ref)
 
-    same_structure, differing, css_same = _diff(ours, ref)
-    assert same_structure, f"{name}: element sequence differs from mmdc's"
-    assert css_same, f"{name}: <style> rules differ from mmdc's"
-    assert differing == 0, f"{name}: {differing} attribute value(s) differ from mmdc"
+
+@pytest.mark.parametrize("name", ["06_complex_sequence", "38_class_advanced", "01_simple_flowchart"])
+def test_rendering_twice_gives_the_same_bytes(name):
+    """mmdc opens a fresh page per diagram, so mermaid.js's id counters (actor1, classId-Animal-0, ...) always
+    start from zero. Each mermaidx render must start from the same state, whatever was rendered before."""
+    src = open(os.path.join(HERE, "samples", name + ".mmd"), encoding="utf-8").read()
+    first = mermaidx.render(src, config={"handDrawnSeed": 1}).svg()
+    second = mermaidx.render(src, config={"handDrawnSeed": 1}).svg()
+    assert first == second

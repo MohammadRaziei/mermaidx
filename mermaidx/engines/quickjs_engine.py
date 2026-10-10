@@ -40,6 +40,7 @@ from mermaidx.path_bbox import PATH_BBOX_JS
 _ASSETS_DIR = Path(__file__).parent.parent / "assets"
 _DOM_SHIM_JS = _ASSETS_DIR / "dom_shim.js"
 _MERMAID_JS = _ASSETS_DIR / "mermaid.js"
+_MMDC_DRIVER_JS = _ASSETS_DIR / "mmdc_driver.js"
 
 _RENDER_TIMEOUT_JOBS = 200_000  # safety cap on Promise-job pump iterations
 
@@ -79,6 +80,7 @@ class Engine:
         self._ctx: Optional[quickjs.Context] = None
         self._measurer: Optional[_TextMeasurer] = None
         self._render_count = 0
+        self._ctx_used = False
         self._lock = threading.Lock()
 
     # -- lifecycle ------------------------------------------------------------
@@ -104,6 +106,21 @@ class Engine:
 
     def _init_context(self) -> None:
         self._measurer = _TextMeasurer()
+        self._ctx = self._build_context()
+        self._ctx_used = False
+
+    def _ensure_fresh_context(self) -> None:
+        """Make sure self._ctx has not rendered anything yet.
+
+        mermaid.js keeps module-level state (id counters such as the sequence diagram's actor1/actor2...,
+        the class diagram's classId-N-M) that a browser starts from zero on every page load; mermaid-cli
+        opens a new page for each diagram. A context that already rendered would number the next
+        diagram's ids on from where the last one stopped, so each render gets a context of its own."""
+        if self._ctx is None or self._ctx_used:
+            self._ctx = self._build_context()
+            self._ctx_used = False
+
+    def _build_context(self):
         ctx = quickjs.Context()
         ctx.set_memory_limit(512 * 1024 * 1024)
         # NOTE: no ctx.set_time_limit() -- quickjs forbids calling back into
@@ -144,7 +161,8 @@ class Engine:
             "globalThis.mermaid = (globalThis.__esbuild_esm_mermaid_nm.mermaid.default"
             " || globalThis.__esbuild_esm_mermaid_nm.mermaid);"
         )
-        self._ctx = ctx
+        ctx.eval(_MMDC_DRIVER_JS.read_text(encoding="utf-8"))
+        return ctx
 
     def _pump_jobs(self, stop_when: Optional[str] = None) -> None:
         """Drain the Promise/microtask queue. If `stop_when` is a JS boolean
@@ -164,10 +182,11 @@ class Engine:
                 return
 
     def _render_svg_sync(self, code: str, theme: str, config: Optional[dict], css: Optional[str]) -> str:
-        assert self._ctx is not None
+        self._ensure_fresh_context()
         ctx = self._ctx
+        self._ctx_used = True
         self._render_count += 1
-        render_id = f"gd{self._render_count}"
+        render_id = "my-svg"  # mermaid-cli's default svgId
 
         # htmlLabels/textPlacement="fo" -- mermaid.js's own defaults -- are
         # set explicitly (not just left unset) because novasvg (the sole
@@ -209,8 +228,8 @@ class Engine:
         ctx.eval(
             "globalThis.__renderResult = null;\n"
             "globalThis.__renderError = null;\n"
-            "mermaid.render(__renderId, __code)\n"
-            "  .then(r => { globalThis.__renderResult = r.svg; })\n"
+            "__renderLikeMmdc(__renderId, __code, 'transparent')\n"
+            "  .then(svg => { globalThis.__renderResult = svg; })\n"
             "  .catch(e => { globalThis.__renderError = (e && e.name ? e.name+': '+e.message : String(e)); });\n"
         )
         self._pump_jobs(stop_when="!!globalThis.__renderResult || !!globalThis.__renderError")
@@ -228,4 +247,7 @@ class Engine:
     def render_svg(self, code: str, theme: str, config: Optional[dict], css: Optional[str]) -> str:
         if self._executor is None:
             raise RuntimeError("Engine is not started.")
-        return self._executor.submit(self._render_svg_sync, code, theme, config, css).result()
+        result = self._executor.submit(self._render_svg_sync, code, theme, config, css).result()
+        # Build the next render's context now, off the caller's path, while it is likely idle.
+        self._executor.submit(self._ensure_fresh_context)
+        return result

@@ -384,6 +384,11 @@ function __cssValueIsSingle(v) {
 }
 // One declaration value as the CSSOM serializes it (an "!important" flag is split off, canonicalized
 // around, and put back). Custom properties (--x) keep their text exactly.
+// Chrome writes CSS numbers with at most 6 significant digits: 360.890625px -> 360.891px.
+function __cssCanonNumbers(v) {
+  return v.replace(/(^|[\s,(:/])(-?(?:\d+\.\d*|\.\d+|\d+))(?=[a-z%]*(?:[\s,);/]|$))/gi,
+    (m0, lead, num) => lead + String(parseFloat(Number(num).toPrecision(6))));
+}
 function __cssCanonValue(k, v) {
   if (k.startsWith("--")) return v;
   let important = "";
@@ -394,7 +399,7 @@ function __cssCanonValue(k, v) {
   if (k === "font-size" && /^-?[\d.]+$/.test(v)) v += "px";
   // stroke-dasharray is a list; Chrome writes it comma-separated: "5 5" -> "5, 5".
   if (k === "stroke-dasharray" && /^[\d.\s,%a-z-]+$/i.test(v) && v !== "none") v = v.trim().split(/[\s,]+/).join(",");
-  return __cssCanonCommas(__cssCanonColors(v)) + important;
+  return __cssCanonNumbers(__cssCanonCommas(__cssCanonColors(v))) + important;
 }
 function __cssSet(store, k, v) {
   if (v == null || String(v).trim() === "") { delete store[k]; return; }
@@ -590,8 +595,13 @@ class Node {
     return i > 0 ? this.parentNode.childNodes[i-1] : null;
   }
   cloneNode(deep) {
+    // Blink keeps a property written through el.style as pending state and only turns it into the
+    // `style` attribute when the attribute list is read -- cloning is such a read -- so the clone's
+    // `style` comes before any attribute set on it afterwards (mermaid's coloured marker copies).
+    if (this.nodeType === 1) __materializeStyle(this);
     const c = Object.create(Object.getPrototypeOf(this));
     Object.assign(c, this, { childNodes: [], parentNode: null, _attrs: {...(this._attrs||{})} });
+    if (this.nodeType === 1) c.style = CSSStyleDecl(c);
     if (deep) for (const ch of this.childNodes) c.appendChild(ch.cloneNode(true));
     return c;
   }
@@ -657,7 +667,7 @@ class Element extends Node {
     if (text !== "") this.appendChild(new TextNode(text));
   }
   get innerHTML() { return __serialize(this, true); }
-  set innerHTML(html) { this.childNodes = []; __parseInto(this, html); }
+  set innerHTML(html) { this.childNodes = []; __parseInto(this, html, { namespaces: true }); }
   get outerHTML() { return __serialize(this, false); }
   // ---- SVG geometry: the important part ----
   getBBox() { return __f32rect(__computeBBox(this)); }
@@ -1292,26 +1302,63 @@ function __translateOf(el) {
   return [parseFloat(m[1]) || 0, m[2] !== undefined ? (parseFloat(m[2]) || 0) : 0];
 }
 
-// --- selector engine (tiny, tag/#id/.class/attr/descendant only) -------
+// --- selector engine (tag/#id/.class/attr/:first-child/:last-child/:not, and the four combinators) ---
+// A selector list is split at top-level commas; each complex selector is parsed into compound selectors
+// joined by combinators (" " descendant, ">" child, "+" next sibling, "~" later sibling) and matched from
+// the right-hand compound back to the left, as a browser does.
+function __splitTopLevel(text, isSeparator) {
+  const parts = [];
+  let depth = 0, start = 0;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (c === "[" || c === "(") depth++;
+    else if (c === "]" || c === ")") depth--;
+    else if (depth === 0 && isSeparator(c)) { parts.push([text.slice(start, i), c]); start = i + 1; }
+  }
+  parts.push([text.slice(start), ""]);
+  return parts;
+}
 function __matches(el, sel) {
-  sel = sel.trim();
-  for (const part of sel.split(",")) {
+  for (const [part] of __splitTopLevel(sel.trim(), (c) => c === ",")) {
     if (__matchesSimple(el, part.trim())) return true;
   }
   return false;
 }
-function __matchesSimple(el, sel) {
-  const chain = sel.split(/\s+/);
-  let cur = el, i = chain.length - 1;
-  if (!__matchesCompound(cur, chain[i])) return false;
-  i--;
-  while (i >= 0) {
-    cur = cur.parentNode;
-    while (cur && cur.nodeType === 1 && !__matchesCompound(cur, chain[i])) cur = cur.parentNode;
-    if (!cur || cur.nodeType !== 1) return false;
-    i--;
+function __parseComplex(sel) {
+  // [{ compound, combinator }]: `combinator` joins this compound to the one on its left.
+  const out = [];
+  let pending = " ";
+  for (const [piece, sep] of __splitTopLevel(sel, (c) => /[\s>+~]/.test(c))) {
+    if (piece !== "") { out.push({ compound: piece, combinator: out.length ? pending : "" }); pending = " "; }
+    if (sep === ">" || sep === "+" || sep === "~") { pending = sep; }
   }
-  return true;
+  return out;
+}
+function __matchesChain(el, chain, i) {
+  if (!__matchesCompound(el, chain[i].compound)) return false;
+  if (i === 0) return true;
+  const combinator = chain[i].combinator;
+  if (combinator === ">") {
+    const parent = el.parentNode;
+    return !!parent && parent.nodeType === 1 && __matchesChain(parent, chain, i - 1);
+  }
+  if (combinator === "+" || combinator === "~") {
+    const siblings = el.parentNode ? el.parentNode.childNodes.filter((c) => c.nodeType === 1) : [];
+    const at = siblings.indexOf(el);
+    for (let k = at - 1; k >= 0; k--) {
+      if (__matchesChain(siblings[k], chain, i - 1)) return true;
+      if (combinator === "+") break;
+    }
+    return false;
+  }
+  for (let anc = el.parentNode; anc && anc.nodeType === 1; anc = anc.parentNode) {
+    if (__matchesChain(anc, chain, i - 1)) return true;
+  }
+  return false;
+}
+function __matchesSimple(el, sel) {
+  const chain = __parseComplex(sel);
+  return chain.length > 0 && __matchesChain(el, chain, chain.length - 1);
 }
 function __matchesCompound(el, part) {
   // :not(...) wraps its own compound selector (itself possibly a
@@ -1354,7 +1401,7 @@ function __matchesCompound(el, part) {
         if (am[2] === undefined) { if (val === null) return false; }
         else if (val !== am[3]) return false;
       }
-    } else { if (el.tagName !== t) return false; }
+    } else { if ((el.tagName || "").toLowerCase() !== t.toLowerCase()) return false; }
   }
   return true;
 }
@@ -1410,41 +1457,93 @@ function __decodeStrayLabelEntities(s) {
     name in _EXTRA_TEXT_ENTITIES ? _EXTRA_TEXT_ENTITIES[name] : m0);
 }
 const __SER_VOID = new Set(["br","hr","img","input","meta","link","area","base","col","embed","param","source","track","wbr"]);
+// The value of an element's `style` attribute as a browser would write it, or null if it has none.
+// A "style" set via setAttribute("style", ...) and properties set via the live el.style.foo = ... API
+// both end up in the SAME attribute: two separate style= attributes are invalid SVG/XML.
+function __styleValue(n) {
+  const attrStyle = n._attrs && n._attrs.style;
+  const live = (n.style && n.style.__entries) || [];
+  // Only setAttribute("style", ...) touched it: a browser keeps that string verbatim --
+  // including an explicitly empty style="".
+  if (live.length === 0) return attrStyle !== undefined ? attrStyle : null;
+  // Live CSSOM writes re-serialize the WHOLE attribute canonically ("k: v; k2: v2;"),
+  // attribute-declared properties first, a repeated property keeping its original position.
+  // The attribute-declared values are parsed (and so canonicalized) in that same pass.
+  const merged = new Map();
+  for (const [k, v] of Object.entries(__parseStyleAttr(attrStyle)))
+    if (v !== "" && __cssValueIsSingle(v)) merged.set(k, __cssCanonValue(k, v));
+  for (const [k, v] of live) merged.set(k, v);
+  return Array.from(merged, ([k, v]) => `${k}: ${v};`).join(" ");
+}
+// Turn a pending CSSOM style into the real `style` attribute (a new attribute goes last).
+function __materializeStyle(n) {
+  const style = __styleValue(n);
+  if (style !== null) n._attrs.style = style;
+}
+// An element's attributes in document order. `style` keeps the position setAttribute gave it; a style
+// that only exists through the live CSSOM is a new attribute, so it comes last.
+function __attrEntries(n) {
+  const entries = Object.entries(n._attrs || {});
+  const style = __styleValue(n);
+  if (style === null) return entries;
+  const at = entries.findIndex(([k]) => k === "style");
+  if (at >= 0) entries[at] = ["style", style]; else entries.push(["style", style]);
+  return entries;
+}
+function __attrString(n) {
+  return __attrEntries(n).map(([k, v]) => ` ${k}="${__escAttr(v)}"`).join("");
+}
 function __serialize(el, innerOnly) {
   function ser(n) {
     if (n.nodeType === 3) return __escText(__decodeStrayLabelEntities(n.textContent));
-    const attrEntries = Object.entries(n._attrs||{}).filter(([k]) => k !== "style");
-    const attrs = attrEntries.map(([k,v])=>` ${k}="${__escAttr(v)}"`).join("");
-    // A "style" set via setAttribute("style", ...) and properties set via
-    // the live el.style.foo = ... API both need to end up in the SAME
-    // style="..." attribute -- emitting two separate style= attributes
-    // (one from _attrs, one from n.style.cssText) is invalid SVG/XML and
-    // novasvg (and any strict XML parser) rejects it outright ("attribute 'style' ... already defined").
-    const attrStyle = n._attrs && n._attrs.style;
-    const live = (n.style && n.style.__entries) || [];
-    let styleAttr = "";
-    if (live.length === 0) {
-      // Only setAttribute("style", ...) touched it: a browser keeps that string
-      // verbatim -- including an explicitly empty style="".
-      if (attrStyle !== undefined) styleAttr = ` style="${__escAttr(attrStyle)}"`;
-    } else {
-      // Live CSSOM writes re-serialize the WHOLE attribute canonically
-      // ("k: v; k2: v2;"), attribute-declared properties first, a repeated
-      // property keeping its original position.
-      // The attribute-declared values are parsed (and so canonicalized) in that same pass.
-      const merged = new Map();
-      for (const [k, v] of Object.entries(__parseStyleAttr(attrStyle)))
-        if (v !== "" && __cssValueIsSingle(v)) merged.set(k, __cssCanonValue(k, v));
-      for (const [k, v] of live) merged.set(k, v);
-      styleAttr = ` style="${__escAttr(Array.from(merged, ([k, v]) => `${k}: ${v};`).join(" "))}"`;
-    }
+    const attrs = __attrString(n);
     const inner = n.childNodes.map(ser).join("");
-    if (!inner && __SER_VOID.has(n.tagName)) return `<${n.tagName}${attrs}${styleAttr}/>`;
-    return `<${n.tagName}${attrs}${styleAttr}>${inner}</${n.tagName}>`;
+    if (!inner && __SER_VOID.has(n.tagName)) return `<${n.tagName}${attrs}/>`;
+    return `<${n.tagName}${attrs}>${inner}</${n.tagName}>`;
   }
   if (innerOnly) return el.childNodes.map(ser).join("");
   return ser(el);
 }
+
+// XMLSerializer, after the DOM Parsing spec's "XML serialization of a Node": what mermaid-cli calls
+// to turn the rendered <svg> into the file it writes. Differs from the HTML serialization used by
+// innerHTML/outerHTML in that an empty element in a foreign namespace is self-closing (<path/>), an
+// empty HTML void element is <br />, namespaces are declared where they change, and a prefixed
+// attribute (xlink:href) gets its xmlns:prefix declaration if none is in scope.
+const __XLINK_NS = "http://www.w3.org/1999/xlink";
+class XMLSerializer {
+  serializeToString(root) {
+    const ser = (n, inheritedNs, declared) => {
+      if (n.nodeType === 3) return __escText(n.textContent);
+      const ns = n.namespaceURI || null;
+      let markup = "<" + n.tagName;
+      if (ns !== inheritedNs && ns !== null && (n._attrs || {}).xmlns !== ns) markup += ` xmlns="${ns}"`;
+      let scope = declared;
+      const entries = __attrEntries(n);
+      for (const [k] of entries) {
+        if (k.startsWith("xmlns:")) { if (scope === declared) scope = new Set(declared); scope.add(k.slice(6)); }
+      }
+      let attrs = "";
+      for (const [k, v] of entries) {
+        if (k.startsWith("xlink:") && !scope.has("xlink")) {
+          if (scope === declared) scope = new Set(declared);
+          scope.add("xlink");
+          attrs += ` xmlns:xlink="${__XLINK_NS}"`;
+        }
+        attrs += ` ${k}="${__escAttr(v)}"`;
+      }
+      markup += attrs;
+      if (n.childNodes.length === 0) {
+        if (ns === XHTML_NS) return __SER_VOID.has(n.tagName) ? markup + " />" : markup + `></${n.tagName}>`;
+        return markup + "/>";
+      }
+      const inner = n.childNodes.map((c) => ser(c, ns, scope)).join("");
+      return `${markup}>${inner}</${n.tagName}>`;
+    };
+    return ser(root, root.parentNode ? (root.parentNode.namespaceURI || null) : null, new Set());
+  }
+}
+globalThis.XMLSerializer = XMLSerializer;
 // Named entities beyond the five XML ones that mermaid's own label decoding
 // (innerHTML on a scratch element, read back as textContent) relies on a real
 // parser to resolve. mermaid's own label entity-decoding ("entityDecode") sets
@@ -1729,4 +1828,7 @@ globalThis.Node = Node;
 globalThis.__resetDocument = function() {
   document_.body.childNodes = [];
   document_.head.childNodes = [];
+  // mermaid-cli's page (dist/index.html) is <body><div id="container"></div></body>
+  const container = document_.body.appendChild(new Element("div"));
+  container.setAttribute("id", "container");
 };
