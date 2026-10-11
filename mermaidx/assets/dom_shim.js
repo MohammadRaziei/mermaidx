@@ -1002,8 +1002,9 @@ function __parseLen(str, fontSize) {
   if (str === null || str === undefined) return null;
   const m = /^\s*(-?[\d.]+(?:[eE][-+]?\d+)?)\s*(em)?\s*$/.exec(str);
   if (!m) return null;
-  const v = parseFloat(m[1]);
-  return m[2] === "em" ? v * fontSize : v;
+  // Blink keeps an SVGLength as a float32 parsed by the path-data number parser (path_bbox.js).
+  const v = globalThis.__parseSvgNumber(m[1]);
+  return m[2] === "em" ? Math.fround(v * Math.fround(fontSize)) : v;
 }
 
 // Accumulates the effective x/y across a chain of ancestor->descendant
@@ -1020,8 +1021,8 @@ function __accumulatePos(chain, fontSize) {
     const dyAttr = n.getAttribute && n.getAttribute("dy");
     if (xAttr !== null) { const v = __parseLen(xAttr, fontSize); if (v !== null) x = v; }
     if (yAttr !== null) { const v = __parseLen(yAttr, fontSize); if (v !== null) y = v; }
-    if (dxAttr !== null) { const v = __parseLen(dxAttr, fontSize); if (v !== null) x += v; }
-    if (dyAttr !== null) { const v = __parseLen(dyAttr, fontSize); if (v !== null) y += v; }
+    if (dxAttr !== null) { const v = __parseLen(dxAttr, fontSize); if (v !== null) x = Math.fround(x + v); }
+    if (dyAttr !== null) { const v = __parseLen(dyAttr, fontSize); if (v !== null) y = Math.fround(y + v); }
   }
   return { x, y };
 }

@@ -170,3 +170,12 @@ def test_normal_render_matches_quickjs_output():
     assert len(expected_numbers) == len(actual_numbers)
     for e, a in zip(expected_numbers, actual_numbers):
         assert a == pytest.approx(e, abs=1e-3), f"{a!r} != {e!r} (within tolerance)"
+
+
+def test_boot_does_not_use_the_render_timeout():
+    """Starting the child process is not a render: a tight render timeout must not make boot fail."""
+    eng = Engine(render_timeout_ms=1)
+    try:
+        eng.start()  # used to raise "V8 engine failed to boot within 1ms"
+    finally:
+        eng.close()

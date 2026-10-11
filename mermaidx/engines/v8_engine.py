@@ -98,9 +98,13 @@ from mermaidx.path_bbox import PATH_BBOX_JS
 
 _ASSETS_DIR = Path(__file__).parent.parent / "assets"
 _DOM_SHIM_JS = _ASSETS_DIR / "dom_shim.js"
+_MMDC_DRIVER_JS = _ASSETS_DIR / "mmdc_driver.js"
 _MERMAID_JS = _ASSETS_DIR / "mermaid.js"
 
 _DEFAULT_RENDER_TIMEOUT_MS = 8_000
+# Starting the child (spawn, imports, loading mermaid.js) is not a render and is not bounded by the render
+# timeout: a caller's tight render budget must not turn a slow spawn into "failed to boot".
+_BOOT_TIMEOUT_MS = 60_000
 # Real renders finish in well under a second even for fairly large diagrams
 # (see the benchmark scripts) -- this default is generous headroom for that,
 # not a "how slow can a real diagram legitimately be" estimate. It exists
@@ -307,12 +311,14 @@ def _build_context():
         "globalThis.mermaid = (globalThis.__esbuild_esm_mermaid_nm.mermaid.default"
         " || globalThis.__esbuild_esm_mermaid_nm.mermaid);"
     )
+    with open(_MMDC_DRIVER_JS, encoding="utf-8") as f:
+        ctx.eval(f.read())
     return ctx
 
 
-def _render_svg_sync(ctx, render_count: int, code: str, theme: str,
+def _render_svg_sync(ctx, code: str, theme: str,
                       config: Optional[dict], css: Optional[str]) -> str:
-    render_id = f"gd{render_count}"
+    render_id = "my-svg"  # mermaid-cli's default svgId
 
     # htmlLabels/textPlacement="fo" -- mermaid.js's own defaults -- are set
     # explicitly (not just left unset) because novasvg (the sole rasterizer
@@ -352,8 +358,8 @@ def _render_svg_sync(ctx, render_count: int, code: str, theme: str,
     ctx.eval("globalThis.__renderResult = null; globalThis.__renderError = null;")
     ctx.eval(
         f"""
-mermaid.render({json.dumps(render_id)}, {json.dumps(code)})
-  .then(r => {{ globalThis.__renderResult = r.svg; }})
+__renderLikeMmdc({json.dumps(render_id)}, {json.dumps(code)}, "transparent")
+  .then(svg => {{ globalThis.__renderResult = svg; }})
   .catch(e => {{ globalThis.__renderError = (e && e.name ? e.name + ": " + e.message : String(e)); }});
 """
     )
@@ -383,7 +389,6 @@ def _child_main(conn) -> None:
         conn.send(("boot_error", f"{type(exc).__name__}: {exc}"))
         return
 
-    render_count = 0
     while True:
         try:
             msg = conn.recv()
@@ -392,15 +397,22 @@ def _child_main(conn) -> None:
         if msg is None:  # shutdown sentinel
             return
 
-        render_count += 1
         code, theme, config, css = msg
         try:
-            svg = _render_svg_sync(ctx, render_count, code, theme, config, css)
+            svg = _render_svg_sync(ctx, code, theme, config, css)
             conn.send(("ok", svg))
         except MermaidRenderError as exc:
             conn.send(("render_error", str(exc)))
         except Exception as exc:  # noqa: BLE001 -- report *any* other failure to the parent
             conn.send(("render_error", f"{type(exc).__name__}: {exc}"))
+        # A browser starts every page from zero (mermaid.js keeps module-level id counters), and
+        # mermaid-cli opens a new page per diagram: the next render gets a context of its own.
+        # Built right after replying, so it is ready while the caller is busy with the result.
+        try:
+            ctx = _build_context()
+        except Exception as exc:  # noqa: BLE001
+            conn.send(("boot_error", f"{type(exc).__name__}: {exc}"))
+            return
 
 
 class Engine:
@@ -431,12 +443,10 @@ class Engine:
         process.start()
         child_conn.close()  # only the child needs its end
 
-        # Booting -- loading mermaid.js -- can itself take a moment; give it
-        # the same generous timeout as a render, rather than a separate one.
-        if not parent_conn.poll(timeout=self._render_timeout_ms / 1000):
+        if not parent_conn.poll(timeout=_BOOT_TIMEOUT_MS / 1000):
             process.kill()
             raise MermaidRenderError(
-                f"V8 engine failed to boot within {self._render_timeout_ms}ms."
+                f"V8 engine failed to boot within {_BOOT_TIMEOUT_MS}ms."
             )
         status, payload = parent_conn.recv()
         if status != "ready":

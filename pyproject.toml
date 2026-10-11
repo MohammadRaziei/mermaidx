@@ -42,7 +42,7 @@ dependencies = [
 
 [project.optional-dependencies]
 test = [
-  "pytest-cov", "psutil"
+  "pytest-cov", "psutil", "pygixml"
 ]
 rust = [ "mmdr" ]
 v8engine = [ "mini-racer" ]

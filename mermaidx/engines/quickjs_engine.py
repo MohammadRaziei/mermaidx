@@ -68,6 +68,14 @@ class _TextMeasurer:
         return get_font(weight).foreign_object_metrics(html or "", float(size or 16))
 
 
+# A browser gives a page's JS a stack deep enough for mermaid.js's recursion (dagre walks a long chain of
+# nodes depth-first; QuickJS's default limit, 256 KiB, runs out at ~100 chained nodes). The worker thread's own
+# native stack is sized explicitly, and the JS limit sits below it, so hitting the limit is always a JS
+# RangeError and never a segfault -- whatever the platform's default thread stack is (512 KiB on macOS).
+_WORKER_THREAD_STACK_BYTES = 32 * 1024 * 1024
+_JS_STACK_LIMIT_BYTES = 24 * 1024 * 1024
+
+
 class Engine:
     """
     One Engine = one QuickJS context with mermaid.js loaded, pinned to one
@@ -89,7 +97,14 @@ class Engine:
         if self._executor is not None:
             return
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="mermaidx-engine")
-        self._executor.submit(self._init_context).result()
+        # The executor starts its thread inside the first submit(); threading.stack_size() is process-wide,
+        # so it is set only around that call and put back right after.
+        previous = threading.stack_size(_WORKER_THREAD_STACK_BYTES)
+        try:
+            first = self._executor.submit(self._init_context)
+        finally:
+            threading.stack_size(previous)
+        first.result()
 
     def close(self) -> None:
         if self._executor is not None:
@@ -123,6 +138,7 @@ class Engine:
     def _build_context(self):
         ctx = quickjs.Context()
         ctx.set_memory_limit(512 * 1024 * 1024)
+        ctx.set_max_stack_size(_JS_STACK_LIMIT_BYTES)
         # NOTE: no ctx.set_time_limit() -- quickjs forbids calling back into
         # Python (needed constantly for text measurement) while a time limit
         # is active. Runaway scripts are bounded instead by the job-pump cap.

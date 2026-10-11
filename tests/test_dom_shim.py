@@ -53,6 +53,10 @@ _DOM_SHIM_JS = (
     Path(__file__).parent.parent / "mermaidx" / "assets" / "dom_shim.js"
 ).read_text(encoding="utf-8")
 
+_PATH_BBOX_JS = (
+    Path(__file__).parent.parent / "mermaidx" / "assets" / "path_bbox.js"
+).read_text(encoding="utf-8")
+
 FONT_SIZE = 16  # matches mermaid's default flowchart label font-size
 
 
@@ -80,6 +84,7 @@ def _make_ctx(glyphs=None):
     if glyphs is not None:
         ctx.add_callable("__measureGlyphs_raw", lambda t, s, f, w, st: json.dumps(glyphs))
         ctx.eval("globalThis.__measureGlyphs = (t,s,f,w,st) => JSON.parse(__measureGlyphs_raw(t,s,f,w,st));")
+    ctx.eval(_PATH_BBOX_JS)  # the engines evaluate it before the shim, which calls __pathBBox / __parseSvgNumber
     ctx.eval(_DOM_SHIM_JS)
     return ctx
 
@@ -575,3 +580,30 @@ def test_json_stringify_object_containing_a_node_does_not_throw():
     """
     result = json.loads(ctx.eval(js))
     assert result == {"width": 10, "height": 20, "x": 0, "y": 0, "node": {}}
+
+# -- SVG lengths are float32 -------------------------------------------------------------------------------
+# Blink stores an SVGLength as a float, parsed by the same number parser as path data. A coordinate such as
+# y="8.855451867927453" is 8.855451583862305 by the time anything is subtracted from it (a sankey label's bbox
+# top is that y minus the ascent: 1 float32 step apart depending on which of the two is rounded first).
+
+def test_svg_length_is_parsed_to_float32():
+    ctx = _make_ctx()
+    assert ctx.eval('__parseLen("8.855451867927453", 14) === Math.fround(8.855451867927453)')
+
+
+def test_em_length_is_a_float32_product():
+    ctx = _make_ctx()
+    assert ctx.eval('__parseLen("1.1em", 14) === Math.fround(Math.fround(1.1) * 14)')
+
+
+def test_dy_is_added_in_float32():
+    ctx = _make_ctx()
+    got = ctx.eval(
+        """
+        const t = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        t.setAttribute("y", "8.855451867927453");
+        t.setAttribute("dy", "0.3");
+        __resolveTextPos(t, 14).y === Math.fround(Math.fround(8.855451867927453) + Math.fround(0.3));
+        """
+    )
+    assert got
