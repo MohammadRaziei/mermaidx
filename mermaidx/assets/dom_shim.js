@@ -348,20 +348,21 @@ function CSSStyleDecl(el) {
   const fromAttr = (k) => __parseStyleAttr(el && el._attrs && el._attrs.style)[k];
   return new Proxy(store, {
     get(t, p) {
-      if (p === "cssText") return Object.entries(t).map(([k,v])=>`${k}:${v}`).join(";");
+      if (p === "cssText") return Object.entries(t).filter(([, v]) => v !== null).map(([k,v])=>`${k}:${v}`).join(";");
       if (p === "__entries") return Object.entries(t);
-      if (p === "setProperty") return (k,v) => __cssSet(t, k, v);
-      if (p === "removeProperty") return (k) => { delete t[k]; };
+      if (p === "setProperty") return (k,v,priority) => __cssSet(t, k, __cssWithPriority(v, priority), fromAttr(k));
+      if (p === "removeProperty") return (k) => __cssRemove(t, k, fromAttr(k));
       if (p === "getPropertyValue") return (k) => {
-        if (Object.prototype.hasOwnProperty.call(t, k)) return t[k];
+        if (Object.prototype.hasOwnProperty.call(t, k)) return t[k] ?? "";
         return fromAttr(k) ?? (_ZERO_PX_PROPS.has(k) ? "0px" : "");
       };
-      if (Object.prototype.hasOwnProperty.call(t, p)) return t[p];
+      if (Object.prototype.hasOwnProperty.call(t, p)) return t[p] ?? "";
       return fromAttr(p) ?? "";
     },
     set(t, p, v) {
       if (p === "cssText") return true;
-      __cssSet(t, String(p).replace(/[A-Z]/g, (c) => "-" + c.toLowerCase()), v);
+      const k = String(p).replace(/[A-Z]/g, (c) => "-" + c.toLowerCase());
+      __cssSet(t, k, v, fromAttr(k));
       return true;
     }
   });
@@ -401,11 +402,28 @@ function __cssCanonValue(k, v) {
   if (k === "stroke-dasharray" && /^[\d.\s,%a-z-]+$/i.test(v) && v !== "none") v = v.trim().split(/[\s,]+/).join(",");
   return __cssCanonNumbers(__cssCanonCommas(__cssCanonColors(v))) + important;
 }
-function __cssSet(store, k, v) {
-  if (v == null || String(v).trim() === "") { delete store[k]; return; }
+// Removing a property. One the style="..." attribute declares has to be recorded as removed (null), because
+// the attribute is not rewritten until it is read; removing one that was never declared changes nothing.
+function __cssRemove(store, k, inAttribute) {
+  if (inAttribute !== undefined && inAttribute !== "") store[k] = null;
+  else delete store[k];
+}
+// setProperty(name, value, "important") is the value with its priority flag.
+function __cssWithPriority(v, priority) {
+  return v != null && String(priority).toLowerCase() === "important" ? String(v).trim() + " !important" : v;
+}
+// `inAttribute` is what the element's style="..." already declares for this property (raw text), if anything.
+// A browser changes nothing when the value written is the one already in effect -- compared parsed, so
+// "#ffffff" is "rgb(255, 255, 255)" -- and then leaves the attribute exactly as it was written. Without
+// this every write, however redundant, would make __styleValue rewrite the whole attribute.
+function __cssSet(store, k, v, inAttribute) {
+  if (v == null || String(v).trim() === "") { __cssRemove(store, k, inAttribute); return; }
   v = String(v).trim();
   if (!__cssValueIsSingle(v)) return;
-  store[k] = __cssCanonValue(k, v);
+  const canon = __cssCanonValue(k, v);
+  const inEffect = Object.prototype.hasOwnProperty.call(store, k) ? (store[k] === null ? undefined : store[k]) : inAttribute;
+  if (inEffect !== undefined && __cssCanonValue(k, inEffect) === canon) return;
+  store[k] = canon;
 }
 // `a: b; c: d !important` -> the rule text Chrome's CSSOM gives back (`.x { a: b; c: d !important; }`).
 function __cssSplitTop(text, sep) {
@@ -1128,7 +1146,16 @@ function __inkExtent(text, font, advance, asc, desc) {
   return { left, right, top, bottom };
 }
 
+// `display: none` -- from the style attribute / CSSOM (which wins) or the presentation attribute. Such an
+// element has no layout object, so it has no box and takes no room in its group's box.
+function __isDisplayNone(el) {
+  const style = __styleValue(el);
+  const fromStyle = style === null ? undefined : __parseStyleAttr(style)["display"];
+  return (fromStyle !== undefined ? fromStyle : el.getAttribute("display")) === "none";
+}
+
 function __computeBBox(el) {
+  if (__isDisplayNone(el)) return { x: 0, y: 0, width: 0, height: 0 };
   if (el.tagName === "text" || el.tagName === "tspan") {
     const font = __resolveFont(el);
     const m = globalThis.__measureTextFull(__svgTextForMeasure(el), font.size, font.family, font.weight, font.style);
@@ -1233,7 +1260,7 @@ function __computeBBox(el) {
   let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity, any=false;
   for (const c of el.childNodes) {
     if (c.nodeType !== 1) continue;
-    if (__BBOX_SKIP.has(c.tagName)) continue;
+    if (__BBOX_SKIP.has(c.tagName) || __isDisplayNone(c)) continue;
     const b = c.getBBox ? c.getBBox() : null;
     if (!b || (b.width===0 && b.height===0 && b.x===0 && b.y===0)) continue;
     any = true;
@@ -1473,7 +1500,7 @@ function __styleValue(n) {
   const merged = new Map();
   for (const [k, v] of Object.entries(__parseStyleAttr(attrStyle)))
     if (v !== "" && __cssValueIsSingle(v)) merged.set(k, __cssCanonValue(k, v));
-  for (const [k, v] of live) merged.set(k, v);
+  for (const [k, v] of live) { if (v === null) merged.delete(k); else merged.set(k, v); }
   return Array.from(merged, ([k, v]) => `${k}: ${v};`).join(" ");
 }
 // Turn a pending CSSOM style into the real `style` attribute (a new attribute goes last).

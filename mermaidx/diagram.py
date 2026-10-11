@@ -33,7 +33,7 @@ from typing import TYPE_CHECKING, Optional
 
 from mermaidx.ascii import render_ascii
 from mermaidx.engines.quickjs_engine import Engine as _QuickJSEngine
-from mermaidx.engines.quickjs_engine import MermaidRenderError as _QuickJSRenderError
+from mermaidx.engines._common import MermaidRenderError
 from mermaidx.font_embed import embed_dejavu_font
 from mermaidx.pdf_writer import png_to_pdf
 from mermaidx.png_decode import decode_png_rgba, decode_png
@@ -41,7 +41,6 @@ from mermaidx.raster import render_png as _render_png_novasvg, render_image as _
 
 try:
     from mermaidx.engines.v8_engine import Engine as _V8Engine
-    from mermaidx.engines.v8_engine import MermaidRenderError as _V8RenderError
     _V8_AVAILABLE = True
 except ImportError:
     _V8_AVAILABLE = False
@@ -592,10 +591,9 @@ class Diagram(DiagramBase):
 
     def _svg(self) -> str:
         engine = _get_engine_by_name(self.backend)  # raises ImportError first if backend="v8" but unavailable
-        render_error = _QuickJSRenderError if self.backend == "quickjs" else _V8RenderError
         try:
             return engine.render_svg(self._source, self._theme or "default", self._config, self._css)
-        except render_error as e:
+        except MermaidRenderError as e:
             raise RuntimeError(f"Mermaid rendering failed: {e}") from e
 
 

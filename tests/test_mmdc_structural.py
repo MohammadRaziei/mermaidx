@@ -18,8 +18,9 @@ SAMPLES = sorted(os.path.splitext(os.path.basename(p))[0] for p in glob.glob(os.
 # fails and the entry goes.
 KNOWN_DIFFERENT = {
     "24_c4_context": "viewBox 1843x1512 vs 1136x2065; <image> carries `href` where the reference has `xlink:href`",
-    "30_treemap": "svg viewBox differs, and a text `style` is rewritten by CSSOM (`fill: rgb(255, 255, 255)`) "
-                  "where the reference keeps the original text (`fill:#ffffff;`)",
+    "30_treemap": "svg viewBox y/height differ by 2.5 (`2 24.5 996 373.5` vs `2 27 996 371`); the shim's text getBBox "
+                  "ignores dominant-baseline, which Chrome applies (probed, 12px at y=12.5: alphabetic 1.5, middle "
+                  "4.78 = x-height/2 lower, central 5.5 = (ascent-descent)/2 lower) -- likely, not shown, the only cause",
     "32_ishikawa": "layout differs (viewBox width 693 vs 501, line x1 -531.97 vs -389.67)",
     "42_flowchart_markdown_labels": "foreignObject label widths differ (886.28 vs 897.78): novasvg measures "
                                     "inline <strong>/<em> runs as regular text",

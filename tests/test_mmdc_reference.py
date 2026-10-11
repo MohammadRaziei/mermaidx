@@ -26,8 +26,8 @@ KNOWN_DIFFERENT = {
                   "where that float32 round-trip happens is not found yet",
     "24_c4_context": "Chrome writes the <image> href as xlink:href (the shim drops the namespace) and the "
                      "shapes are placed differently (699,464 vs 200,700); not investigated further",
-    "30_treemap": "the ref keeps the raw style attribute ('font-size: 38px;fill:#ffffff;') where mermaidx "
-                  "re-serializes it, and the viewBox differs; not investigated further",
+    "30_treemap": "only the viewBox y/height differ now (2.5): the shim's text getBBox ignores dominant-baseline "
+                  "(Chrome shifts a `middle` text box down by x-height/2); likely, not shown, the only cause",
     "32_ishikawa": "text sizes and positions differ (viewBox width 693 vs 501); cause not found yet",
     "42_flowchart_markdown_labels": "inline <strong>/<em> in a foreignObject label: novasvg's ForeignObjectSimple "
                                     "strips tags to plain text, so bold runs are measured regular "

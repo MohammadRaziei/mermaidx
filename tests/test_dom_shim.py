@@ -607,3 +607,115 @@ def test_dy_is_added_in_float32():
         """
     )
     assert got
+
+
+# -- a CSSOM write that changes nothing leaves the style attribute as written ---------------------------------
+# Chrome (probed): style="...font-size: 38px;fill:#ffffff;" stays byte for byte after
+# el.style.setProperty("font-size", "38px") -- the value is the one already in effect, so nothing is
+# invalidated and the attribute is not rewritten. Equal means equal once parsed: "rgb(255, 255, 255)" is
+# "#ffffff". A different value, a different priority or a new property rewrites the whole attribute.
+_RAW_STYLE = "text-anchor: middle; font-size: 38px;fill:#ffffff;"
+
+
+def _style_after(js_statement: str) -> str:
+    ctx = _make_ctx()
+    return ctx.eval(
+        f"""
+        const el = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        el.setAttribute("style", {_RAW_STYLE!r});
+        {js_statement};
+        new XMLSerializer().serializeToString(el).match(/style="([^"]*)"/)[1];
+        """
+    )
+
+
+@pytest.mark.parametrize("statement", [
+    'el.style.setProperty("font-size", "38px")',
+    "el.style.fontSize = '38px'",
+    'el.style.setProperty("fill", "#ffffff")',
+    'el.style.setProperty("fill", "rgb(255, 255, 255)")',
+    'el.style.setProperty("stroke", null)',
+    'el.style.removeProperty("stroke")',
+])
+def test_a_write_that_changes_nothing_keeps_the_attribute_verbatim(statement):
+    assert _style_after(statement) == _RAW_STYLE
+
+
+@pytest.mark.parametrize("statement, expected", [
+    ('el.style.setProperty("font-size", "20px")',
+     "text-anchor: middle; font-size: 20px; fill: rgb(255, 255, 255);"),
+    ('el.style.setProperty("font-size", "38px", "important")',
+     "text-anchor: middle; font-size: 38px !important; fill: rgb(255, 255, 255);"),
+    ('el.style.setProperty("stroke", "red")',
+     "text-anchor: middle; font-size: 38px; fill: rgb(255, 255, 255); stroke: red;"),
+])
+def test_a_write_that_changes_something_rewrites_the_whole_attribute(statement, expected):
+    assert _style_after(statement) == expected
+
+
+def test_a_value_written_twice_is_still_rewritten():
+    assert _style_after('el.style.setProperty("font-size", "20px"); el.style.setProperty("font-size", "20px")') == \
+        "text-anchor: middle; font-size: 20px; fill: rgb(255, 255, 255);"
+
+
+# -- getBBox() ignores what is not rendered ------------------------------------------------------------------
+# Probed in Chrome 153: a `display: none` child (style or attribute), or a group of them, is left out of its
+# group's bbox; `visibility: hidden` is not (it still takes room); an element that is itself `display: none`
+# has the empty bbox. mermaid hides labels that do not fit this way and then sizes the svg from getBBox().
+def _bbox(build: str):
+    ctx = _make_ctx()
+    return ctx.eval(
+        f"""
+        const NS = "http://www.w3.org/2000/svg";
+        const mk = (tag, attrs, parent) => {{
+          const e = document.createElementNS(NS, tag);
+          for (const k in attrs) e.setAttribute(k, attrs[k]);
+          if (parent) parent.appendChild(e);
+          return e;
+        }};
+        const b = ({build})(mk);
+        JSON.stringify([b.x, b.y, b.width, b.height]);
+        """
+    )
+
+
+_VISIBLE = '{x: 10, y: 10, width: 50, height: 20}'
+_BIG = '{x: 0, y: 0, width: 100, height: 100}'
+
+
+@pytest.mark.parametrize("hidden_child, expected", [
+    (f"mk('rect', {{...{_BIG}, style: 'display: none;'}}, g)", "[10,10,50,20]"),
+    (f"mk('rect', {{...{_BIG}, display: 'none'}}, g)", "[10,10,50,20]"),
+    (f"mk('rect', {{...{_BIG}, style: 'visibility: hidden;'}}, g)", "[0,0,100,100]"),
+    (f"mk('rect', {_BIG}, mk('g', {{style: 'display: none'}}, g))", "[10,10,50,20]"),
+    (f"mk('rect', {{...{_BIG}, style: 'display: none'}}, g).style.setProperty('display', null)", "[0,0,100,100]"),
+])
+def test_group_bbox_skips_display_none_children(hidden_child, expected):
+    assert _bbox(f"(mk) => {{ const g = mk('g', {{}}); mk('rect', {_VISIBLE}, g); {hidden_child}; return g.getBBox(); }}") == expected
+
+
+def test_an_element_that_is_display_none_has_the_empty_bbox():
+    assert _bbox("(mk) => mk('rect', {x: 5, y: 6, width: 7, height: 8, style: 'display: none'}).getBBox()") == "[0,0,0,0]"
+
+
+@pytest.mark.parametrize("statement, expected", [
+    ('el.style.removeProperty("fill")', "text-anchor: middle; font-size: 38px;"),
+    ('el.style.setProperty("fill", null)', "text-anchor: middle; font-size: 38px;"),
+    ('el.style.setProperty("fill", "")', "text-anchor: middle; font-size: 38px;"),
+    ('el.style.removeProperty("fill"); el.style.setProperty("fill", "red")',
+     "text-anchor: middle; font-size: 38px; fill: red;"),
+])
+def test_removing_a_declared_property_rewrites_the_attribute_without_it(statement, expected):
+    assert _style_after(statement) == expected
+
+
+def test_removing_the_only_declared_property_leaves_an_empty_style_attribute():
+    ctx = _make_ctx()
+    assert ctx.eval(
+        """
+        const el = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        el.setAttribute("style", "fill:red");
+        el.style.removeProperty("fill");
+        new XMLSerializer().serializeToString(el).match(/style="([^"]*)"/)[1];
+        """
+    ) == ""

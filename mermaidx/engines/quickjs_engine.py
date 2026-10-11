@@ -29,24 +29,14 @@ import json
 import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
 from typing import Optional
 
 import quickjs
 
+from mermaidx.engines._common import MermaidRenderError, collect_svg, context_scripts, render_script  # noqa: F401 (re-exported: the engines are interchangeable by their import line)
 from mermaidx.font_metrics import get_font
-from mermaidx.path_bbox import PATH_BBOX_JS
-
-_ASSETS_DIR = Path(__file__).parent.parent / "assets"
-_DOM_SHIM_JS = _ASSETS_DIR / "dom_shim.js"
-_MERMAID_JS = _ASSETS_DIR / "mermaid.js"
-_MMDC_DRIVER_JS = _ASSETS_DIR / "mmdc_driver.js"
 
 _RENDER_TIMEOUT_JOBS = 200_000  # safety cap on Promise-job pump iterations
-
-
-class MermaidRenderError(RuntimeError):
-    """Raised when mermaid.js itself reports a parse/render error."""
 
 
 class _TextMeasurer:
@@ -168,16 +158,8 @@ class Engine:
             "globalThis.__measureGlyphs = (t,s,f,w,st) => JSON.parse(__measureGlyphs_raw(t,s,f,w,st));\n"
             "globalThis.__measureForeignObject = (h,s,f,w,st) => JSON.parse(__measureForeignObject_raw(h,s,f,w,st));\n"
         )
-        # Path bbox is pure geometry -- no Python callback needed at all.
-        ctx.eval(PATH_BBOX_JS)
-
-        ctx.eval(_DOM_SHIM_JS.read_text(encoding="utf-8"))
-        ctx.eval(_MERMAID_JS.read_text(encoding="utf-8"))
-        ctx.eval(
-            "globalThis.mermaid = (globalThis.__esbuild_esm_mermaid_nm.mermaid.default"
-            " || globalThis.__esbuild_esm_mermaid_nm.mermaid);"
-        )
-        ctx.eval(_MMDC_DRIVER_JS.read_text(encoding="utf-8"))
+        for script in context_scripts():
+            ctx.eval(script)
         return ctx
 
     def _pump_jobs(self, stop_when: Optional[str] = None) -> None:
@@ -202,61 +184,10 @@ class Engine:
         ctx = self._ctx
         self._ctx_used = True
         self._render_count += 1
-        render_id = "my-svg"  # mermaid-cli's default svgId
-
-        # htmlLabels/textPlacement="fo" -- mermaid.js's own defaults -- are
-        # set explicitly (not just left unset) because novasvg (the sole
-        # rasterizer as of this version; see mermaidx.raster) paints
-        # <foreignObject> HTML content directly, and this DOM shim's
-        # getBoundingClientRect() (see dom_shim.js) now sizes that content
-        # via novasvg.measure_foreign_object() itself -- the exact same
-        # line-counting logic novasvg later paints with -- rather than a
-        # separate, single-line-only approximation, so growing boxes (e.g.
-        # a multi-line label via <br>) size correctly. The old native
-        # <text>/<tspan> fallback this project used to force (for the
-        # now-retired resvg, which couldn't paint foreignObject at all) is
-        # still available by passing config explicitly -- base_config.update()
-        # below lets any key the caller sets win over these defaults.
-        base_config = {"startOnLoad": False, "theme": theme or "default",
-                        "flowchart": {"htmlLabels": True},
-                        "journey": {"textPlacement": "fo"},
-                        "timeline": {"textPlacement": "fo"}}
-        if config:
-            base_config.update(config)
-
-        ctx.eval("__resetDocument();")
-        ctx.set("__config", json.dumps(base_config))
-        ctx.eval("mermaid.initialize(JSON.parse(__config));")
-
-        if css:
-            ctx.set("__css", css)
-            ctx.eval(
-                "(function(){"
-                "  var el = document.getElementById('mermaidx-css') || document.createElement('style');"
-                "  el.setAttribute('id', 'mermaidx-css');"
-                "  el.textContent = __css;"
-                "  document.head.appendChild(el);"
-                "})();"
-            )
-
-        ctx.set("__code", code)
-        ctx.set("__renderId", render_id)
-        ctx.eval(
-            "globalThis.__renderResult = null;\n"
-            "globalThis.__renderError = null;\n"
-            "__renderLikeMmdc(__renderId, __code, 'transparent')\n"
-            "  .then(svg => { globalThis.__renderResult = svg; })\n"
-            "  .catch(e => { globalThis.__renderError = (e && e.name ? e.name+': '+e.message : String(e)); });\n"
-        )
+        ctx.eval(render_script(code, theme, config, css))
         self._pump_jobs(stop_when="!!globalThis.__renderResult || !!globalThis.__renderError")
 
-        err = ctx.eval("globalThis.__renderError")
-        if err:
-            raise MermaidRenderError(str(err))
-        svg = ctx.eval("globalThis.__renderResult")
-        if not svg:
-            raise MermaidRenderError("mermaid.render() produced no output (unknown error)")
-        return str(svg)
+        return collect_svg(ctx.eval)
 
     # -- public, thread-safe entry point ---------------------------------------
 
