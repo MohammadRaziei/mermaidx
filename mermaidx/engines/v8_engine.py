@@ -178,6 +178,7 @@ def _measure_text_js() -> str:
       width: totalUnits * scale,
       ascent: font.ascender * scale,
       descent: -font.descender * scale,
+      xHeight: font.xHeight * scale,
     }};
   }}
 

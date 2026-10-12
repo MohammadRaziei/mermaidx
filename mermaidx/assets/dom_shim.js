@@ -888,16 +888,13 @@ function __resolveElementSizePx(el, dim) {
   return 1000;
 }
 
-// Inline declaration of `prop` on el: the live CSSOM store (el.style.x = ...) wins over a
-// raw setAttribute("style", ...) string, exactly as a later write would in a browser.
+// Inline declaration of `prop` on el, or null: the style="..." attribute as written with any CSSOM write
+// applied on top (and any removal), exactly as the browser's el.style reflects it. The one reader of an
+// element's inline style -- __resolveTextProp and __isDisplayNone go through it too.
 function __inlineStyleProp(el, prop) {
-  const re = new RegExp("(?:^|;)\\s*" + prop + ":\\s*([^;]+)");
-  const live = el.style && el.style.cssText;
-  let m = live && re.exec(live);
-  if (m) return m[1].trim();
-  const attr = el._attrs && el._attrs.style;
-  m = attr && re.exec(attr);
-  return m ? m[1].trim() : null;
+  const style = __styleValue(el);
+  const v = style === null ? undefined : __parseStyleAttr(style)[prop];
+  return v === undefined ? null : v;
 }
 function __resolveHtmlFontSizePx(el) {
   // font-size inherits, so the NEAREST ancestor that declares one wins; on a
@@ -989,28 +986,44 @@ function __makeCanvas2dContext(canvasEl) {
   return ctx;
 }
 
-function __resolveTextAnchor(el) {
+// An inherited text property (text-anchor, dominant-baseline): the nearest style="" value (the attribute as
+// written, plus anything set through the CSSOM), else an external stylesheet rule (e.g. mermaid's own
+// "#gd1 .node .label text{text-anchor:middle}", which outranks a plain presentation attribute in real CSS),
+// else the nearest presentation attribute, else the initial value.
+function __resolveTextProp(el, name, initial) {
   let n = el;
   while (n && n.nodeType === 1) {
-    const s = n.style;
-    if (s && s.cssText) {
-      const ta = /text-anchor:\s*([a-z]+)/.exec(s.cssText);
-      if (ta) return ta[1];
-    }
+    const v = __inlineStyleProp(n, name);
+    if (v !== null) return v;
     n = n.parentNode;
   }
-  // External stylesheet rules (e.g. mermaid's own
-  // "#gd1 .node .label text{text-anchor:middle}") outrank a plain
-  // text-anchor="..." presentation attribute in real CSS, so they're
-  // checked before falling back to that attribute below.
-  const css = __resolveCssProp(el, "text-anchor");
+  const css = __resolveCssProp(el, name);
   if (css) return css.trim();
   n = el;
   while (n && n.nodeType === 1) {
-    if (n.hasAttribute && n.hasAttribute("text-anchor")) return n.getAttribute("text-anchor");
+    if (n.hasAttribute && n.hasAttribute(name)) return n.getAttribute(name);
     n = n.parentNode;
   }
-  return "start";
+  return initial;
+}
+
+function __resolveTextAnchor(el) {
+  return __resolveTextProp(el, "text-anchor", "start");
+}
+
+// How far Chrome moves a text's box down for `dominant-baseline` (probed against Chrome 153 for DejaVu Sans:
+// 7 sizes, normal and bold). `asc` / `desc` are the box's whole-pixel ascent and descent; `xHeight` is the font's.
+// auto, alphabetic, text-top and text-bottom do not move it.
+function __baselineShift(el, asc, desc, xHeight) {
+  switch (__resolveTextProp(el, "dominant-baseline", "auto")) {
+    case "middle": return Math.fround(xHeight / 2);
+    case "central": return (asc - desc) / 2;
+    case "mathematical": return asc / 2;
+    case "text-before-edge": return asc;
+    case "text-after-edge": case "ideographic": return -desc;
+    case "hanging": return Math.round(0.8 * asc * 64) / 64; // a LayoutUnit: whole 1/64ths
+    default: return 0;
+  }
 }
 
 // Parses an SVG <length>, honoring a trailing "em" (relative to the given
@@ -1149,9 +1162,8 @@ function __inkExtent(text, font, advance, asc, desc) {
 // `display: none` -- from the style attribute / CSSOM (which wins) or the presentation attribute. Such an
 // element has no layout object, so it has no box and takes no room in its group's box.
 function __isDisplayNone(el) {
-  const style = __styleValue(el);
-  const fromStyle = style === null ? undefined : __parseStyleAttr(style)["display"];
-  return (fromStyle !== undefined ? fromStyle : el.getAttribute("display")) === "none";
+  const fromStyle = __inlineStyleProp(el, "display");
+  return (fromStyle !== null ? fromStyle : el.getAttribute("display")) === "none";
 }
 
 function __computeBBox(el) {
@@ -1164,6 +1176,7 @@ function __computeBBox(el) {
     // Chrome sizes a text's box from font metrics rounded to whole pixels
     // (ascent 14.85 -> 15, descent 3.78 -> 4: a 19px line, not 18.625).
     const asc = Math.round(m.ascent), desc = Math.round(m.descent);
+    const shift = __baselineShift(el, asc, desc, m.xHeight);
 
     // Multi-line: measuring the whole textContent as one line (below) under-reports the
     // height, so mermaid sizes the node for a single line and lines 2+ overflow the box.
@@ -1187,7 +1200,7 @@ function __computeBBox(el) {
       let lx = Infinity, rx = -Infinity, top = Infinity, bot = -Infinity;
       rowBoxes.forEach(({ adv, ink }, i) => {
         const o = pos.x - (anchor === "middle" ? adv / 2 : anchor === "end" ? adv : 0);
-        const base = pos.y + i * 1.1 * font.size;
+        const base = pos.y + i * 1.1 * font.size + shift;
         lx = Math.min(lx, o + ink.left);
         rx = Math.max(rx, o + ink.right);
         top = Math.min(top, base + ink.top);
@@ -1201,7 +1214,7 @@ function __computeBBox(el) {
     if (anchor === "middle") x -= m.width / 2;
     else if (anchor === "end") x -= m.width;
     const ink = __inkExtent(__svgTextForMeasure(el), font, m.width, asc, desc);
-    return { x: x + ink.left, y: pos.y + ink.top, width: ink.right - ink.left, height: ink.bottom - ink.top };
+    return { x: x + ink.left, y: pos.y + shift + ink.top, width: ink.right - ink.left, height: ink.bottom - ink.top };
   }
   if (el.tagName === "rect") {
     return { x: parseFloat(el.getAttribute("x"))||0, y: parseFloat(el.getAttribute("y"))||0,

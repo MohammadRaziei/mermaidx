@@ -4,10 +4,18 @@ Two documents are the same when they have the same elements in the same order (t
 aside --, text), and every number inside an attribute value or a text node is approximately equal. A value is
 split into its numbers and the text around them: the text must match exactly, the numbers within
 `rel_tol` / `abs_tol` (so `d="M91.346875 10"` and `d="M91.34687690734863 10"` agree, `fill: red` and
-`fill: blue` do not).
+`fill: blue` do not). A value that is base64-encoded JSON (mermaid's `data-points`) is decoded and compared the
+same way, number by number.
+
+The default tolerance is one LayoutUnit -- 1/64 px, the grain a browser lays text out on -- plus a hair: a
+width may differ from Chrome's by that much because Chrome rounds every text run up to it. Anything beyond
+is a real difference.
 """
 from __future__ import annotations
 
+import base64
+import binascii
+import json
 import math
 import re
 
@@ -31,7 +39,7 @@ def mask_random_ids(svg: str) -> str:
 _NUMBER = re.compile(r"[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?")
 
 DEFAULT_REL_TOL = 1e-4
-DEFAULT_ABS_TOL = 1e-3
+DEFAULT_ABS_TOL = 0.02  # 1/64 = 0.015625
 
 
 class Element:
@@ -72,9 +80,32 @@ def _element(node) -> Element:
     return Element(node.name, attrs, children)
 
 
+def _decode_json(value: str):
+    """The JSON a base64 attribute value encodes, or None if it is not that (an id that merely looks like it).
+    b64decode(validate=True) already insists on the alphabet, the padding and a length multiple of four."""
+    try:
+        return json.loads(base64.b64decode(value, validate=True).decode("utf-8"))
+    except (binascii.Error, UnicodeDecodeError, ValueError):
+        return None
+
+
+def _same_json(a, b, rel_tol: float, abs_tol: float) -> bool:
+    if isinstance(a, bool) or isinstance(b, bool) or not (isinstance(a, (int, float)) and isinstance(b, (int, float))):
+        if isinstance(a, dict) and isinstance(b, dict):
+            return a.keys() == b.keys() and all(_same_json(a[k], b[k], rel_tol, abs_tol) for k in a)
+        if isinstance(a, list) and isinstance(b, list):
+            return len(a) == len(b) and all(_same_json(x, y, rel_tol, abs_tol) for x, y in zip(a, b))
+        return type(a) is type(b) and a == b
+    return math.isclose(a, b, rel_tol=rel_tol, abs_tol=abs_tol)
+
+
 def _same_value(a: str, b: str, rel_tol: float, abs_tol: float) -> bool:
     if a == b:
         return True
+    json_a = _decode_json(a)
+    if json_a is not None:
+        json_b = _decode_json(b)
+        return json_b is not None and _same_json(json_a, json_b, rel_tol, abs_tol)
     if _NUMBER.split(a) != _NUMBER.split(b):
         return False
     nums_a, nums_b = _NUMBER.findall(a), _NUMBER.findall(b)

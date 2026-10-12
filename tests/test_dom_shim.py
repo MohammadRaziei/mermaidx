@@ -72,7 +72,7 @@ def _make_ctx(glyphs=None):
     ctx.add_callable(
         "__measureTextFull_raw",
         lambda t, s, f, w, st: json.dumps(
-            {"width": len(t or "") * s * 0.5, "ascent": s * 0.8, "descent": s * 0.2}
+            {"width": len(t or "") * s * 0.5, "ascent": s * 0.8, "descent": s * 0.2, "xHeight": s * 0.5}
         ),
     )
     ctx.eval(
@@ -719,3 +719,97 @@ def test_removing_the_only_declared_property_leaves_an_empty_style_attribute():
         new XMLSerializer().serializeToString(el).match(/style="([^"]*)"/)[1];
         """
     ) == ""
+
+
+# -- dominant-baseline moves a text's box ----------------------------------------------------------------------
+# Probed in Chrome 153 (DejaVu Sans, 7 sizes, normal and bold): the bbox keeps its size and moves down by
+#   middle: xHeight/2   central: (ascent - descent)/2   mathematical: ascent/2   text-before-edge: ascent
+#   text-after-edge, ideographic: -descent   hanging: 0.8 * ascent to the nearest 1/64
+#   auto, alphabetic, text-top, text-bottom: 0
+# with ascent / descent rounded to whole pixels, as for the box itself. The fake measurer gives, at 16px:
+# ascent 12.8 (-> 13), descent 3.2 (-> 3), xHeight 8.
+_SHIFTS_16PX = {
+    "auto": 0, "alphabetic": 0, "text-top": 0, "text-bottom": 0,
+    "middle": 4, "central": 5, "mathematical": 6.5, "text-before-edge": 13,
+    "text-after-edge": -3, "ideographic": -3, "hanging": 10.40625,
+}
+
+
+def _text_y(setup: str) -> float:
+    ctx = _make_ctx()
+    return ctx.eval(
+        f"""
+        const NS = "http://www.w3.org/2000/svg";
+        const svg = document.createElementNS(NS, "svg");
+        const t = document.createElementNS(NS, "text");
+        t.setAttribute("x", "5"); t.setAttribute("y", "100"); t.textContent = "Section";
+        svg.appendChild(t);
+        document.body.appendChild(svg);  // stylesheet rules are looked up through the document
+        {setup}
+        t.getBBox().y;
+        """
+    )
+
+
+@pytest.mark.parametrize("baseline, shift", sorted(_SHIFTS_16PX.items()))
+def test_dominant_baseline_in_the_style_attribute_shifts_the_box(baseline, shift):
+    plain = _text_y("")
+    assert _text_y(f't.setAttribute("style", "font-size: 16px; dominant-baseline: {baseline};");') - \
+        _text_y('t.setAttribute("style", "font-size: 16px;");') == shift
+    assert plain == _text_y("")
+
+
+def test_dominant_baseline_as_a_presentation_attribute():
+    base = _text_y('t.setAttribute("style", "font-size: 16px;");')
+    assert _text_y('t.setAttribute("style", "font-size: 16px;"); t.setAttribute("dominant-baseline", "middle");') - base == 4
+
+
+def test_dominant_baseline_is_inherited():
+    base = _text_y('t.setAttribute("style", "font-size: 16px;");')
+    assert _text_y('t.setAttribute("style", "font-size: 16px;"); svg.setAttribute("style", "dominant-baseline: central");') - base == 5
+
+
+def test_dominant_baseline_from_a_stylesheet_rule():
+    base = _text_y('t.setAttribute("style", "font-size: 16px;");')
+    css = (
+        'const st = document.createElementNS(NS, "style"); st.textContent = ".lbl { dominant-baseline: middle; }"; '
+        'svg.appendChild(st); t.setAttribute("class", "lbl"); t.setAttribute("style", "font-size: 16px;");'
+    )
+    assert _text_y(css) - base == 4
+
+
+def test_dominant_baseline_through_the_cssom():
+    base = _text_y('t.setAttribute("style", "font-size: 16px;");')
+    assert _text_y('t.setAttribute("style", "font-size: 16px;"); t.style.setProperty("dominant-baseline", "hanging");') - base == 10.40625
+
+
+# -- one reader of an element's inline style ---------------------------------------------------------------
+@pytest.mark.parametrize("raw, prop, expected", [
+    ("a: 1; width: 40px; b: 2", "width", "40px"),
+    ("width: 40px !important", "width", "40px !important"),
+    ("  white-space : break-spaces ;", "white-space", "break-spaces"),
+    ("a: 1", "width", None),
+])
+def test_inline_style_prop_reads_the_attribute(raw, prop, expected):
+    ctx = _make_ctx()
+    assert ctx.eval(
+        f"""
+        const el = document.createElementNS("http://www.w3.org/2000/svg", "g");
+        el.setAttribute("style", {raw!r});
+        __inlineStyleProp(el, {prop!r});
+        """
+    ) == expected
+
+
+def test_inline_style_prop_sees_a_cssom_write_and_a_removal():
+    ctx = _make_ctx()
+    got = ctx.eval(
+        """
+        const el = document.createElementNS("http://www.w3.org/2000/svg", "g");
+        el.setAttribute("style", "width: 40px; height: 9px");
+        el.style.setProperty("width", "50px");
+        el.style.removeProperty("height");
+        JSON.stringify([__inlineStyleProp(el, "width"), __inlineStyleProp(el, "height")]);
+        """
+    )
+    assert got == '["50px",null]'

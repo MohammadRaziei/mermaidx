@@ -68,3 +68,60 @@ def test_random_ids_are_masked():
 def test_not_xml_raises():
     with pytest.raises(Exception):
         sc.parse("<svg><g></svg>")
+
+
+# -- a float is "the same" up to a hair: one LayoutUnit (1/64 px) --------------------------------------------
+def test_a_layout_unit_of_difference_is_within_the_default_tolerance():
+    a, b = sc.parse(_svg('<rect width="155.28125"/>')), sc.parse(_svg('<rect width="155.296875"/>'))
+    assert sc.compare(a, b) == []
+
+
+def test_a_tenth_of_a_pixel_is_not():
+    a, b = sc.parse(_svg('<rect width="155.28"/>')), sc.parse(_svg('<rect width="155.38"/>'))
+    assert sc.compare(a, b)
+
+
+# -- base64-encoded JSON (mermaid's data-points) is compared by its numbers, not as opaque text ------------------
+def _b64(obj):
+    import base64
+    import json
+    return base64.b64encode(json.dumps(obj).encode()).decode()
+
+
+def test_numbers_inside_base64_json_are_compared_approximately():
+    a = sc.parse(_svg(f'<path data-points="{_b64([{"x": 223.28125, "y": 134}, {"x": 248.28125, "y": 134}])}"/>'))
+    b = sc.parse(_svg(f'<path data-points="{_b64([{"x": 223.296875, "y": 134}, {"x": 248.296875, "y": 134}])}"/>'))
+    assert sc.compare(a, b) == []
+
+
+def test_a_real_difference_inside_base64_json_is_reported():
+    a = sc.parse(_svg(f'<path data-points="{_b64([{"x": 223.28125, "y": 134}])}"/>'))
+    b = sc.parse(_svg(f'<path data-points="{_b64([{"x": 230.0, "y": 134}])}"/>'))
+    assert sc.compare(a, b)
+
+
+def test_base64_json_with_a_different_shape_or_text_is_reported():
+    a = sc.parse(_svg(f'<path data-points="{_b64([{"x": 1}])}"/>'))
+    assert sc.compare(a, sc.parse(_svg(f'<path data-points="{_b64([{"x": 1}, {"x": 2}])}"/>')))
+    assert sc.compare(a, sc.parse(_svg(f'<path data-points="{_b64([{"z": 1}])}"/>')))
+    assert sc.compare(sc.parse(_svg(f'<g data-n="{_b64({"name": "a"})}"/>')), sc.parse(_svg(f'<g data-n="{_b64({"name": "b"})}"/>')))
+
+
+def test_an_ordinary_string_that_happens_to_look_like_base64_is_compared_as_text():
+    assert sc.compare(sc.parse(_svg('<g id="abcdefgh"/>')), sc.parse(_svg('<g id="abcdefgi"/>')))
+
+
+@pytest.mark.parametrize("not_base64", [
+    "12345678", "1234567", "1234567890", "abcdefg", "ab+/cde",
+    "MTIz-NA==",  # a valid encoding of 123 with a stray '-' in it: lenient decoders skip the '-' and accept it
+    "MTIz NA==", "MTIzNA==x",
+])
+def test_a_string_that_is_not_well_formed_base64_is_never_decoded(not_base64):
+    # "12345678" is valid JSON when read as text and decodes to bytes that are not; "1234567", "abcdefg" and
+    # the like are not a multiple of four long. None of them may be treated as an encoded document.
+    assert sc._decode_json(not_base64) is None
+
+
+def test_base64_of_a_json_number_is_still_json():
+    assert sc._decode_json(_b64(1234)) == 1234
+    assert sc._decode_json(_b64("1234")) == "1234"

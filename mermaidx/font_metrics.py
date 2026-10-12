@@ -51,6 +51,7 @@ class Font:
     it unchanged."""
 
     def __init__(self, bold: bool) -> None:
+        self._bold = bold
         self._face = _fonts.get_font_face(_FAMILY, bold, False)
 
     @lru_cache(maxsize=None)
@@ -65,6 +66,7 @@ class Font:
             "width": font.measure_text(text),
             "ascent": font.ascent,
             "descent": -font.descent,  # novasvg: negative; this module's convention: positive
+            "xHeight": font.x_height,
         }
 
     def glyph_boxes(self, text: str, size_px: float) -> list:
@@ -120,12 +122,14 @@ class Font:
         return table
 
     def metrics_summary(self) -> dict:
-        """unitsPerEm/ascender/descender -- everything besides the
+        """unitsPerEm/ascender/descender/xHeight -- everything besides the
         advance table itself that's needed to reproduce measure() in JS."""
         return {
             "unitsPerEm": self._face.units_per_em,
             "ascender": self._face.ascent_units,
             "descender": self._face.descent_units,
+            # novasvg measures it per size; at size == unitsPerEm one pixel is one design unit.
+            "xHeight": self._at_size(float(self._face.units_per_em)).x_height,
         }
 
     # -- <foreignObject> HTML label sizing (quickjs_engine's headless DOM shim) --
@@ -138,7 +142,9 @@ class Font:
         reimplementing its own line-counting logic) is what keeps a node
         box mermaid.js sizes during headless layout from disagreeing with
         what novasvg then actually paints into it."""
-        return _fonts.measure_foreign_object(html, self._at_size(size_px))
+        # `family` makes novasvg measure <b>/<strong>/<i>/<em> runs with the bold/italic faces it paints
+        # them with; this font is the label's own (base) style.
+        return _fonts.measure_foreign_object(html, self._at_size(size_px), family=_FAMILY, bold=self._bold)
 
 
 # ── font selection ────────────────────────────────────────────────────────
