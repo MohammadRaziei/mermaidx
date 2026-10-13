@@ -1,7 +1,9 @@
 """Element-by-element comparison of two SVG documents, parsed with pygixml.
 
-Two documents are the same when they have the same elements in the same order (tag, attributes -- order
-aside --, text), and every number inside an attribute value or a text node is approximately equal. A value is
+Two documents are the same when they have exactly the same nodes in the same order -- elements (tag and
+attributes, order aside), text (whitespace-only text too), CDATA, comments, processing instructions, and
+whatever stands outside the root element -- with nothing more or less on either side. Only numbers get a
+tolerance: every number inside an attribute value, a text node or a comment is approximately equal. A value is
 split into its numbers and the text around them: the text must match exactly, the numbers within
 `rel_tol` / `abs_tol` (so `d="M91.346875 10"` and `d="M91.34687690734863 10"` agree, `fill: red` and
 `fill: blue` do not). A value that is base64-encoded JSON (mermaid's `data-points`) is decoded and compared the
@@ -43,19 +45,46 @@ DEFAULT_ABS_TOL = 0.02  # 1/64 = 0.015625
 
 
 class Element:
-    __slots__ = ("tag", "attrs", "children")
+    __slots__ = ("tag", "attrs", "children", "before", "after")
 
     def __init__(self, tag: str, attrs: dict, children: list):
         self.tag = tag
         self.attrs = attrs
-        self.children = children  # Element | str (text), in document order
+        self.children = children  # Element | Leaf, in document order
+        self.before = ""  # root only: the text ahead of the root element (prolog, comments, whitespace)
+        self.after = ""   # root only: the text behind it
+
+
+class Leaf:
+    """A node that is not an element: its kind ("text", "cdata", "comment", "pi") and its text."""
+    __slots__ = ("kind", "value")
+
+    def __init__(self, kind: str, value: str):
+        self.kind = kind
+        self.value = value
+
+
+# Keep every node and every character: no whitespace dropping, no attribute whitespace normalisation (the
+# defaults of an XML parser), only entity decoding and end-of-line normalisation, which XML itself requires.
+_PARSE = (pygixml.ParseFlags.ESCAPES | pygixml.ParseFlags.EOL | pygixml.ParseFlags.CDATA
+          | pygixml.ParseFlags.COMMENTS | pygixml.ParseFlags.PI | pygixml.ParseFlags.WS_PCDATA)
+_KINDS = {"pcdata": "text", "cdata": "cdata", "comment": "comment", "pi": "pi"}
 
 
 def parse(svg: str) -> Element:
     doc = pygixml.XMLDocument()
-    if not doc.load_string(svg):  # pygixml reports a parse error as False and still hands back a partial tree
+    if not doc.load_string(svg, _PARSE):  # pygixml reports a parse error as False and still hands back a partial tree
         raise ValueError("not well-formed XML: " + svg[:80].replace("\n", " "))
-    return _element(doc.root)
+    node = doc.first_child()  # doc.root is the first node of any kind (a comment ahead of the root, say)
+    while node is not None and not node.is_null() and node.type != "element":
+        node = node.next_sibling
+    root = _element(node)
+    # What stands outside the root element is compared as text: prolog, comments, whitespace.
+    start = svg.index("<" + root.tag)
+    close = "</" + root.tag + ">"
+    end = svg.rindex(close) + len(close) if close in svg else svg.index("/>", start) + 2
+    root.before, root.after = svg[:start], svg[end:]
+    return root
 
 
 def _element(node) -> Element:
@@ -70,12 +99,12 @@ def _element(node) -> Element:
     while child is not None and not child.is_null():
         if child.type == "element":
             children.append(_element(child))
-        elif child.type in ("pcdata", "cdata"):
-            text = child.value or ""
-            if children and isinstance(children[-1], str):
-                children[-1] += text
+        elif child.type in _KINDS:
+            kind, text = _KINDS[child.type], child.value or ""
+            if children and isinstance(children[-1], Leaf) and children[-1].kind == kind == "text":
+                children[-1].value += text
             else:
-                children.append(text)
+                children.append(Leaf(kind, text))
         child = child.next_sibling
     return Element(node.name, attrs, children)
 
@@ -118,6 +147,9 @@ def compare(a: Element, b: Element, *, rel_tol: float = DEFAULT_REL_TOL, abs_tol
             limit: int = 50) -> list[str]:
     """Differences between two parsed documents, each as a readable line with the element's place."""
     diffs: list[str] = []
+    for where, x, y in (("before the root", a.before, b.before), ("after the root", a.after, b.after)):
+        if not _same_value(x, y, rel_tol, abs_tol):
+            diffs.append(f"{where}: {x!r} != {y!r}")
     _compare(a, b, a.tag, rel_tol, abs_tol, diffs, limit)
     return diffs
 
@@ -146,10 +178,12 @@ def _compare(a: Element, b: Element, path: str, rel_tol: float, abs_tol: float, 
         diffs.append(f"{path}: {len(a.children)} children != {len(b.children)}")
         return
     for i, (ca, cb) in enumerate(zip(a.children, b.children)):
-        if isinstance(ca, str) or isinstance(cb, str):
-            if not (isinstance(ca, str) and isinstance(cb, str)):
-                diffs.append(f"{path}: child {i} is text in one and an element in the other")
-            elif not _same_value(ca, cb, rel_tol, abs_tol):
-                diffs.append(f"{path}: text {ca!r} != {cb!r}")
+        if isinstance(ca, Leaf) or isinstance(cb, Leaf):
+            if not (isinstance(ca, Leaf) and isinstance(cb, Leaf)):
+                diffs.append(f"{path}: child {i} is a node of another kind (element / text / comment ...) in the other")
+            elif ca.kind != cb.kind:
+                diffs.append(f"{path}: child {i} is {ca.kind} in one and {cb.kind} in the other")
+            elif not _same_value(ca.value, cb.value, rel_tol, abs_tol):
+                diffs.append(f"{path}: {ca.kind} {ca.value!r} != {cb.value!r}")
         else:
             _compare(ca, cb, _label(ca, path, i), rel_tol, abs_tol, diffs, limit)

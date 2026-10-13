@@ -125,3 +125,43 @@ def test_a_string_that_is_not_well_formed_base64_is_never_decoded(not_base64):
 def test_base64_of_a_json_number_is_still_json():
     assert sc._decode_json(_b64(1234)) == 1234
     assert sc._decode_json(_b64("1234")) == "1234"
+
+
+# -- nothing is ignored: only the floats get a tolerance ------------------------------------------------------
+@pytest.mark.parametrize("a, b", [
+    ("<g> </g>", "<g></g>"),                                  # whitespace-only text
+    ("<g/><g/>", "<g/> <g/>"),                                # whitespace between elements
+    ("<g>a</g>", "<g>a </g>"),                                # trailing space in text
+    ("<g><!-- one --></g>", "<g><!-- two --></g>"),           # a comment's text
+    ("<g><!-- c --></g>", "<g/>"),                            # a comment that is not there
+    ("<g><?pi data?></g>", "<g/>"),                           # a processing instruction
+    ("<g><![CDATA[a]]></g>", "<g>a</g>"),                     # CDATA is not the same node as text
+])
+def test_every_kind_of_node_counts(a, b):
+    assert sc.compare(sc.parse(_svg(a)), sc.parse(_svg(b)))
+
+
+def test_whitespace_inside_an_attribute_value_is_kept():
+    # an XML parser normalises a newline in an attribute to a space unless told not to
+    a = sc.parse(_svg('<path d="M0 0\nL1 1"/>'))
+    b = sc.parse(_svg('<path d="M0 0 L1 1"/>'))
+    assert sc.compare(a, b)
+
+
+def test_text_outside_the_root_element_counts():
+    ok = '<svg xmlns="http://www.w3.org/2000/svg"/>'
+    assert sc.compare(sc.parse(ok), sc.parse(ok)) == []
+    assert sc.compare(sc.parse(ok), sc.parse('<?xml version="1.0"?>' + ok))
+    assert sc.compare(sc.parse(ok), sc.parse(ok + "\n"))
+    assert sc.compare(sc.parse(ok), sc.parse("<!-- hi -->" + ok))
+    assert sc.compare(sc.parse(ok), sc.parse(ok + "<!-- bye -->"))
+
+
+def test_numbers_in_comments_and_text_still_get_the_tolerance():
+    assert sc.compare(sc.parse(_svg("<g><!-- w=10.000001 --></g>")), sc.parse(_svg("<g><!-- w=10 --></g>"))) == []
+
+
+def test_an_attribute_on_either_side_only_is_reported_both_ways():
+    a, b = sc.parse(_svg('<g id="x"/>')), sc.parse(_svg('<g id="x" class="y"/>'))
+    assert any("only in the second" in d for d in sc.compare(a, b))
+    assert any("only in the first" in d for d in sc.compare(b, a))

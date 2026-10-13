@@ -1,7 +1,8 @@
-"""mermaidx's SVG vs mmdc's, parsed and compared element by element (tests/svg_compare.py): the same elements in
-the same order with the same attributes and text, and every number approximately equal. test_mmdc_reference.py
-asks for the same bytes; this one is what is left once float32 noise (a last digit or two) does not count --
-it needs no Chrome-exact arithmetic, only that the document is the same document."""
+"""mermaidx's SVG vs mmdc's, parsed with pygixml and compared node by node (tests/svg_compare.py): the same
+elements, attributes, text, comments and whitespace in the same order, nothing more or less on either side. Only
+the numbers get a tolerance (float round-off, up to one LayoutUnit -- 1/64 px -- of layout rounding); they do not
+have to be the same digits. The few ids mermaid.js draws at random are masked, in the reference as much as here.
+"""
 import glob
 import os
 
@@ -33,3 +34,13 @@ def test_svg_is_the_same_document_as_mmdc(name):
     ours = mermaidx.render(src, config={"handDrawnSeed": 1}).svg()
     diffs = sc.compare(sc.parse(sc.mask_random_ids(ours)), sc.parse(sc.mask_random_ids(ref)))
     assert not diffs, f"{len(diffs)} differences, first:\n" + "\n".join(diffs[:5])
+
+
+@pytest.mark.parametrize("name", ["06_complex_sequence", "38_class_advanced", "01_simple_flowchart"])
+def test_rendering_twice_gives_the_same_bytes(name):
+    """mmdc opens a fresh page per diagram, so mermaid.js's id counters (actor1, classId-Animal-0, ...) always
+    start from zero. Each mermaidx render must start from the same state, whatever was rendered before."""
+    src = open(os.path.join(HERE, "samples", name + ".mmd"), encoding="utf-8").read()
+    first = mermaidx.render(src, config={"handDrawnSeed": 1}).svg()
+    second = mermaidx.render(src, config={"handDrawnSeed": 1}).svg()
+    assert first == second
