@@ -813,3 +813,142 @@ def test_inline_style_prop_sees_a_cssom_write_and_a_removal():
         """
     )
     assert got == '["50px",null]'
+
+
+# ---------------------------------------------------------------------------
+# One reader for an element's inline style: __resolveFont and the element
+# size getters must go through __inlineStyleProp, not re-parse cssText.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("raw, prop, expected", [
+    ("font-size : 40px", "size", 40),                  # space before the colon
+    ("font-size:40px", "size", 40),
+    ("x-font-size: 99px", "size", 16),                 # a different property that ends in the same name
+    ("font-size: 20px; font-size: 30px", "size", 30),  # last declaration wins
+    ('font-family : "Foo"', "family", '"Foo"'),
+    ("x-font-family: Bar", "family", "sans-serif"),
+    ("font-weight : bold", "weight", "bold"),
+    ("x-font-weight: bold", "weight", "normal"),
+])
+def test_resolve_font_reads_inline_style_like_a_browser(raw, prop, expected):
+    ctx = _make_ctx()
+    got = ctx.eval(
+        f"""
+        const el = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        el.setAttribute("style", {raw!r});
+        __resolveFont(el).{prop};
+        """
+    )
+    assert got == expected
+
+
+def test_resolve_font_sees_a_cssom_write_and_a_removal():
+    ctx = _make_ctx()
+    got = ctx.eval(
+        """
+        const el = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        el.setAttribute("style", "font-size: 20px; font-weight: bold");
+        el.style.setProperty("font-size", "30px");
+        el.style.removeProperty("font-weight");
+        const f = __resolveFont(el);
+        JSON.stringify([f.size, f.weight]);
+        """
+    )
+    assert got == '[30,"normal"]'
+
+
+@pytest.mark.parametrize("raw, expected", [
+    ("width: 20px", 20),
+    ("width:20.5px", 20.5),
+    ("max-width: 5px; width: 20px", 20),   # max-width is not width
+    ("min-width: 5px; width: 20px", 20),
+    ("max-width: 5px", 1000),              # no width declared: the fallback, not max-width
+    ("width: 50%", 1000),                  # not a px length: the fallback
+])
+def test_offset_width_reads_the_declared_width_only(raw, expected):
+    ctx = _make_ctx()
+    got = ctx.eval(
+        f"""
+        const el = document.createElement("div");
+        el.setAttribute("style", {raw!r});
+        el.offsetWidth;
+        """
+    )
+    assert got == expected
+
+
+def test_offset_height_reads_the_declared_height_only():
+    ctx = _make_ctx()
+    got = ctx.eval(
+        """
+        const el = document.createElement("div");
+        el.setAttribute("style", "max-height: 5px; height: 7px");
+        el.offsetHeight;
+        """
+    )
+    assert got == 7
+
+
+# ---------------------------------------------------------------------------
+# HTML (foreignObject) label boxes: the font size handed to the measurer and
+# the declared width / max-width clamp.
+# ---------------------------------------------------------------------------
+
+def _html_label(setup: str, natural_width: float = 100.0):
+    """Build <div id=host><span id=lbl>text</span></div> in the document, run *setup*,
+    and return (font size the measurer was asked for, host.getBoundingClientRect().width)."""
+    ctx = _make_ctx()
+    got = ctx.eval(
+        f"""
+        globalThis.__asked = [];
+        globalThis.__measureForeignObject = (html, size, family, weight, style) => {{
+          __asked.push(size);
+          return {{ width: {natural_width}, height: 20 }};
+        }};
+        const host = document.createElement("div");
+        const lbl = document.createElement("span");
+        lbl.textContent = "text";
+        host.appendChild(lbl);
+        document.body.appendChild(host);
+        {setup}
+        const r = lbl.getBoundingClientRect();
+        JSON.stringify([__asked[0], r.width]);
+        """
+    )
+    return json.loads(got)
+
+
+_STYLE_RULE = (
+    'const st = document.createElementNS("http://www.w3.org/2000/svg", "style"); '
+    'st.textContent = "{css}"; document.body.appendChild(st);'
+)
+
+
+@pytest.mark.parametrize("setup, size", [
+    ("", 16),
+    ('lbl.setAttribute("style", "font-size: 20px");', 20),
+    ('host.setAttribute("style", "font-size: 18px");', 18),                       # inherited from the nearest ancestor
+    ('host.setAttribute("style", "font-size: 18px"); lbl.setAttribute("style", "font-size: 22px");', 22),
+    ('lbl.setAttribute("style", "font-size: 2em");', 16),                         # not a px length: ignored
+    ('lbl.setAttribute("style", "font-size: 20");', 16),                          # unitless: invalid CSS, ignored
+    ('lbl.setAttribute("style", "font-size: x20px");', 16),                       # not a number
+    ('lbl.setAttribute("style", "font-size: 20px 30px");', 16),                   # not a single length
+    (_STYLE_RULE.format(css=".big{font-size: 14px }") + 'lbl.setAttribute("class", "big");', 14),
+    (_STYLE_RULE.format(css=".big{font-size: 14px}") + 'lbl.setAttribute("class", "big"); lbl.setAttribute("style", "font-size: 30px");', 30),  # inline beats the sheet
+    (_STYLE_RULE.format(css=".big{font-size: 2em}") + 'lbl.setAttribute("class", "big");', 16),
+])
+def test_html_label_font_size_handed_to_the_measurer(setup, size):
+    assert _html_label(setup)[0] == size
+
+
+@pytest.mark.parametrize("setup, width", [
+    ("", 100),
+    ('host.setAttribute("style", "width: 200px");', 100),                         # the span has no width of its own
+    ('lbl.setAttribute("style", "width: 200px");', 200),                          # an explicit width IS the box width
+    ('lbl.setAttribute("style", "max-width: 60px");', 60),                        # a natural width is clamped to max-width
+    ('lbl.setAttribute("style", "max-width: 500px");', 100),                      # ... but never widened by it
+    ('lbl.setAttribute("style", "width: 40px; max-width: 30px");', 30),
+    ('lbl.setAttribute("style", "width: 50%");', 100),                            # not a px length: ignored
+])
+def test_html_label_declared_width_and_max_width(setup, width):
+    assert _html_label(setup)[1] == width

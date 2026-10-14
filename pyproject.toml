@@ -46,8 +46,7 @@ test = [
 ]
 rust = [ "mmdr" ]
 v8engine = [ "mini-racer" ]
-embed = [ "fonttools" ]
-all  = [ "mmdr", "mini-racer", "numpy", "fonttools" ]
+all  = [ "mmdr", "mini-racer", "numpy" ]
 
 [project.scripts]
 mermaidx = "mermaidx.__main__:main"

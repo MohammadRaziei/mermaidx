@@ -324,64 +324,6 @@ def test_multiline_html_label_flowchart_renders():
     assert svg.startswith("<svg")
 
 
-def test_embed_font_without_fonttools_raises_clear_error(monkeypatch):
-    """Regression: embed_font=True needs fontTools, which isn't a core
-    dependency -- must fail with install instructions, not a bare
-    ModuleNotFoundError (issue #12)."""
-    import sys
-    monkeypatch.setitem(sys.modules, "fontTools", None)
-    monkeypatch.setitem(sys.modules, "fontTools.subset", None)
-    d = mermaidx.render(FLOWCHART)
-    with pytest.raises(ImportError, match=r"mermaidx\[embed\]"):
-        d.svg(embed_font=True)
-
-
-def test_embed_font_adds_matching_font_face():
-    """Regression (issue #12): the plain SVG's CSS asks for whatever
-    font-family mermaid's theme picked (e.g. "trebuchet ms"), which a
-    browser won't have with the same metrics as the bundled DejaVu Sans
-    used to lay the diagram out -- embed_font=True must register the
-    embedded font under that *same* family name so the browser's lookup
-    actually picks it up, not some unrelated name."""
-    pytest.importorskip("fontTools")
-    d = mermaidx.render(FLOWCHART)
-    plain = d.svg()
-    embedded = d.svg(embed_font=True)
-    assert embedded != plain
-    assert embedded.startswith("<svg")
-    assert "@font-face" in embedded
-    assert 'font-family:"trebuchet ms"' in embedded
-    assert "data:font/ttf;base64," in embedded
-
-    import xml.etree.ElementTree as ET
-    ET.fromstring(embedded)  # must still be well-formed XML
-
-
-def test_embed_font_is_cached_separately_from_plain_svg():
-    pytest.importorskip("fontTools")
-    d = mermaidx.render(FLOWCHART)
-    assert d.svg() is d.svg()
-    assert d.svg(embed_font=True) is d.svg(embed_font=True)
-    assert d.svg() != d.svg(embed_font=True)
-
-
-def test_embed_font_does_not_affect_png():
-    """.png()/.pdf() already guarantee measure == paint via novasvg's own
-    font override (see raster.py) regardless of embed_font -- this option
-    only matters for opening the raw SVG in a browser."""
-    pytest.importorskip("fontTools")
-    d = mermaidx.render(FLOWCHART)
-    assert d.png() == d.png()  # cache key for png() is untouched by embed_font
-
-
-def test_save_svg_forwards_embed_font(tmp_path):
-    pytest.importorskip("fontTools")
-    d = mermaidx.render(FLOWCHART)
-    out = tmp_path / "out.svg"
-    d.save(str(out), embed_font=True)
-    assert "@font-face" in out.read_text(encoding="utf-8")
-
-
 def _first_node_box_height(svg: str) -> float:
     import re
     return float(re.findall(r'label-container[^>]*height="([0-9.]+)"', svg)[0])

@@ -728,8 +728,7 @@ class Element extends Node {
       // clamped to `max-width`. That clamp is what mermaid keys off: it sets
       // max-width:<wrappingWidth> on the label, and only when the measured width
       // comes back EQUAL to it does it switch the label into wrap mode.
-      const px = (v) => { const mm = v && /^([\d.]+)px$/.exec(v); return mm ? parseFloat(mm[1]) : null; };
-      const declW = px(__inlineStyleProp(this, "width")), maxW = px(__inlineStyleProp(this, "max-width"));
+      const declW = __pxValue(__inlineStyleProp(this, "width")), maxW = __pxValue(__inlineStyleProp(this, "max-width"));
       if (declW !== null) w = declW;
       if (maxW !== null && w > maxW) w = maxW;
       return { x: 0, y: 0, width: w, height: m.height, top: 0, left: 0, right: w, bottom: m.height };
@@ -797,12 +796,9 @@ function __resolveFont(el) {
     const cssWeight = __resolveCssProp(n, "font-weight");
     if (cssWeight) nWeight = cssWeight.trim();
 
-    const s = n.style;
-    if (s && s.cssText) {
-      const fs = /font-size:\s*([^;]+)/.exec(s.cssText); if (fs) nSize = fs[1].trim();
-      const ff = /font-family:\s*([^;]+)/.exec(s.cssText); if (ff) nFamily = ff[1].trim();
-      const fw = /font-weight:\s*([^;]+)/.exec(s.cssText); if (fw) nWeight = fw[1].trim();
-    }
+    const inlSize = __inlineStyleProp(n, "font-size"); if (inlSize) nSize = inlSize;
+    const inlFamily = __inlineStyleProp(n, "font-family"); if (inlFamily) nFamily = inlFamily;
+    const inlWeight = __inlineStyleProp(n, "font-weight"); if (inlWeight) nWeight = inlWeight;
     if (n.hasAttribute && n.hasAttribute("font-size")) nSize = n.getAttribute("font-size");
     if (n.hasAttribute && n.hasAttribute("font-family")) nFamily = n.getAttribute("font-family");
 
@@ -875,12 +871,8 @@ function __resolveCssProp(el, prop) {
 }
 
 function __resolveElementSizePx(el, dim) {
-  const styleProp = dim === "width" ? "width" : "height";
-  const s = el.style;
-  if (s && s.cssText) {
-    const m = new RegExp(styleProp + ":\\s*([\\d.]+)px").exec(s.cssText);
-    if (m) return parseFloat(m[1]);
-  }
+  const declared = __pxValue(__inlineStyleProp(el, dim));
+  if (declared !== null) return declared;
   // <canvas>/<img> etc. use the width/height IDL attribute directly,
   // not CSS -- and a mindmap has no real container to measure, so this
   // is the fallback cytoscape's layout bounding box ends up using.
@@ -896,6 +888,11 @@ function __inlineStyleProp(el, prop) {
   const v = style === null ? undefined : __parseStyleAttr(style)[prop];
   return v === undefined ? null : v;
 }
+// "12px" / "12.5px" -> 12 / 12.5. Any other value (%, em, calc(), empty, absent) -> null.
+function __pxValue(v) {
+  const m = v && /^([\d.]+)px$/.exec(v);
+  return m ? parseFloat(m[1]) : null;
+}
 function __resolveHtmlFontSizePx(el) {
   // font-size inherits, so the NEAREST ancestor that declares one wins; on a
   // single node inline style outranks the stylesheet. The stylesheet matters:
@@ -904,16 +901,10 @@ function __resolveHtmlFontSizePx(el) {
   // at 14px, not the 16px default.
   let n = el;
   while (n && n.nodeType === 1) {
-    const inl = __inlineStyleProp(n, "font-size");
-    if (inl) {
-      const m = /^([\d.]+)px$/.exec(inl);
-      if (m) return parseFloat(m[1]);
-    }
-    const css = __resolveCssProp(n, "font-size");
-    if (css) {
-      const m = /^\s*([\d.]+)px\s*$/.exec(css);
-      if (m) return parseFloat(m[1]);
-    }
+    const px = __pxValue(__inlineStyleProp(n, "font-size"));
+    if (px !== null) return px;
+    const cssPx = __pxValue(__resolveCssProp(n, "font-size"));
+    if (cssPx !== null) return cssPx;
     n = n.parentNode;
   }
   return 16;

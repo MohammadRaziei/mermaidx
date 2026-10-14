@@ -35,9 +35,8 @@ Everything beyond the base installation is opt-in via standard PyPI extras:
 | `pip install mermaidx` | Base install — default `backend="quickjs"`, zero system dependencies |
 | `pip install mermaidx[v8engine]` | Real V8 engine (`mini-racer`) as a selectable `backend="v8"` (2-4.5x faster JIT) |
 | `pip install mermaidx[rust]` | Native-Rust backends via [`mmdr`](https://github.com/mohammadraziei/mmdr) — `backend="merman"`, `backend="mermaid-rs-renderer"` |
-| `pip install mermaidx[embed]` | `fontTools`, enabling `.svg(embed_font=True)` for standalone browser-safe SVGs |
 | `pip install numpy` | Adds `.numpy()` export support (standard package dependency) |
-| `pip install mermaidx[all]` | Every extra above (`v8engine` + `rust` + `embed` + `numpy`) in one go |
+| `pip install mermaidx[all]` | Every extra above (`v8engine` + `rust` + `numpy`) in one go |
 
 - **V8 Speedup & Behavior:** V8 renders **2–4.5x faster** (byte-for-byte identical SVG) by leveraging JIT compilation. It runs in an isolated child process to ensure 100% memory reclamation.
 - **Mindmap Exception:** For `mindmap` diagrams, use the default `backend="quickjs"`. Cytoscape animation loops require QuickJS-ng's execution bounding; under `V8`, mindmaps raise an error and clean up the process safely without leaking memory.
@@ -245,24 +244,6 @@ print(mermaidx.render_ascii("graph LR; A-->B-->C"))
 └───┘    └───┘    └───┘
 ```
 
-### Embedding the font for browser-accurate SVGs (optional)
-
-`.png()`/`.jpg()`/`.bmp()`/`.tga()`/`.pdf()` always paint with exactly the font `mermaidx` measured with (see [How It Works](#how-it-works)), so they're guaranteed accurate. Opening the raw `.svg()` output directly in a browser is a different story: the SVG's own CSS just names a font (e.g. `"trebuchet ms"`), and the browser substitutes whatever it has installed for that name — not necessarily the same one `mermaidx` measured with — which can leave slightly mismatched whitespace around labels.
-
-```bash
-pip install mermaidx[embed]   # adds fontTools, used only for this
-```
-
-```python
-d = mermaidx.render(source)
-d.svg()                        # small, portable — fine for .png()/.pdf(), for embedding in
-                                # something with its own CSS, or for most SVG viewers
-d.svg(embed_font=True)         # bigger, but paints correctly in a plain browser tab too
-d.save("diagram.svg", embed_font=True)
-```
-
-This subsets the bundled font down to just the glyphs this particular diagram uses and inlines them as a base64 `@font-face`, registered under the same family name the diagram's own CSS already asks for — so it wins the browser's font lookup without needing to touch that CSS. Off by default since it needs `fontTools` and makes the file bigger; use it only when you know the SVG will be opened on its own, outside of `mermaidx`'s own rendering pipeline. Also available from the CLI as `--embed-font` (SVG output only).
-
 ### Low-level utilities
 
 Rasterize any SVG string directly, without going through `render()`:
@@ -303,8 +284,7 @@ mermaidx -i diagram.mermaid -o diagram.pdf --pdf-format A4 --landscape --margin 
 # config & CSS
 mermaidx -i diagram.mermaid -o diagram.svg --config config.json --css style.css
 
-# browser-accurate SVG (requires mermaidx[embed]) & suppress the "saved to..." message
-mermaidx -i diagram.mermaid -o diagram.svg --embed-font
+# suppress the "saved to..." message
 mermaidx -i diagram.mermaid -o diagram.svg -q
 
 # info — Mermaid library version
