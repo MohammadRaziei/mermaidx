@@ -5,6 +5,7 @@ have to be the same digits. The few ids mermaid.js draws at random are masked, i
 """
 import glob
 import os
+import sys
 
 import pytest
 
@@ -27,12 +28,27 @@ KNOWN_DIFFERENT = {
 }
 
 
+# Same sample, other cause: quickjs calls the libm of the platform. On macOS (CI, macos-latest) the output of
+# quickjs is the same as that of V8 on Linux (viewBox, edge `d` and `data-points` compared one by one), not the
+# one of mmdc. Only measured for this sample and only on macOS; Windows is not known.
+KNOWN_DIFFERENT_ON = {
+    ("darwin", "quickjs", "39_mindmap_shapes"): (
+        "libm of macOS gives other Math results than the reference, so cose-bilkent ends in another cooling cycle"
+    ),
+}
+
+
+def _known_different(backend, name):
+    return KNOWN_DIFFERENT.get((backend, name)) or KNOWN_DIFFERENT_ON.get((sys.platform, backend, name))
+
+
 def _cases():
     for backend in BACKENDS:
         for name in SAMPLES:
             marks = []
-            if (backend, name) in KNOWN_DIFFERENT:
-                marks.append(pytest.mark.xfail(strict=True, reason=KNOWN_DIFFERENT[(backend, name)]))
+            reason = _known_different(backend, name)
+            if reason:
+                marks.append(pytest.mark.xfail(strict=True, reason=reason))
             yield pytest.param(backend, name, marks=marks, id=f"{backend}-{name}")
 
 
