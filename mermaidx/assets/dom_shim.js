@@ -618,7 +618,7 @@ class Node {
     // `style` comes before any attribute set on it afterwards (mermaid's coloured marker copies).
     if (this.nodeType === 1) __materializeStyle(this);
     const c = Object.create(Object.getPrototypeOf(this));
-    Object.assign(c, this, { childNodes: [], parentNode: null, _attrs: {...(this._attrs||{})} });
+    Object.assign(c, this, { childNodes: [], parentNode: null, _attrs: {...(this._attrs||{})}, _attrNs: {...(this._attrNs||{})} });
     if (this.nodeType === 1) c.style = CSSStyleDecl(c);
     if (deep) for (const ch of this.childNodes) c.appendChild(ch.cloneNode(true));
     return c;
@@ -636,6 +636,7 @@ class Element extends Node {
     this.tagName = tagName;
     this.namespaceURI = ns || XHTML_NS;
     this._attrs = {};
+    this._attrNs = {}; // namespace of the attributes set with setAttributeNS, by name
     this.style = CSSStyleDecl(this);
     this._listeners = {};
   }
@@ -648,9 +649,9 @@ class Element extends Node {
   setAttribute(k, v) { this._attrs[k] = String(v); }
   getAttribute(k) { return Object.prototype.hasOwnProperty.call(this._attrs,k) ? this._attrs[k] : null; }
   hasAttribute(k) { return k in this._attrs; }
-  removeAttribute(k) { delete this._attrs[k]; }
+  removeAttribute(k) { delete this._attrs[k]; delete this._attrNs[k]; }
   getAttributeNS(ns, local) { return this.getAttribute(local); }
-  setAttributeNS(ns, local, v) { this.setAttribute(local, v); }
+  setAttributeNS(ns, name, v) { this.setAttribute(name, v); if (ns) this._attrNs[name] = ns; }
   removeAttributeNS(ns, local) { this.removeAttribute(local); }
   hasAttributeNS(ns, local) { return this.hasAttribute(local); }
   addEventListener(t, fn) { (this._listeners[t] = this._listeners[t]||[]).push(fn); }
@@ -757,22 +758,83 @@ class Element extends Node {
 // for the only font this shim measures with.
 const __X_HEIGHT = 1120 / 2048;
 
+// --- lengths ----------------------------------------------------------------------------------
+// A <length> -- CSS or an SVG attribute -- is a number and optionally a unit, with nothing around them but space:
+// "10 px", "10abc" and "5." are errors. Units are case-insensitive.
+const __SVG_NUMBER = String.raw`[+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:[eE][+-]?\d+)?`;
+const __LENGTH_RE = new RegExp(`^\\s*(${__SVG_NUMBER})(px|pt|pc|mm|cm|in|em|ex|rem|%)?\\s*$`, "i");
+const __UNIT_PX = { px: 1, pt: 4 / 3, pc: 16, mm: 96 / 25.4, cm: 96 / 2.54, in: 96 };
+
 // A CSS <length> to px. Relative units resolve against `parentPx` (the parent's font
 // size, which is what em/ex/% mean *inside a font-size declaration*); a bare number
 // is px, as it is for SVG presentation attributes.
 function __lenToPx(v, parentPx) {
-  const m = /^\s*(-?[\d.]+)\s*(px|em|ex|rem|%|pt)?\s*$/i.exec(String(v));
+  const m = __LENGTH_RE.exec(String(v));
   if (!m) return null;
-  const n = parseFloat(m[1]);
-  switch ((m[2] || "px").toLowerCase()) {
-    case "px": return n;
+  const n = parseFloat(m[1]), unit = (m[2] || "px").toLowerCase();
+  switch (unit) {
     case "em": return n * parentPx;
     case "ex": return n * parentPx * __X_HEIGHT;
     case "rem": return n * 16;
     case "%": return (n * parentPx) / 100;
-    case "pt": return (n * 4) / 3;
+    default: return n * __UNIT_PX[unit];
   }
-  return null;
+}
+
+// The numbers at the start of an SVG number list ("0,0 10,5", "10-5", "1.5.5"), up to the first thing that is
+// not one -- which is where a browser stops reading a `points` or `viewBox` too -- as float32s.
+function __parseNumberList(str) {
+  const re = new RegExp(`[\\s,]*(${__SVG_NUMBER})`, "y");
+  const out = [];
+  for (let m; (m = re.exec(str)) !== null;) out.push(globalThis.__parseSvgNumber(m[1]));
+  return out;
+}
+
+// The size percentages of an SVG length resolve against: the viewBox of the nearest <svg> above the element,
+// else its width and height. Nothing known (a detached element, a percentage width): 0.
+function __viewportOf(el) {
+  for (let n = el.parentNode; n && n.nodeType === 1; n = n.parentNode) {
+    if (n.tagName !== "svg") continue;
+    const vb = __parseNumberList(n.getAttribute("viewBox") || "");
+    if (vb.length === 4) return [vb[2], vb[3]];
+    const side = (name) => { const m = __LENGTH_RE.exec(n.getAttribute(name) || ""); return m ? __lengthPx(m, n, name) : 0; };
+    return [side("width"), side("height")];
+  }
+  return [0, 0];
+}
+
+const __LENGTH_AXIS = { x: "x", cx: "x", x1: "x", x2: "x", dx: "x", width: "x", rx: "x",
+                        y: "y", cy: "y", y1: "y", y2: "y", dy: "y", height: "y", ry: "y", r: "diagonal" };
+
+// A matched length (a __LENGTH_RE result) in px, a float32, the way Blink reads an SVGLength: em and ex are
+// the element's font size, rem the root's 16px, % is a share of the viewport -- its width for x-like
+// attributes, its height for y-like ones, the normalized diagonal for `r`.
+function __lengthPx(m, el, name) {
+  const n = globalThis.__parseSvgNumber(m[1]), unit = (m[2] || "px").toLowerCase();
+  switch (unit) {
+    case "em": return Math.fround(n * Math.fround(__resolveFont(el).size));
+    case "ex": return Math.fround(n * Math.fround(__resolveFont(el).size) * __X_HEIGHT);
+    case "rem": return Math.fround(n * 16);
+    case "%": {
+      const [w, h] = __viewportOf(el), axis = __LENGTH_AXIS[name];
+      const whole = axis === "x" ? w : axis === "y" ? h : Math.sqrt((w * w + h * h) / 2);
+      return Math.fround((n * whole) / 100);
+    }
+    default: return Math.fround(n * Math.fround(__UNIT_PX[unit])); // the factor is a float32 too
+  }
+}
+
+// An element's length attribute in px, or null when it has none or it is not a valid length.
+function __svgLength(el, name) {
+  const raw = el.getAttribute(name);
+  const m = raw === null ? null : __LENGTH_RE.exec(raw);
+  return m ? __lengthPx(m, el, name) : null;
+}
+
+// A shape's length attribute for its box: absent or invalid is 0, and so is a negative size.
+function __shapeLength(el, name) {
+  const v = __svgLength(el, name) ?? 0;
+  return v < 0 && (name === "width" || name === "height" || name === "r" || name === "rx" || name === "ry") ? 0 : v;
 }
 
 function __resolveFont(el) {
@@ -888,10 +950,10 @@ function __inlineStyleProp(el, prop) {
   const v = style === null ? undefined : __parseStyleAttr(style)[prop];
   return v === undefined ? null : v;
 }
-// "12px" / "12.5px" -> 12 / 12.5. Any other value (%, em, calc(), empty, absent) -> null.
+// "12px" / "12.5px" -> 12 / 12.5. Any other value (%, em, calc(), a negative length, empty, absent) -> null.
 function __pxValue(v) {
-  const m = v && /^([\d.]+)px$/.exec(v);
-  return m ? parseFloat(m[1]) : null;
+  const m = v && __LENGTH_RE.exec(v);
+  return m && (m[2] || "").toLowerCase() === "px" && parseFloat(m[1]) >= 0 ? parseFloat(m[1]) : null;
 }
 function __resolveHtmlFontSizePx(el) {
   // font-size inherits, so the NEAREST ancestor that declares one wins; on a
@@ -977,23 +1039,18 @@ function __makeCanvas2dContext(canvasEl) {
   return ctx;
 }
 
-// An inherited text property (text-anchor, dominant-baseline): the nearest style="" value (the attribute as
-// written, plus anything set through the CSSOM), else an external stylesheet rule (e.g. mermaid's own
-// "#gd1 .node .label text{text-anchor:middle}", which outranks a plain presentation attribute in real CSS),
-// else the nearest presentation attribute, else the initial value.
+// An inherited text property (text-anchor, dominant-baseline): walking up from the element, the first node that
+// declares it wins. A node's own declaration is its style="" value (the attribute as written, plus anything set
+// through the CSSOM), else a stylesheet rule that matches it (e.g. mermaid's own
+// "#gd1 .node .label text{text-anchor:middle}", which outranks a plain presentation attribute in real CSS), else
+// its presentation attribute. Nothing declares it: the initial value.
 function __resolveTextProp(el, name, initial) {
-  let n = el;
-  while (n && n.nodeType === 1) {
-    const v = __inlineStyleProp(n, name);
-    if (v !== null) return v;
-    n = n.parentNode;
-  }
-  const css = __resolveCssProp(el, name);
-  if (css) return css.trim();
-  n = el;
-  while (n && n.nodeType === 1) {
+  for (let n = el; n && n.nodeType === 1; n = n.parentNode) {
+    const inline = __inlineStyleProp(n, name);
+    if (inline !== null) return inline;
+    const rule = __resolveCssProp(n, name);
+    if (rule) return rule.trim();
     if (n.hasAttribute && n.hasAttribute(name)) return n.getAttribute(name);
-    n = n.parentNode;
   }
   return initial;
 }
@@ -1017,103 +1074,92 @@ function __baselineShift(el, asc, desc, xHeight) {
   }
 }
 
-// Parses an SVG <length>, honoring a trailing "em" (relative to the given
-// font-size) since mermaid's own tspans position themselves with e.g.
-// y="-0.1em" dy="1.1em" rather than plain user-unit numbers.
-function __parseLen(str, fontSize) {
-  if (str === null || str === undefined) return null;
-  const m = /^\s*(-?[\d.]+(?:[eE][-+]?\d+)?)\s*(em)?\s*$/.exec(str);
-  if (!m) return null;
-  // Blink keeps an SVGLength as a float32 parsed by the path-data number parser (path_bbox.js).
-  const v = globalThis.__parseSvgNumber(m[1]);
-  return m[2] === "em" ? Math.fround(v * Math.fround(fontSize)) : v;
-}
-
-// Accumulates the effective x/y across a chain of ancestor->descendant
-// nodes, honoring x/y (absolute) and dx/dy (relative, "em"-aware via
-// __parseLen) at each step -- the same rule real SVG rendering uses when
-// resolving a tspan's painted position from its own attributes plus
-// whatever it inherited on the way down from its ancestors.
-function __accumulatePos(chain, fontSize) {
-  let x = 0, y = 0;
-  for (const n of chain) {
-    const xAttr = n.getAttribute && n.getAttribute("x");
-    const yAttr = n.getAttribute && n.getAttribute("y");
-    const dxAttr = n.getAttribute && n.getAttribute("dx");
-    const dyAttr = n.getAttribute && n.getAttribute("dy");
-    if (xAttr !== null) { const v = __parseLen(xAttr, fontSize); if (v !== null) x = v; }
-    if (yAttr !== null) { const v = __parseLen(yAttr, fontSize); if (v !== null) y = v; }
-    if (dxAttr !== null) { const v = __parseLen(dxAttr, fontSize); if (v !== null) x = Math.fround(x + v); }
-    if (dyAttr !== null) { const v = __parseLen(dyAttr, fontSize); if (v !== null) y = Math.fround(y + v); }
+const __BBOX_SKIP = new Set(["defs","marker","style","script","title","desc","metadata","clipPath","mask","symbol","pattern","linearGradient","radialGradient","filter"]);
+// xml:space="preserve" or a `white-space: pre*` style on the element or an ancestor.
+function __preservesSpace(el) {
+  for (let n = el; n && n.nodeType === 1; n = n.parentNode) {
+    if (n.getAttribute && n.getAttribute("xml:space") === "preserve") return true;
+    const ws = __inlineStyleProp(n, "white-space");
+    if (ws && /^(pre|pre-wrap|break-spaces)$/.test(ws)) return true;
   }
-  return { x, y };
+  return false;
 }
 
-// The chain of nodes from `root` down to `target` (inclusive of both),
-// found by walking target's parentNode pointers back up to root. Used to
-// resolve a specific descendant's position (e.g. a particular line's row
-// tspan) rather than whatever single-child chain __resolveTextPos would
-// otherwise follow.
-function __chainTo(root, target) {
-  const chain = [];
-  let n = target;
-  while (n) { chain.unshift(n); if (n === root) break; n = n.parentNode; }
-  return chain;
-}
-
-// Finds the effective x/y that will actually be used to paint this text
-// element. mermaid always writes its "real" position (y="-0.1em"
-// dy="1.1em", x="0") on the single positioning tspan wrapping the actual
-// runs, and puts a vestigial, unrelated y (plain user units, no dy) on the
-// outer <text> that gets overridden the moment that tspan is reached.
-// Reading the outer element's own y/x directly (as if it were the one SVG
-// actually uses) silently disagreed with the real paint position by
-// exactly that difference -- which is what put backgrounds and text out of
-// alignment. This walks down through single-child chains to find the
-// element that really carries the position, honoring dy accumulation.
-function __resolveTextPos(el, fontSize) {
-  let n = el;
-  const chain = [n];
-  while (true) {
-    const kids = n.childNodes ? n.childNodes.filter(c => c.nodeType === 1) : [];
-    if (kids.length !== 1) break;
-    n = kids[0];
-    chain.push(n);
+// SVG <text> default white-space handling (xml:space="default"), applied over the whole text: newlines and
+// tabs become spaces, runs of spaces collapse to one -- also across the end of one run and the start of the
+// next -- and leading/trailing space is dropped (a browser measures "Design      " as "Design").
+// Takes the text's pieces in document order and returns them collapsed.
+function __collapseSpace(pieces, preserve) {
+  if (preserve) return pieces;
+  let afterSpace = true; // nothing before the first character: a leading space has no place to go
+  const out = pieces.map((raw) => {
+    let t = raw.replace(/[\t\n\r ]+/g, " ");
+    if (afterSpace && t[0] === " ") t = t.slice(1);
+    if (t !== "") afterSpace = t[t.length - 1] === " ";
+    return t;
+  });
+  for (let i = out.length - 1; i >= 0; i--) {
+    if (out[i] === "") continue;
+    if (out[i][out[i].length - 1] === " ") out[i] = out[i].slice(0, -1);
+    break;
   }
-  return __accumulatePos(chain, fontSize);
+  return out;
 }
 
-// Collect the per-line tspans of a multi-line label. mermaid wraps each visual
-// line in a `<tspan class="text-outer-tspan row" ...>` (the words within are
-// `text-inner-tspan`), one such row per line and positioned with dy="1.1em".
-// A single-line label has exactly one row, so callers treat >1 rows as multi-line.
-function __rowTspans(el) {
-  const rows = [];
+// The content of a <text>/<tspan> in document order: each piece of character data as {text, el} (el is the
+// element it sits in), each element as {at: el} just before its content -- where its x/y/dx/dy apply.
+// <title>, <desc> and the like are not text.
+function __svgTextItems(root) {
+  const items = [{ at: root }];
   const walk = (n) => {
-    for (const c of (n.childNodes || [])) {
-      if (c.nodeType !== 1) continue;
-      const cls = (c.getAttribute && c.getAttribute("class")) || "";
-      if (/(^|\s)(row|text-outer-tspan)(\s|$)/.test(cls)) rows.push(c);
-      else walk(c);
+    for (const c of n.childNodes) {
+      if (c.nodeType === 3) items.push({ text: c.textContent, el: n });
+      else if (c.nodeType === 1 && !__BBOX_SKIP.has(c.tagName)) { items.push({ at: c }); walk(c); }
     }
   };
-  walk(el);
-  return rows;
+  walk(root);
+  return items;
 }
 
-const __BBOX_SKIP = new Set(["defs","marker","style","script","title","desc","metadata","clipPath","mask","symbol","pattern","linearGradient","radialGradient","filter"]);
-// SVG <text> default white-space handling (xml:space="default"): newlines/tabs become
-// spaces, runs of spaces collapse to one, and leading/trailing space is dropped -- a
-// browser measures "Design      " as "Design". Left alone under xml:space="preserve"
-// or a `white-space: pre*` style.
 function __svgTextForMeasure(el) {
-  const raw = el.textContent;
-  for (let n = el; n && n.nodeType === 1; n = n.parentNode) {
-    if (n.getAttribute && n.getAttribute("xml:space") === "preserve") return raw;
-    const ws = __inlineStyleProp(n, "white-space");
-    if (ws && /^(pre|pre-wrap|break-spaces)$/.test(ws)) return raw;
+  const pieces = __svgTextItems(el).filter((i) => i.text !== undefined).map((i) => i.text);
+  return __collapseSpace(pieces, __preservesSpace(el)).join("");
+}
+
+// Lays out the text of a <text>/<tspan> the way SVG does (SVG 1.1, 10.5): a current text position moves along
+// the content; an absolute x or y on an element puts it there AND starts a new text chunk; dx/dy shift it.
+// A tspan with x="0" dy="1.2em" is therefore a new line. Returns the chunks as
+// {x0, end, runs: [{text, el, font, m, x, y}]}: x0 / end are where the chunk begins and ends along x, and each
+// run's x / y is its origin before the chunk's text-anchor is applied. No characters, no chunks.
+function __layoutSvgText(root) {
+  const items = __svgTextItems(root);
+  const texts = items.filter((i) => i.text !== undefined);
+  const collapsed = __collapseSpace(texts.map((i) => i.text), __preservesSpace(root));
+  texts.forEach((t, i) => { t.text = collapsed[i]; });
+
+  const fonts = new Map();
+  const fontOf = (el) => { if (!fonts.has(el)) fonts.set(el, __resolveFont(el)); return fonts.get(el); };
+  const measure = (text, font) => globalThis.__measureTextFull(text, font.size, font.family, font.weight, font.style);
+
+  const chunks = [];
+  let chunk = null, x = 0, y = 0;
+  for (const it of items) {
+    if (it.at) {
+      const el = it.at;
+      const ax = __svgLength(el, "x"), ay = __svgLength(el, "y"), dx = __svgLength(el, "dx"), dy = __svgLength(el, "dy");
+      if (ax !== null) { x = ax; chunk = null; }
+      if (ay !== null) { y = ay; chunk = null; }
+      if (dx !== null) x = Math.fround(x + dx);
+      if (dy !== null) y = Math.fround(y + dy);
+    } else if (it.text !== "") {
+      const font = fontOf(it.el), m = measure(it.text, font);
+      if (!chunk) { chunk = { x0: x, end: x, runs: [] }; chunks.push(chunk); }
+      chunk.runs.push({ text: it.text, el: it.el, font, m, x, y });
+      x += m.width;
+      chunk.end = x;
+    }
   }
-  return raw.replace(/[\t\n\r ]+/g, " ").replace(/^ | $/g, "");
+  return chunks;
 }
 
 // Browsers hand these boxes back as single-precision floats. Layout code
@@ -1160,83 +1206,54 @@ function __isDisplayNone(el) {
 function __computeBBox(el) {
   if (__isDisplayNone(el)) return { x: 0, y: 0, width: 0, height: 0 };
   if (el.tagName === "text" || el.tagName === "tspan") {
-    const font = __resolveFont(el);
-    const m = globalThis.__measureTextFull(__svgTextForMeasure(el), font.size, font.family, font.weight, font.style);
-    const pos = __resolveTextPos(el, font.size);
-    const anchor = __resolveTextAnchor(el);
-    // Chrome sizes a text's box from font metrics rounded to whole pixels
-    // (ascent 14.85 -> 15, descent 3.78 -> 4: a 19px line, not 18.625).
-    const asc = Math.round(m.ascent), desc = Math.round(m.descent);
-    const shift = __baselineShift(el, asc, desc, m.xHeight);
-
-    // Multi-line: measuring the whole textContent as one line (below) under-reports the
-    // height, so mermaid sizes the node for a single line and lines 2+ overflow the box.
-    // Width = the widest line; height = one line box + (n-1) line steps (dy="1.1em").
-    const rows = __rowTspans(el);
-    if (rows.length > 1) {
-      const rowBoxes = rows.map((r) => {
-        const rm = globalThis.__measureTextFull(
-          r.textContent, font.size, font.family, font.weight, font.style);
-        return { adv: rm.width, ink: __inkExtent(r.textContent, font, rm.width, asc, desc) };
-      });
-      // The outer <text>'s own y is a vestigial placeholder (see
-      // __resolveTextPos above) that only gets overridden once a *single*
-      // positioning tspan is reached -- but a multi-line label has one row
-      // tspan PER LINE, so that single-child-chain walk stops at <text>
-      // itself and would silently use the wrong, non-"em" y here. Resolve
-      // position via the first row's own y="...em" dy="1.1em" instead.
-      const pos = __accumulatePos(__chainTo(el, rows[0]), font.size);
-      // Each row is anchored on its own advance; the box is the union of the rows' ink boxes.
-      // Rows sit one line step (dy="1.1em") apart, each on its own baseline.
-      let lx = Infinity, rx = -Infinity, top = Infinity, bot = -Infinity;
-      rowBoxes.forEach(({ adv, ink }, i) => {
-        const o = pos.x - (anchor === "middle" ? adv / 2 : anchor === "end" ? adv : 0);
-        const base = pos.y + i * 1.1 * font.size + shift;
-        lx = Math.min(lx, o + ink.left);
-        rx = Math.max(rx, o + ink.right);
+    // The box is the union of every run's box. Each chunk is anchored on its own advance; a run's box is
+    // the font's (whole-pixel) ascent and descent around its baseline -- moved by the run's own
+    // `dominant-baseline` (the nearest declaration, a tspan's included; Chrome probed, see __baselineShift) --
+    // grown by the glyphs' ink (__inkExtent).
+    const chunks = __layoutSvgText(el);
+    if (chunks.length === 0) return { x: 0, y: 0, width: 0, height: 0 }; // no characters: Chrome's empty box
+    let lx = Infinity, rx = -Infinity, top = Infinity, bot = -Infinity;
+    for (const chunk of chunks) {
+      const advance = chunk.end - chunk.x0;
+      const anchor = __resolveTextAnchor(chunk.runs[0].el);
+      const origin = anchor === "middle" ? -advance / 2 : anchor === "end" ? -advance : 0;
+      for (const r of chunk.runs) {
+        const asc = Math.round(r.m.ascent), desc = Math.round(r.m.descent);
+        const ink = __inkExtent(r.text, r.font, r.m.width, asc, desc);
+        const base = r.y + __baselineShift(r.el, asc, desc, r.m.xHeight);
+        lx = Math.min(lx, r.x + origin + ink.left);
+        rx = Math.max(rx, r.x + origin + ink.right);
         top = Math.min(top, base + ink.top);
         bot = Math.max(bot, base + ink.bottom);
-      });
-      const maxW = rx - lx, height = bot - top;
-      return { x: lx, y: top, width: maxW, height, top, left: lx, right: lx + maxW, bottom: top + height };
+      }
     }
-
-    let x = pos.x;
-    if (anchor === "middle") x -= m.width / 2;
-    else if (anchor === "end") x -= m.width;
-    const ink = __inkExtent(__svgTextForMeasure(el), font, m.width, asc, desc);
-    return { x: x + ink.left, y: pos.y + shift + ink.top, width: ink.right - ink.left, height: ink.bottom - ink.top };
+    return { x: lx, y: top, width: rx - lx, height: bot - top };
   }
-  if (el.tagName === "rect") {
-    return { x: parseFloat(el.getAttribute("x"))||0, y: parseFloat(el.getAttribute("y"))||0,
-             width: parseFloat(el.getAttribute("width"))||0, height: parseFloat(el.getAttribute("height"))||0 };
-  }
+  const L = (name) => __shapeLength(el, name);
+  if (el.tagName === "rect") return { x: L("x"), y: L("y"), width: L("width"), height: L("height") };
   if (el.tagName === "circle") {
-    const cx=parseFloat(el.getAttribute("cx"))||0, cy=parseFloat(el.getAttribute("cy"))||0, r=parseFloat(el.getAttribute("r"))||0;
-    return { x: cx-r, y: cy-r, width: 2*r, height: 2*r };
+    const cx = L("cx"), cy = L("cy"), r = L("r");
+    return { x: cx - r, y: cy - r, width: 2 * r, height: 2 * r };
   }
   if (el.tagName === "line") {
-    const x1=parseFloat(el.getAttribute("x1"))||0, x2=parseFloat(el.getAttribute("x2"))||0;
-    const y1=parseFloat(el.getAttribute("y1"))||0, y2=parseFloat(el.getAttribute("y2"))||0;
-    return { x: Math.min(x1,x2), y: Math.min(y1,y2), width: Math.abs(x2-x1), height: Math.abs(y2-y1) };
+    const x1 = L("x1"), x2 = L("x2"), y1 = L("y1"), y2 = L("y2");
+    return { x: Math.min(x1, x2), y: Math.min(y1, y2), width: Math.abs(x2 - x1), height: Math.abs(y2 - y1) };
   }
   if (el.tagName === "path") {
     return globalThis.__pathBBox(el.getAttribute("d") || "");
   }
   if (el.tagName === "polygon" || el.tagName === "polyline") {
-    const raw = el.getAttribute("points") || "";
-    const nums = raw.trim().split(/[\s,]+/).filter(s => s.length).map(Number);
+    const nums = __parseNumberList(el.getAttribute("points") || "");
     const xs = [], ys = [];
-    for (let k = 0; k + 1 < nums.length; k += 2) { xs.push(nums[k]); ys.push(nums[k+1]); }
+    for (let k = 0; k + 1 < nums.length; k += 2) { xs.push(nums[k]); ys.push(nums[k + 1]); }
     if (!xs.length) return { x: 0, y: 0, width: 0, height: 0 };
     const minX = Math.min(...xs), maxX = Math.max(...xs);
     const minY = Math.min(...ys), maxY = Math.max(...ys);
     return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
   }
   if (el.tagName === "ellipse") {
-    const cx=parseFloat(el.getAttribute("cx"))||0, cy=parseFloat(el.getAttribute("cy"))||0;
-    const rx=parseFloat(el.getAttribute("rx"))||0, ry=parseFloat(el.getAttribute("ry"))||0;
-    return { x: cx-rx, y: cy-ry, width: 2*rx, height: 2*ry };
+    const cx = L("cx"), cy = L("cy"), rx = L("rx"), ry = L("ry");
+    return { x: cx - rx, y: cy - ry, width: 2 * rx, height: 2 * ry };
   }
   if (el.tagName === "foreignObject") {
     // Its own width/height attributes (set from getBoundingClientRect()
@@ -1249,9 +1266,7 @@ function __computeBBox(el) {
     // *overall* diagram bbox mermaid computes the final SVG viewBox
     // from, clipping that content at the canvas edge despite the
     // foreignObject's own box being sized and positioned correctly.
-    return { x: 0, y: 0,
-             width: parseFloat(el.getAttribute("width")) || 0,
-             height: parseFloat(el.getAttribute("height")) || 0 };
+    return { x: 0, y: 0, width: L("width"), height: L("height") };
   }
   // group / unknown: union of children, each mapped through its own
   // transform first. getBBox() is defined to return a bbox in the
@@ -1290,11 +1305,6 @@ function __computeBBox(el) {
   return { x:minX, y:minY, width:Math.fround(maxX-minX), height:Math.fround(maxY-minY) };
 }
 
-// Extracts the (dx, dy) translation from an element's `transform` attribute.
-// Only translate(...) is handled -- the only form mermaid actually emits
-// for node/edge positioning -- other transform functions (rotate, scale,
-// matrix) are ignored (treated as 0,0) rather than attempted, since a wrong
-// partial transform is worse than a clearly-incomplete one.
 // The element's whole `transform` list as one matrix [a, b, c, d, e, f] (x' = a*x + c*y + e,
 // y' = b*x + d*y + f), composed left to right like the SVG spec says. null = no/identity transform.
 function __transformMatrix(el) {
@@ -1324,14 +1334,6 @@ function __transformMatrix(el) {
     if (n && n.every(Number.isFinite)) { M = mul(M, n); any = true; }
   }
   return any ? M : null;
-}
-
-function __translateOf(el) {
-  const t = el.getAttribute && el.getAttribute("transform");
-  if (!t) return [0, 0];
-  const m = /translate\(\s*(-?[\d.]+)(?:[,\s]+(-?[\d.]+))?\s*\)/.exec(t);
-  if (!m) return [0, 0];
-  return [parseFloat(m[1]) || 0, m[2] !== undefined ? (parseFloat(m[2]) || 0) : 0];
 }
 
 // --- selector engine (tag/#id/.class/attr/:first-child/:last-child/:not, and the four combinators) ---
@@ -1514,8 +1516,15 @@ function __materializeStyle(n) {
 }
 // An element's attributes in document order. `style` keeps the position setAttribute gave it; a style
 // that only exists through the live CSSOM is a new attribute, so it comes last.
+const __XLINK_NS = "http://www.w3.org/1999/xlink";
+// The prefix a serializer writes for an attribute that has a namespace but no prefix of its own (d3's
+// attr("xlink:href", v) calls setAttributeNS(XLINK, "href", v)): the namespace's well-known one.
+const __ATTR_PREFIX = { [__XLINK_NS]: "xlink", "http://www.w3.org/XML/1998/namespace": "xml" };
 function __attrEntries(n) {
-  const entries = Object.entries(n._attrs || {});
+  const entries = Object.entries(n._attrs || {}).map(([k, v]) => {
+    const prefix = __ATTR_PREFIX[(n._attrNs || {})[k]];
+    return [prefix && !k.includes(":") ? `${prefix}:${k}` : k, v];
+  });
   const style = __styleValue(n);
   if (style === null) return entries;
   const at = entries.findIndex(([k]) => k === "style");
@@ -1542,7 +1551,6 @@ function __serialize(el, innerOnly) {
 // innerHTML/outerHTML in that an empty element in a foreign namespace is self-closing (<path/>), an
 // empty HTML void element is <br />, namespaces are declared where they change, and a prefixed
 // attribute (xlink:href) gets its xmlns:prefix declaration if none is in scope.
-const __XLINK_NS = "http://www.w3.org/1999/xlink";
 class XMLSerializer {
   serializeToString(root) {
     const ser = (n, inheritedNs, declared) => {
@@ -1706,7 +1714,7 @@ Object.defineProperty(Element.prototype, "attributes", {
   configurable: true,
   get() {
     // a snapshot is fine: DOMPurify walks it backwards while removing/updating attributes
-    return Object.keys(this._attrs).map((name) => ({ name, localName: name, value: this._attrs[name], namespaceURI: null, specified: true }));
+    return Object.keys(this._attrs).map((name) => ({ name, localName: name, value: this._attrs[name], namespaceURI: this._attrNs[name] || null, specified: true }));
   },
 });
 
@@ -1837,14 +1845,44 @@ globalThis.addEventListener = () => {};
 globalThis.removeEventListener = () => {};
 globalThis.dispatchEvent = () => true;
 globalThis.navigator = { userAgent: "mermaidx-quickjs" };
-globalThis.screen = { width: 1920, height: 1080, availWidth: 1920, availHeight: 1040, colorDepth: 24, pixelDepth: 24 };
+// mmdc's page has an 800x600 viewport, which sizes the screen too; mermaid's C4 diagram wraps its rows at
+// screen.availWidth (the other three are the same emulation, not read by mermaid).
+globalThis.screen = { width: 800, height: 600, availWidth: 800, availHeight: 600, colorDepth: 24, pixelDepth: 24 };
 globalThis.getComputedStyle = (el) => el.style;
-globalThis.requestAnimationFrame = (fn) => { Promise.resolve().then(() => fn(0)); return 0; };
-globalThis.cancelAnimationFrame = () => {};
-globalThis.setTimeout = (fn, t) => { Promise.resolve().then(() => fn()); return 0; };
-globalThis.clearTimeout = () => {};
-globalThis.setInterval = () => 0;
-globalThis.clearInterval = () => {};
+// Timers are a browser's macrotask queue, on virtual time. setTimeout / setInterval / requestAnimationFrame
+// callbacks run one at a time, the one due first first (a tie: in the order they were scheduled), with every
+// promise job drained between two of them. Nothing waits: the clock jumps to the next due time. The engine runs
+// them with __runNextTimer() until what it is waiting for has happened -- a page that asks for a frame in every
+// frame (cytoscape does) never goes idle by itself.
+(() => {
+  const FRAME_MS = 16;
+  const queue = []; // {id, due, order, fn, args, every}
+  let now = 0, lastId = 0, lastOrder = 0;
+  const delay = (ms) => { const n = Number(ms); return n > 0 ? n : 0; }; // NaN, negative, missing: 0
+  const schedule = (id, due, fn, args, every) => queue.push({ id, due, order: ++lastOrder, fn, args, every });
+  const cancel = (id) => { const i = queue.findIndex((t) => t.id === Number(id)); if (i >= 0) queue.splice(i, 1); };
+  const nextFrame = () => (Math.floor(now / FRAME_MS) + 1) * FRAME_MS;
+
+  globalThis.setTimeout = (fn, ms, ...args) => { const id = ++lastId; schedule(id, now + delay(ms), fn, args, null); return id; };
+  globalThis.setInterval = (fn, ms, ...args) => { const id = ++lastId, every = Math.max(1, delay(ms)); schedule(id, now + every, fn, args, every); return id; };
+  globalThis.requestAnimationFrame = (fn) => { const id = ++lastId; schedule(id, nextFrame(), () => fn(now), [], null); return id; };
+  globalThis.clearTimeout = globalThis.clearInterval = globalThis.cancelAnimationFrame = cancel;
+
+  // Runs the next timer; false when there is none.
+  globalThis.__runNextTimer = () => {
+    if (queue.length === 0) return false;
+    let k = 0;
+    for (let i = 1; i < queue.length; i++) {
+      if (queue[i].due < queue[k].due || (queue[i].due === queue[k].due && queue[i].order < queue[k].order)) k = i;
+    }
+    const [t] = queue.splice(k, 1);
+    now = Math.max(now, t.due);
+    if (t.every !== null) schedule(t.id, now + t.every, t.fn, t.args, t.every); // before the callback, so it can clear itself
+    try { if (typeof t.fn === "function") t.fn(...t.args); }
+    catch (e) { if (globalThis.__log) globalThis.__log("uncaught in a timer callback: " + e); }
+    return true;
+  };
+})();
 class ResizeObserverStub { observe(){} unobserve(){} disconnect(){} }
 globalThis.ResizeObserver = ResizeObserverStub;
 class MutationObserverStub { observe(){} disconnect(){} takeRecords(){return [];} }

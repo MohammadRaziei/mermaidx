@@ -51,7 +51,7 @@ exactly like the Python path does.
 
 Why this runs in a subprocess, not a thread
 ---------------------------------------------
-quickjs_engine.py bounds runaway diagrams (mindmap/cytoscape's internal
+quickjs_engine.py bounds runaway diagrams (mindmap's and architecture's cytoscape internal
 requestAnimationFrame-driven loop, built for a long-lived interactive page,
 meaningless for a one-shot headless render) via a capped, step-by-step
 job-pump loop. py_mini_racer exposes no equivalent manual microtask-pumping
@@ -92,7 +92,7 @@ import threading
 from functools import lru_cache
 from typing import Optional
 
-from mermaidx.engines._common import MermaidRenderError, collect_svg, context_scripts, render_script
+from mermaidx.engines._common import MermaidRenderError, TextMeasurer, collect_svg, context_scripts, render_script, run_event_loop
 from mermaidx.font_metrics import get_font
 
 _DEFAULT_RENDER_TIMEOUT_MS = 8_000
@@ -125,12 +125,18 @@ def _measure_text_js() -> str:
             "advances": regular.full_advance_table(),
             "notdef": regular.notdef_advance_units(),
             "kerning": regular.ascii_kerning_pairs(),
+            "ligatures": regular.ligatures(),
+            "ink": regular.full_glyph_table(),
+            "notdefInk": regular.notdef_glyph_box(),
             **regular.metrics_summary(),
         },
         "bold": {
             "advances": bold.full_advance_table(),
             "notdef": bold.notdef_advance_units(),
             "kerning": bold.ascii_kerning_pairs(),
+            "ligatures": bold.ligatures(),
+            "ink": bold.full_glyph_table(),
+            "notdefInk": bold.notdef_glyph_box(),
             **bold.metrics_summary(),
         },
     }
@@ -148,136 +154,74 @@ def _measure_text_js() -> str:
     return FONTS.regular;
   }}
 
+  // The walk Font::measureText() and Font::glyphBoxes() make (novasvg's detail/font.h): for each codepoint,
+  // an f-ligature if the font has one for the sequence starting here (longest first), then the kerning
+  // between it and the glyph before it, then its advance. Returns every glyph's pen position in font units.
+  function walk(text, font) {{
+    const cps = Array.from(text == null ? "" : String(text), (ch) => ch.codePointAt(0));
+    const glyphs = [];
+    let pen = 0, prev = null;
+    for (let i = 0; i < cps.length; i++) {{
+      let cp = cps[i];
+      const lig = font.ligatures.find(([seq]) => seq.every((c, k) => cps[i + k] === c));
+      if (lig) {{ cp = lig[1]; i += lig[0].length - 1; }}
+      if (prev !== null) {{
+        // Only printable-ASCII pairs are in the table (see Font.ascii_kerning_pairs); any other pair is 0.
+        const k = font.kerning[prev + "," + cp];
+        if (k !== undefined) pen += k;
+      }}
+      prev = cp;
+      glyphs.push({{ cp, pen }});
+      const adv = font.advances[cp];
+      pen += adv === undefined ? font.notdef : adv;
+    }}
+    return {{ glyphs, units: pen }};
+  }}
+
   function measureFull(text, size, family, weight, style) {{
     const font = pickFont(weight);
-    const s = text == null ? "" : String(text);
-    let totalUnits = 0;
-    let prevCp = null;
-    for (const ch of s) {{
-      const cp = ch.codePointAt(0);
-      const adv = font.advances[cp];
-      totalUnits += adv === undefined ? font.notdef : adv;
-      // Kerning between consecutive codepoints -- mirrors the pairwise
-      // lookup Font::measureText() itself does (see
-      // font_face_text_extents() in novasvg's detail/render/font.h) via a
-      // sparse, printable-ASCII-only table (see
-      // mermaidx.font_metrics.Font.ascii_kerning_pairs()'s docstring for
-      // why it's ASCII-scoped rather than exhaustive); a pair outside that
-      // table (either codepoint non-ASCII, or simply no adjustment for
-      // that pair) contributes 0, same as novasvg itself would for a pair
-      // with no kerning entry.
-      if (prevCp !== null) {{
-        const k = font.kerning[prevCp + "," + cp];
-        if (k !== undefined) totalUnits += k;
-      }}
-      prevCp = cp;
-    }}
-    const sizePx = Number(size) || 16;
-    const scale = sizePx / font.unitsPerEm;
+    const scale = (Number(size) || 16) / font.unitsPerEm;
     return {{
-      width: totalUnits * scale,
+      width: walk(text, font).units * scale,
       ascent: font.ascender * scale,
       descent: -font.descender * scale,
       xHeight: font.xHeight * scale,
     }};
   }}
 
+  // [pen, ink_left, ink_right, ink_top, ink_bottom] in px for every glyph with an outline (a space has none).
+  function measureGlyphs(text, size, family, weight, style) {{
+    const font = pickFont(weight);
+    const scale = (Number(size) || 16) / font.unitsPerEm;
+    const boxes = [];
+    for (const {{ cp, pen }} of walk(text, font).glyphs) {{
+      const ink = font.ink[cp] || (font.advances[cp] === undefined ? font.notdefInk : null);
+      if (ink) boxes.push([pen * scale, ink[0] * scale, ink[1] * scale, ink[2] * scale, ink[3] * scale]);
+    }}
+    return boxes;
+  }}
+
   globalThis.__measureTextFull = measureFull;
+  globalThis.__measureGlyphs = measureGlyphs;
   globalThis.__measureText = (t, s, f, w, st) => measureFull(t, s, f, w, st).width;
 
-  // Mirrors novasvg's own foreignObjectPlainText()/wrapForeignObjectText()/
-  // foreignObjectLineHeight()/measureForeignObjectContent() (see
-  // include/novasvg/detail/svgelement.h in the novasvg repo) line-for-line, so a box sized from this never disagrees
-  // with what novasvg later actually paints into it. QuickJS doesn't need
-  // this mirror: it can call back synchronously into Python, which calls
-  // novasvg.measure_foreign_object() -- the real thing -- directly (see
-  // quickjs_engine.py's _TextMeasurer.foreign_object()). V8 can't make
-  // that synchronous call (this whole module exists because of that
-  // limitation -- see the module docstring), so this reimplements the
-  // same small, deliberately-simple algorithm instead, the same way
-  // measureFull() above reimplements Font::measureText() from a shipped
-  // advance table rather than calling back per string.
-  const BLOCK_TAGS = new Set(["br", "p", "div", "tr", "li"]);
-  const ENTITIES = {{ "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": '"', "&apos;": "'", "&nbsp;": " " }};
-
-  function foreignObjectPlainText(html) {{
-    let out = "";
-    let i = 0;
-    while (i < html.length) {{
-      const c = html[i];
-      if (c === "<") {{
-        const close = html.indexOf(">", i);
-        if (close === -1) break;
-        const tag = html.slice(i, close + 1);
-        const m = /^<\\s*\\/?\\s*([a-zA-Z]+)/.exec(tag);
-        const tagName = m ? m[1].toLowerCase() : "";
-        out += BLOCK_TAGS.has(tagName) ? "\\n" : " ";
-        i = close + 1;
-        continue;
-      }}
-      if (c === "&") {{
-        const ent = Object.keys(ENTITIES).find((e) => html.startsWith(e, i));
-        if (ent) {{ out += ENTITIES[ent]; i += ent.length; continue; }}
-      }}
-      out += c;
-      i += 1;
-    }}
-    // Collapse whitespace runs to a single space, preserving '\\n' as its
-    // own break marker (and dropping spaces touching one), same as
-    // foreignObjectPlainText()'s own second pass.
-    let collapsed = "";
-    let lastWasSpace = true;
-    for (let c of out.replace(/[\\t\\r]/g, " ")) {{
-      if (c === "\\n") {{
-        while (collapsed.endsWith(" ")) collapsed = collapsed.slice(0, -1);
-        collapsed += "\\n";
-        lastWasSpace = true;
-        continue;
-      }}
-      if (c === " ") {{
-        if (lastWasSpace) continue;
-        lastWasSpace = true;
-      }} else {{
-        lastWasSpace = false;
-      }}
-      collapsed += c;
-    }}
-    return collapsed.replace(/[ \\n]+$/, "");
-  }}
-
-  function wrapForeignObjectText(text) {{
-    const lines = text.split("\\n").filter((p) => p.length > 0);
-    return lines.length ? lines : [""];
-  }}
-
-  function foreignObjectLineHeight(rawHtml, fontSize) {{
-    const tagRe = /<[a-zA-Z][^>]*>/g;
-    let tag;
-    while ((tag = tagRe.exec(rawHtml))) {{
-      const styleMatch = /\\sstyle\\s*=\\s*"([^"]*)"/.exec(tag[0]);
-      if (!styleMatch) continue;
-      const declMatch = /(?:^|[;\\s])line-height\\s*:\\s*([0-9.]+)\\s*(px)?/.exec(styleMatch[1]);
-      if (declMatch) {{
-        const n = parseFloat(declMatch[1]);
-        return declMatch[2] === "px" ? n : n * fontSize;
-      }}
-    }}
-    return null;
-  }}
-
-  function measureForeignObject(html, size, family, weight, style) {{
-    const s = html == null ? "" : String(html);
-    const sizePx = Number(size) || 16;
-    const text = foreignObjectPlainText(s);
-    const lines = wrapForeignObjectText(text);
-    const lineHeight = foreignObjectLineHeight(s, sizePx) ?? (measureFull("M", sizePx, family, weight, style).ascent
-      + measureFull("M", sizePx, family, weight, style).descent) * 1.2;
-    let width = 0;
-    for (const line of lines) width = Math.max(width, measureFull(line, sizePx, family, weight, style).width);
-    return {{ height: lineHeight * lines.length, width, line_count: lines.length, line_height: lineHeight }};
-  }}
-
-  globalThis.__measureForeignObject = measureForeignObject;
+  // <foreignObject> labels are laid out by novasvg (wrapping, bold and italic runs, a declared width...): too
+  // much to copy here, and V8 cannot call back into Python while it runs. So the page is rendered more than
+  // once. A label whose size is not in __foKnown is recorded in __foMissing and given a rough size; the child
+  // process asks novasvg for exactly the recorded ones, and the page is rendered again with them in
+  // __foKnown, until nothing new is asked (see _render below).
+  globalThis.__foKnown = {{}};
+  globalThis.__foMissing = {{}};
+  globalThis.__measureForeignObject = (html, size, family, weight, style) => {{
+    const key = JSON.stringify([html, size, family, weight, style]);
+    if (globalThis.__foKnown[key]) return globalThis.__foKnown[key];
+    globalThis.__foMissing[key] = [html, size, family, weight, style];
+    const px = Number(size) || 16;
+    const m = measureFull("M", px, family, weight, style);
+    const lineHeight = (m.ascent + m.descent) * 1.2;
+    const text = String(html == null ? "" : html).replace(/<[^>]*>/g, " ").trim();
+    return {{ width: measureFull(text, px, family, weight, style).width, height: lineHeight, line_count: 1, line_height: lineHeight }};
+  }};
 }})();
 """
 
@@ -295,10 +239,32 @@ def _build_context():
     return ctx
 
 
-def _render_svg_sync(ctx, code: str, theme: str,
-                      config: Optional[dict], css: Optional[str]) -> str:
-    ctx.eval(render_script(code, theme, config, css))
-    return collect_svg(ctx.eval)
+# The page is rendered again while its <foreignObject> labels still had rough sizes. Real diagrams settle in two
+# passes: a label's HTML does not depend on the size anything else was given.
+_MAX_PASSES = 8
+# Sizes learned so far, for the life of the child process: the next diagram that has the same label needs no extra pass.
+_KNOWN_LIMIT = 50_000
+
+
+def _render(ctx, code: str, theme: str, config: Optional[dict], css: Optional[str],
+            known: dict, measure, build_context) -> str:
+    """Renders until the page has asked for no <foreignObject> size it was not given exactly. `ctx` is the fresh
+    context for the first pass, `build_context()` makes the one for each pass after it, `known` maps what the page
+    asked (its own key for it) to novasvg's answer, and `measure(*what_was_asked)` asks novasvg."""
+    if len(known) > _KNOWN_LIMIT:
+        known.clear()
+    for _ in range(_MAX_PASSES):
+        ctx.eval(f"globalThis.__foKnown = {json.dumps(known)};")
+        ctx.eval(render_script(code, theme, config, css))
+        run_event_loop(ctx.eval)
+        asked = json.loads(ctx.eval("JSON.stringify(globalThis.__foMissing)"))
+        if not asked:
+            return collect_svg(ctx.eval)
+        # Whatever the page did with rough sizes (even fail) is not its answer: measure and go again.
+        for key, what in asked.items():
+            known[key] = measure(*what)
+        ctx = build_context()
+    raise MermaidRenderError(f"the sizes of the <foreignObject> labels did not settle in {_MAX_PASSES} passes")
 
 
 def _child_main(conn) -> None:
@@ -310,6 +276,8 @@ def _child_main(conn) -> None:
     recourse is killing the process outright (see module docstring), which
     is exactly the point: nothing in here needs to handle that gracefully.
     """
+    known: dict = {}
+    measurer = TextMeasurer()
     try:
         ctx = _build_context()
         conn.send(("ready", None))
@@ -327,7 +295,7 @@ def _child_main(conn) -> None:
 
         code, theme, config, css = msg
         try:
-            svg = _render_svg_sync(ctx, code, theme, config, css)
+            svg = _render(ctx, code, theme, config, css, known, measurer.foreign_object, _build_context)
             conn.send(("ok", svg))
         except MermaidRenderError as exc:
             conn.send(("render_error", str(exc)))

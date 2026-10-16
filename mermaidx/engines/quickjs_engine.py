@@ -33,29 +33,7 @@ from typing import Optional
 
 import quickjs
 
-from mermaidx.engines._common import MermaidRenderError, collect_svg, context_scripts, render_script  # noqa: F401 (re-exported: the engines are interchangeable by their import line)
-from mermaidx.font_metrics import get_font
-
-_RENDER_TIMEOUT_JOBS = 200_000  # safety cap on Promise-job pump iterations
-
-
-class _TextMeasurer:
-    """Real font metrics via mermaidx.font_metrics (bundled DejaVu Sans) --
-    the same font file mermaidx.raster (novasvg) is told to use for final
-    rendering, so layout and paint always agree (see Engine._init_context /
-    mermaidx.py)."""
-
-    def width(self, text, size, family, weight, style) -> float:
-        return get_font(weight).measure(text or "", float(size or 16))["width"]
-
-    def full(self, text, size, family, weight, style) -> dict:
-        return get_font(weight).measure(text or "", float(size or 16))
-
-    def glyphs(self, text, size, family, weight, style) -> list:
-        return get_font(weight).glyph_boxes(text or "", float(size or 16))
-
-    def foreign_object(self, html, size, family, weight, style) -> dict:
-        return get_font(weight).foreign_object_metrics(html or "", float(size or 16))
+from mermaidx.engines._common import MermaidRenderError, TextMeasurer, collect_svg, context_scripts, render_script, run_event_loop  # noqa: F401 (re-exported: the engines are interchangeable by their import line)
 
 
 # A browser gives a page's JS a stack deep enough for mermaid.js's recursion (dagre walks a long chain of
@@ -76,7 +54,7 @@ class Engine:
     def __init__(self) -> None:
         self._executor: Optional[ThreadPoolExecutor] = None
         self._ctx: Optional[quickjs.Context] = None
-        self._measurer: Optional[_TextMeasurer] = None
+        self._measurer: Optional[TextMeasurer] = None
         self._render_count = 0
         self._ctx_used = False
         self._lock = threading.Lock()
@@ -110,7 +88,7 @@ class Engine:
     # -- worker-thread-only methods ---------------------------------------
 
     def _init_context(self) -> None:
-        self._measurer = _TextMeasurer()
+        self._measurer = TextMeasurer()
         self._ctx = self._build_context()
         self._ctx_used = False
 
@@ -162,22 +140,12 @@ class Engine:
             ctx.eval(script)
         return ctx
 
-    def _pump_jobs(self, stop_when: Optional[str] = None) -> None:
-        """Drain the Promise/microtask queue. If `stop_when` is a JS boolean
-        expression, stop as soon as it's true rather than draining the whole
-        job queue. Some diagrams (mindmap, via cytoscape) keep an internal
-        render loop scheduled indefinitely via requestAnimationFrame, built
-        for a long-lived interactive page, that never naturally empties the
-        job queue on its own in a one-shot headless render."""
-        assert self._ctx is not None
-        for _ in range(_RENDER_TIMEOUT_JOBS):
-            if stop_when is not None and self._ctx.eval(stop_when):
-                return
-            try:
-                if not self._ctx.execute_pending_job():
-                    return
-            except StopIteration:
-                return
+    def _run_job(self) -> bool:
+        """Runs one pending promise job; False when there is none."""
+        try:
+            return bool(self._ctx.execute_pending_job())
+        except StopIteration:
+            return False
 
     def _render_svg_sync(self, code: str, theme: str, config: Optional[dict], css: Optional[str]) -> str:
         self._ensure_fresh_context()
@@ -185,7 +153,7 @@ class Engine:
         self._ctx_used = True
         self._render_count += 1
         ctx.eval(render_script(code, theme, config, css))
-        self._pump_jobs(stop_when="!!globalThis.__renderResult || !!globalThis.__renderError")
+        run_event_loop(ctx.eval, self._run_job)
 
         return collect_svg(ctx.eval)
 

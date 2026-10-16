@@ -521,17 +521,14 @@ class Diagram(DiagramBase):
     font shared with the layout step) for everything downstream of SVG. See
     DiagramBase for the full method list.
 
-    `backend` picks *which* JS engine runs mermaid.js -- both always render
-    the exact same mermaid.js and produce byte-identical SVG output:
+    `backend` picks *which* JS engine runs mermaid.js -- both run the exact
+    same mermaid.js:
 
       - 'quickjs' (default): QuickJS-ng. Always available (mermaidx's one
         hard dependency), handles every diagram type mermaidx supports.
       - 'v8': real V8 via the optional `mini-racer` package -- noticeably
-        faster (a real JIT vs. QuickJS-ng's interpreter-only execution; see
-        the project's own benchmarks), at two costs: it's an extra install
-        (`pip install mermaidx[v8]`), and it can't render `mindmap`
-        diagrams (see engines/v8_engine.py's "Known limitation" docstring
-        for why) -- use the default 'quickjs' for those.
+        faster (a real JIT vs. QuickJS-ng's interpreter-only execution), at
+        the cost of an extra install (`pip install mermaidx[v8]`).
 
     Example::
 

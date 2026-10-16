@@ -1,0 +1,384 @@
+[
+ {
+  "name": "rect plain",
+  "markup": "<rect x='1' y='2' width='10' height='20'/>",
+  "bbox": [
+   1,
+   2,
+   10,
+   20
+  ]
+ },
+ {
+  "name": "rect px",
+  "markup": "<rect x='1px' y='2px' width='10px' height='20px'/>",
+  "bbox": [
+   1,
+   2,
+   10,
+   20
+  ]
+ },
+ {
+  "name": "rect pt",
+  "markup": "<rect x='0' y='0' width='15pt' height='30pt'/>",
+  "bbox": [
+   0,
+   0,
+   20,
+   40
+  ]
+ },
+ {
+  "name": "rect em",
+  "markup": "<rect x='0' y='0' width='1.5em' height='2em'/>",
+  "bbox": [
+   0,
+   0,
+   30,
+   40
+  ]
+ },
+ {
+  "name": "rect ex",
+  "markup": "<rect x='0' y='0' width='2ex' height='1ex'/>",
+  "bbox": [
+   0,
+   0,
+   21.875,
+   10.9375
+  ]
+ },
+ {
+  "name": "rect percent",
+  "markup": "<rect x='10%' y='10%' width='50%' height='50%'/>",
+  "bbox": [
+   40,
+   30,
+   200,
+   150
+  ]
+ },
+ {
+  "name": "rect exp",
+  "markup": "<rect x='0' y='0' width='1e1' height='2E1'/>",
+  "bbox": [
+   0,
+   0,
+   10,
+   20
+  ]
+ },
+ {
+  "name": "rect spaces",
+  "markup": "<rect x=' 3 ' y=' 4 ' width=' 7 ' height=' 8 '/>",
+  "bbox": [
+   3,
+   4,
+   7,
+   8
+  ]
+ },
+ {
+  "name": "rect plus dot",
+  "markup": "<rect x='+4' y='.5' width='5.' height='6'/>",
+  "bbox": [
+   4,
+   0.5,
+   0,
+   6
+  ]
+ },
+ {
+  "name": "rect junk",
+  "markup": "<rect x='abc' y='2' width='10' height='20'/>",
+  "bbox": [
+   0,
+   2,
+   10,
+   20
+  ]
+ },
+ {
+  "name": "rect trailing junk",
+  "markup": "<rect x='3' y='2' width='10abc' height='20'/>",
+  "bbox": [
+   3,
+   2,
+   0,
+   20
+  ]
+ },
+ {
+  "name": "rect negative size",
+  "markup": "<rect x='3' y='2' width='-10' height='20'/>",
+  "bbox": [
+   3,
+   2,
+   0,
+   20
+  ]
+ },
+ {
+  "name": "rect missing",
+  "markup": "<rect/>",
+  "bbox": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ {
+  "name": "rect float32",
+  "markup": "<rect x='0.1' y='0.2' width='0.30000000000000004' height='0.7'/>",
+  "bbox": [
+   0.10000000149011612,
+   0.20000000298023224,
+   0.30000001192092896,
+   0.699999988079071
+  ]
+ },
+ {
+  "name": "circle em",
+  "markup": "<circle cx='5' cy='5' r='1em'/>",
+  "bbox": [
+   -15,
+   -15,
+   40,
+   40
+  ]
+ },
+ {
+  "name": "circle px",
+  "markup": "<circle cx='5px' cy='5px' r='3px'/>",
+  "bbox": [
+   2,
+   2,
+   6,
+   6
+  ]
+ },
+ {
+  "name": "ellipse units",
+  "markup": "<ellipse cx='5' cy='5' rx='1em' ry='3pt'/>",
+  "bbox": [
+   -15,
+   1,
+   40,
+   8
+  ]
+ },
+ {
+  "name": "line units",
+  "markup": "<line x1='1em' y1='2' x2='30px' y2='4pt'/>",
+  "bbox": [
+   20,
+   2,
+   10,
+   3.3333334922790527
+  ]
+ },
+ {
+  "name": "polygon plain",
+  "markup": "<polygon points='0,0 10,5 4,12'/>",
+  "bbox": [
+   0,
+   0,
+   10,
+   12
+  ]
+ },
+ {
+  "name": "polygon odd",
+  "markup": "<polygon points='0,0 10,5 4'/>",
+  "bbox": [
+   0,
+   0,
+   10,
+   5
+  ]
+ },
+ {
+  "name": "polygon junk",
+  "markup": "<polygon points='0,0 a,b 4,12'/>",
+  "bbox": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ {
+  "name": "polygon units",
+  "markup": "<polygon points='0,0 10px,5 4,12'/>",
+  "bbox": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ {
+  "name": "polygon float32",
+  "markup": "<polygon points='0.1,0.2 0.30000000000000004,1e-7'/>",
+  "bbox": [
+   0.10000000149011612,
+   1.0000000116860974e-07,
+   0.20000001788139343,
+   0.19999989867210388
+  ]
+ },
+ {
+  "name": "polygon spaces",
+  "markup": "<polygon points='  0 , 0   10 5,4   12 '/>",
+  "bbox": [
+   0,
+   0,
+   10,
+   12
+  ]
+ },
+ {
+  "name": "polyline plain",
+  "markup": "<polyline points='1,1 5,9'/>",
+  "bbox": [
+   1,
+   1,
+   4,
+   8
+  ]
+ },
+ {
+  "name": "rect rem",
+  "markup": "<rect x='0' y='0' width='2rem' height='1rem'/>",
+  "bbox": [
+   0,
+   0,
+   32,
+   16
+  ]
+ },
+ {
+  "name": "rect mm cm in pc",
+  "markup": "<rect x='0' y='0' width='10mm' height='1cm'/>",
+  "bbox": [
+   0,
+   0,
+   37.7952766418457,
+   37.7952766418457
+  ]
+ },
+ {
+  "name": "rect inch pica",
+  "markup": "<rect x='1in' y='1pc' width='1in' height='2pc'/>",
+  "bbox": [
+   96,
+   16,
+   96,
+   32
+  ]
+ },
+ {
+  "name": "rect uppercase unit",
+  "markup": "<rect x='0' y='0' width='10PX' height='5Pt'/>",
+  "bbox": [
+   0,
+   0,
+   10,
+   6.666666507720947
+  ]
+ },
+ {
+  "name": "rect unit space",
+  "markup": "<rect x='0' y='0' width='10 px' height='5'/>",
+  "bbox": [
+   0,
+   0,
+   0,
+   5
+  ]
+ },
+ {
+  "name": "rect exp unit",
+  "markup": "<rect x='0' y='0' width='1e1px' height='1e0em'/>",
+  "bbox": [
+   0,
+   0,
+   10,
+   20
+  ]
+ },
+ {
+  "name": "circle percent r",
+  "markup": "<circle cx='50%' cy='50%' r='10%'/>",
+  "bbox": [
+   164.6446533203125,
+   114.6446533203125,
+   70.71068572998047,
+   70.71068572998047
+  ]
+ },
+ {
+  "name": "rect no-viewbox pct h",
+  "markup": "<rect x='0' y='0' width='10%' height='10%'/>",
+  "bbox": [
+   0,
+   0,
+   40,
+   30
+  ]
+ },
+ {
+  "name": "vb rect percent",
+  "markup": "<rect x='10%' y='10%' width='50%' height='50%'/>",
+  "bbox": [
+   20,
+   10,
+   100,
+   50
+  ],
+  "viewBox": "0 0 200 100"
+ },
+ {
+  "name": "vb circle percent r",
+  "markup": "<circle cx='50%' cy='50%' r='10%'/>",
+  "bbox": [
+   84.18861389160156,
+   34.18861389160156,
+   31.62277603149414,
+   31.62277603149414
+  ],
+  "viewBox": "0 0 200 100"
+ },
+ {
+  "name": "circle pt arithmetic",
+  "markup": "<circle cx='13.629pt' cy='0' r='1.782pt'/>",
+  "bbox": [
+   15.796001434326172,
+   -2.375999927520752,
+   4.751999855041504,
+   4.751999855041504
+  ]
+ },
+ {
+  "name": "ellipse percent",
+  "markup": "<ellipse cx='50%' cy='50%' rx='10%' ry='10%'/>",
+  "bbox": [
+   160,
+   120,
+   80,
+   60
+  ]
+ },
+ {
+  "name": "nested svg percent",
+  "markup": "<g><svg width='50%' height='50%'><rect x='10%' y='10%' width='50%' height='50%'/></svg></g>",
+  "bbox": [
+   20,
+   15,
+   100,
+   75
+  ]
+ }
+]

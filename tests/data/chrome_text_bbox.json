@@ -1,0 +1,332 @@
+[
+ {
+  "name": "plain",
+  "markup": "<text x='10' y='50' style='font-size:16px'>Hello</text>",
+  "bbox": [
+   10,
+   35,
+   40.5625,
+   19
+  ]
+ },
+ {
+  "name": "empty",
+  "markup": "<text x='10' y='50' style='font-size:16px'></text>",
+  "bbox": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ {
+  "name": "space only",
+  "markup": "<text x='10' y='50' style='font-size:16px'> </text>",
+  "bbox": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ {
+  "name": "tspan empty",
+  "markup": "<text x='10' y='50' style='font-size:16px'><tspan></tspan></text>",
+  "bbox": [
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ {
+  "name": "two lines x/dy",
+  "markup": "<text x='0' y='50' style='font-size:14px'><tspan x='0' dy='0'>Blurry</tspan><tspan x='0' dy='16.8'>Photo</tspan></text>",
+  "bbox": [
+   0,
+   37,
+   41.921875,
+   32.80000305175781
+  ]
+ },
+ {
+  "name": "two lines middle",
+  "markup": "<text x='100' y='50' style='font-size:14px;text-anchor:middle'><tspan x='100' dy='0'>Blurry</tspan><tspan x='100' dy='16.8'>Hi</tspan></text>",
+  "bbox": [
+   79.0390625,
+   37,
+   41.921875,
+   32.80000305175781
+  ]
+ },
+ {
+  "name": "two lines end",
+  "markup": "<text x='100' y='50' style='font-size:14px;text-anchor:end'><tspan x='100' dy='0'>Blurry</tspan><tspan x='100' dy='16.8'>Hi</tspan></text>",
+  "bbox": [
+   58.078125,
+   37,
+   41.921875,
+   32.80000305175781
+  ]
+ },
+ {
+  "name": "inline tspans",
+  "markup": "<text x='5' y='50' style='font-size:16px'><tspan>ab</tspan><tspan>cd</tspan></text>",
+  "bbox": [
+   5,
+   35,
+   38.921875,
+   19
+  ]
+ },
+ {
+  "name": "dx",
+  "markup": "<text x='5' y='50' style='font-size:16px'><tspan>ab</tspan><tspan dx='10'>cd</tspan></text>",
+  "bbox": [
+   5,
+   35,
+   48.921875,
+   19
+  ]
+ },
+ {
+  "name": "abs y only",
+  "markup": "<text x='5' y='50' style='font-size:16px'><tspan>ab</tspan><tspan y='90'>cd</tspan></text>",
+  "bbox": [
+   5,
+   35,
+   38.921875,
+   59
+  ]
+ },
+ {
+  "name": "abs y only middle",
+  "markup": "<text x='100' y='50' style='font-size:16px;text-anchor:middle'><tspan>ab</tspan><tspan y='90'>cd</tspan></text>",
+  "bbox": [
+   90.015625,
+   35,
+   39.4296875,
+   59
+  ]
+ },
+ {
+  "name": "anchor first char",
+  "markup": "<text x='100' y='50' style='font-size:16px'><tspan text-anchor='start'>ab</tspan><tspan text-anchor='end'>cd</tspan></text>",
+  "bbox": [
+   100,
+   35,
+   38.921875,
+   19
+  ]
+ },
+ {
+  "name": "anchor first char 2",
+  "markup": "<text x='100' y='50' style='font-size:16px'><tspan text-anchor='end'>ab</tspan><tspan text-anchor='start'>cd</tspan></text>",
+  "bbox": [
+   61.078125,
+   35,
+   38.921875,
+   19
+  ]
+ },
+ {
+  "name": "space across runs",
+  "markup": "<text x='5' y='50' style='font-size:16px'><tspan>a</tspan><tspan> b</tspan></text>",
+  "bbox": [
+   5,
+   35,
+   25.0625,
+   19
+  ]
+ },
+ {
+  "name": "space double",
+  "markup": "<text x='5' y='50' style='font-size:16px'><tspan>a </tspan><tspan> b</tspan></text>",
+  "bbox": [
+   5,
+   35,
+   25.046875,
+   19
+  ]
+ },
+ {
+  "name": "newline between",
+  "markup": "<text x='5' y='50' style='font-size:16px'>\n  <tspan>a</tspan>\n  <tspan>b</tspan>\n</text>",
+  "bbox": [
+   5,
+   35,
+   25.0625,
+   19
+  ]
+ },
+ {
+  "name": "title child",
+  "markup": "<text x='5' y='50' style='font-size:16px'><title>xxxx</title>ab</text>",
+  "bbox": [
+   5,
+   35,
+   19.96875,
+   19
+  ]
+ },
+ {
+  "name": "em in tspan",
+  "markup": "<text x='5' y='50' style='font-size:10px'><tspan style='font-size:20px' dy='1em'>a</tspan></text>",
+  "bbox": [
+   5,
+   51,
+   12.265625,
+   24
+  ]
+ },
+ {
+  "name": "db middle text",
+  "markup": "<text x='5' y='50' style='font-size:16px;dominant-baseline:middle'>Hello</text>",
+  "bbox": [
+   5,
+   39.375,
+   40.5625,
+   19
+  ]
+ },
+ {
+  "name": "db middle tspan only",
+  "markup": "<text x='5' y='50' style='font-size:16px'><tspan style='dominant-baseline:middle'>Hello</tspan></text>",
+  "bbox": [
+   5,
+   39.375,
+   40.5625,
+   19
+  ]
+ },
+ {
+  "name": "db middle tspan attr",
+  "markup": "<text x='5' y='50' style='font-size:16px'><tspan dominant-baseline='middle'>Hello</tspan></text>",
+  "bbox": [
+   5,
+   39.375,
+   40.5625,
+   19
+  ]
+ },
+ {
+  "name": "db central text+tspan",
+  "markup": "<text x='5' y='50' style='font-size:16px;dominant-baseline:central'><tspan>Hello</tspan></text>",
+  "bbox": [
+   5,
+   40.5,
+   40.5625,
+   19
+  ]
+ },
+ {
+  "name": "db text middle tspan hanging",
+  "markup": "<text x='5' y='50' style='font-size:16px;dominant-baseline:middle'><tspan style='dominant-baseline:hanging'>Hello</tspan></text>",
+  "bbox": [
+   5,
+   47,
+   40.5625,
+   19
+  ]
+ },
+ {
+  "name": "db two lines middle",
+  "markup": "<text x='0' y='50' style='font-size:14px;dominant-baseline:middle'><tspan x='0' dy='0'>Blurry</tspan><tspan x='0' dy='16.8'>Photo</tspan></text>",
+  "bbox": [
+   0,
+   40.828125,
+   41.921875,
+   32.80000305175781
+  ]
+ },
+ {
+  "name": "tspan self bbox",
+  "markup": "<text x='5' y='50' style='font-size:16px'>ab<tspan>cd</tspan></text>",
+  "bbox": [
+   5,
+   35,
+   38.921875,
+   19
+  ]
+ },
+ {
+  "name": "mermaid rows (absolute y each row)",
+  "markup": "<text x='0' y='0' style='font-size:16px;text-anchor:middle'><tspan class='text-outer-tspan row' x='0' y='-0.1em' dy='1.1em'>Hello</tspan><tspan class='text-outer-tspan row' x='0' y='1em' dy='1.1em'>World wide</tspan></text>",
+  "bbox": [
+   -44.234375,
+   1,
+   88.46875,
+   36.599998474121094
+  ]
+ },
+ {
+  "name": "bold tspan in the middle",
+  "markup": "<text x='5' y='50' style='font-size:16px'>ab<tspan style='font-weight:bold'>cd</tspan>ef</text>",
+  "bbox": [
+   5,
+   35,
+   56.75,
+   19
+  ]
+ },
+ {
+  "name": "bold text two lines end",
+  "markup": "<text x='200' y='50' style='font-size:12px;font-weight:bold;text-anchor:end'><tspan x='200' dy='0'>First line</tspan><tspan x='200' dy='14'>Second</tspan></text>",
+  "bbox": [
+   139.796875,
+   39,
+   60.203125,
+   28
+  ]
+ },
+ {
+  "name": "stylesheet db+anchor on text, two lines",
+  "markup": "<style>.t{dominant-baseline:middle;text-anchor:middle}</style><text class='t' x='100' y='50' text-anchor='start' style='font-size:14px'><tspan x='100' dy='0'>Blurry</tspan><tspan x='100' dy='16.8'>Photo</tspan></text>",
+  "bbox": [
+   79.0390625,
+   40.828125,
+   41.921875,
+   32.80000305175781
+  ]
+ },
+ {
+  "name": "dx and dy on one tspan",
+  "markup": "<text x='5' y='50' style='font-size:16px'><tspan dx='7' dy='3'>ab</tspan><tspan dx='2' dy='-5'>cd</tspan></text>",
+  "bbox": [
+   12,
+   33,
+   40.921875,
+   24
+  ]
+ },
+ {
+  "name": "text with only a tspan of other size",
+  "markup": "<text x='5' y='50' style='font-size:12px'><tspan style='font-size:24px'>Big</tspan> small</text>",
+  "bbox": [
+   5,
+   28,
+   74.15625,
+   28
+  ]
+ },
+ {
+  "name": "db hanging two sizes",
+  "markup": "<text x='5' y='50' style='font-size:12px;dominant-baseline:hanging'>ab<tspan style='font-size:24px'>CD</tspan></text>",
+  "bbox": [
+   5,
+   45.59375,
+   50.234375,
+   28
+  ]
+ },
+ {
+  "name": "text-anchor on a tspan that starts a chunk",
+  "markup": "<text x='100' y='50' style='font-size:16px'><tspan>ab</tspan><tspan x='100' dy='20' text-anchor='middle'>cdef</tspan></text>",
+  "bbox": [
+   82.78125,
+   35,
+   37.1875,
+   39
+  ]
+ }
+]

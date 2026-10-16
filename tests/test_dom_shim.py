@@ -1,5 +1,5 @@
 """Direct unit tests for mermaidx/assets/dom_shim.js's text-position
-helpers (__resolveTextPos / __accumulatePos / __computeBBox), isolated
+helpers (__layoutSvgText / __computeBBox), isolated
 from full mermaid.js diagram rendering.
 
 These load *only* the DOM shim (not mermaid.js itself) into a bare
@@ -28,11 +28,9 @@ the exact shapes mermaid.js emits for text labels:
 
 This purpose-built harness is what lets these tests assert the exact
 resolved (x, y, width, height) rather than just "did it crash" -- and,
-critically, it pins down that __resolveTextPos's chain-walking refactor
-(splitting it into __chainTo + __accumulatePos so multi-line labels could
-reuse the accumulation logic against the first row) did not change the
-result for ordinary single-line labels, which is the shape the vast
-majority of diagrams use.
+critically, it pins down that a multi-line label (one tspan per line) only
+grows the box downward and leaves the first line where a single-line label
+would put it.
 
 A fixed, deterministic fake text measurer is used (width = len(text) *
 size * 0.5, ascent = size * 0.8, descent = size * 0.2) so expected
@@ -179,11 +177,9 @@ def test_multi_word_single_line_matches_single_word_case():
 
 
 def test_multiline_label_uses_first_row_not_outer_text_y():
-    """Regression for issue #17. Before the fix, a label with >1 row tspan
-    made __resolveTextPos's single-child-chain walk stop at the outer
-    <text> element (which has 2+ children, one per line) and use its
-    vestigial, non-"em" y="-10.1" verbatim -- instead of descending into
-    the first row to read its real y="-0.1em" dy="1.1em" position.
+    """Regression for issue #17. A label with >1 row tspan once took the outer
+    <text>'s vestigial, non-"em" y="-10.1" as its position, instead of the
+    first row's real y="-0.1em" dy="1.1em".
 
     This asserts the multi-line bbox's top (bbox.y) is identical to the
     single-line case's -- i.e. adding a second line must only grow the
@@ -588,22 +584,33 @@ def test_json_stringify_object_containing_a_node_does_not_throw():
 
 def test_svg_length_is_parsed_to_float32():
     ctx = _make_ctx()
-    assert ctx.eval('__parseLen("8.855451867927453", 14) === Math.fround(8.855451867927453)')
+    assert ctx.eval(
+        'const el = document.createElementNS("http://www.w3.org/2000/svg", "text");'
+        'el.setAttribute("y", "8.855451867927453");'
+        '__svgLength(el, "y") === Math.fround(8.855451867927453)'
+    )
 
 
 def test_em_length_is_a_float32_product():
     ctx = _make_ctx()
-    assert ctx.eval('__parseLen("1.1em", 14) === Math.fround(Math.fround(1.1) * 14)')
+    assert ctx.eval(
+        'const el = document.createElementNS("http://www.w3.org/2000/svg", "text");'
+        'el.setAttribute("style", "font-size: 14px"); el.setAttribute("dy", "1.1em");'
+        '__svgLength(el, "dy") === Math.fround(Math.fround(1.1) * 14)'
+    )
 
 
 def test_dy_is_added_in_float32():
+    """Blink keeps x/y/dx/dy as float32, so y + dy is rounded to float32 before anything is built on it.
+    (13 is the fake measurer's ascent at 16px: the box's top is that far above the baseline.)"""
     ctx = _make_ctx()
     got = ctx.eval(
         """
         const t = document.createElementNS("http://www.w3.org/2000/svg", "text");
         t.setAttribute("y", "8.855451867927453");
         t.setAttribute("dy", "0.3");
-        __resolveTextPos(t, 14).y === Math.fround(Math.fround(8.855451867927453) + Math.fround(0.3));
+        t.textContent = "a";
+        t.getBBox().y === Math.fround(Math.fround(Math.fround(8.855451867927453) + Math.fround(0.3)) - 13);
         """
     )
     assert got
@@ -952,3 +959,442 @@ def test_html_label_font_size_handed_to_the_measurer(setup, size):
 ])
 def test_html_label_declared_width_and_max_width(setup, width):
     assert _html_label(setup)[1] == width
+
+
+# ---------------------------------------------------------------------------
+# <text> layout the way SVG does it: an absolute x or y starts a new text chunk, dx/dy shift the position,
+# each chunk is anchored on its own advance. (Fake measurer at the default 16px: 8px per character,
+# ascent 13, descent 3, x-height 8.)
+# ---------------------------------------------------------------------------
+
+def _text_box(markup: str, text_attrs: str = "", css: str = "", svg_attrs: str = ""):
+    ctx = _make_ctx()
+    got = ctx.eval(
+        f"""
+        const NS = "http://www.w3.org/2000/svg";
+        const svg = document.createElementNS(NS, "svg");
+        document.body.appendChild(svg);
+        svg.innerHTML = {('<style>' + css + '</style><text ' + text_attrs + '>' + markup + '</text>')!r};
+        {('svg.setAttribute("style", ' + repr(svg_attrs) + ');') if svg_attrs else ''}
+        const b = svg.querySelector("text").getBBox();
+        JSON.stringify([b.x, b.y, b.width, b.height]);
+        """
+    )
+    return json.loads(got)
+
+
+_TWO_LINES = '<tspan x="0" dy="0">Blurry</tspan><tspan x="0" dy="16.8">Photo</tspan>'
+
+
+@pytest.mark.parametrize("anchor, x, width", [
+    ("start", 0, 48),
+    ("middle", -24, 48),     # each line is centred on its own advance, not the two together
+    ("end", -48, 48),
+])
+def test_tspans_with_an_absolute_x_are_separate_lines(anchor, x, width):
+    box = _text_box(_TWO_LINES, f'x="0" y="-8.4" style="text-anchor: {anchor}"')
+    assert box == pytest.approx([x, -21.4, width, 32.8], abs=1e-4)
+
+
+def test_a_shorter_line_does_not_widen_the_box():
+    box = _text_box('<tspan x="0" dy="0">Blurry</tspan><tspan x="0" dy="16.8">Hi</tspan>',
+                    'x="0" y="-8.4" style="text-anchor: middle"')
+    assert box == pytest.approx([-24, -21.4, 48, 32.8], abs=1e-4)
+
+
+def test_dominant_baseline_moves_every_line():
+    plain = _text_box(_TWO_LINES, 'x="0" y="-8.4"')
+    middle = _text_box(_TWO_LINES, 'x="0" y="-8.4" style="dominant-baseline: middle"')
+    assert middle[1] - plain[1] == pytest.approx(4)   # x-height / 2
+    assert middle[3] == plain[3]
+
+
+def test_tspans_without_a_position_continue_the_line():
+    assert _text_box("<tspan>ab</tspan><tspan>cd</tspan>", 'x="5" y="20"') == pytest.approx([5, 7, 32, 16], abs=1e-4)
+
+
+def test_dx_moves_the_rest_of_the_line_and_widens_the_box():
+    assert _text_box('<tspan>ab</tspan><tspan dx="10">cd</tspan>', 'x="0" y="20"') == pytest.approx([0, 7, 42, 16], abs=1e-4)
+
+
+def test_an_absolute_y_alone_starts_a_chunk_where_the_last_one_ended():
+    # "cd" lands at x=16, y=60: the box is the union of both runs.
+    assert _text_box('<tspan>ab</tspan><tspan y="60">cd</tspan>', 'x="0" y="20"') == pytest.approx([0, 7, 32, 56], abs=1e-4)
+
+
+@pytest.mark.parametrize("markup, chars", [
+    ("<tspan>a</tspan><tspan> b</tspan>", 3),          # the space between the two runs is kept
+    ("<tspan>a </tspan><tspan> b</tspan>", 3),         # ... but two in a row collapse to one
+    ("\n  <tspan>a</tspan>\n", 1),                     # leading and trailing space are dropped
+    ("<tspan>a</tspan>\n  <tspan>b</tspan>", 3),       # a newline between runs is one space
+])
+def test_white_space_collapses_across_runs(markup, chars):
+    assert _text_box(markup, 'x="0" y="20"')[2] == pytest.approx(chars * 8, abs=1e-4)
+
+
+def test_title_is_not_part_of_the_text():
+    assert _text_box("<title>xxxx</title>ab", 'x="0" y="20"')[2] == pytest.approx(16, abs=1e-4)
+
+
+# A property set on the <text> reaches its tspans: walking up from a node, the first one that declares it wins, and a
+# node's own declaration is its inline style, then a stylesheet rule, then a presentation attribute.
+_AB = '<tspan x="0">ab</tspan>'
+
+
+def test_a_stylesheet_text_anchor_on_the_text_reaches_its_tspans():
+    box = _text_box(_AB, 'class="t" text-anchor="start" x="0" y="20"', css=".t{text-anchor: middle}")
+    assert box[0] == pytest.approx(-8)
+
+
+def test_a_stylesheet_dominant_baseline_on_the_text_reaches_its_tspans():
+    plain = _text_box(_AB, 'x="0" y="20"')
+    shifted = _text_box(_AB, 'class="t" x="0" y="20"', css=".t{dominant-baseline: middle}")
+    assert shifted[1] - plain[1] == pytest.approx(4)
+
+
+def test_the_nearest_declaration_wins():
+    # the tspan's own presentation attribute outranks what it would inherit from the text's inline style
+    box = _text_box('<tspan x="0" text-anchor="end">ab</tspan>', 'x="0" y="20" style="text-anchor: middle"')
+    assert box[0] == pytest.approx(-16)
+
+
+def test_an_elements_own_stylesheet_rule_beats_an_ancestors_inline_style():
+    box = _text_box(_AB, 'class="t" x="0" y="20"', css=".t{text-anchor: middle}", svg_attrs="text-anchor: end")
+    assert box[0] == pytest.approx(-8)
+
+
+def test_an_inline_style_beats_a_stylesheet_rule_which_beats_an_attribute():
+    css = ".t{text-anchor: middle}"
+    assert _text_box(_AB, 'class="t" text-anchor="end" x="0" y="20"', css=css)[0] == pytest.approx(-8)
+    assert _text_box(_AB, 'class="t" text-anchor="end" x="0" y="20" style="text-anchor: start"', css=css)[0] == pytest.approx(0)
+
+
+@pytest.mark.parametrize("text_attrs", ['xml:space="preserve"', 'style="white-space: pre"'])
+def test_white_space_is_kept_when_the_text_asks_for_it(text_attrs):
+    assert _text_box("<tspan>a</tspan>  <tspan> b</tspan>", f'x="0" y="20" {text_attrs}')[2] == pytest.approx(5 * 8)
+
+
+def test_a_run_that_collapses_to_nothing_still_swallows_the_next_space():
+    # "a " + " " + " b": the middle run is all space and vanishes, and the space that opens " b" must go too
+    assert _text_box("<tspan>a </tspan><tspan> </tspan><tspan> b</tspan>", 'x="0" y="20"')[2] == pytest.approx(3 * 8)
+
+
+def test_an_absolute_y_alone_is_a_new_chunk_with_its_own_anchor():
+    # "ab" is centred on x=0 (-8..8); "cd" starts a chunk at x=16 and is centred there on its own advance (8..24)
+    box = _text_box('<tspan>ab</tspan><tspan y="60">cd</tspan>', 'x="0" y="20" style="text-anchor: middle"')
+    assert box[0] == pytest.approx(-8) and box[2] == pytest.approx(32)
+
+
+def test_dx_is_added_in_float32():
+    # x = f32(37.91749794) + f32(0.42109141), kept in float32, then the chunk's own advance (16) is centred
+    box = _text_box('<tspan dx="0.42109141">ab</tspan>', 'x="37.91749794" y="20" style="text-anchor: middle"')
+    assert box[0] == 30.338592529296875
+
+
+def test_a_chunk_is_anchored_by_its_first_character():
+    box = _text_box('<tspan text-anchor="start">ab</tspan><tspan text-anchor="end">cd</tspan>', 'x="0" y="20"')
+    assert box[0] == 0 and box[2] == pytest.approx(32)
+
+
+def test_em_in_a_tspan_is_its_own_font_size():
+    # dy="1em" on a 20px tspan inside 10px text moves the baseline 20, not 10; ascent 16, descent 4 at 20px
+    box = _text_box('<tspan style="font-size: 20px" dy="1em">a</tspan>', 'x="0" y="0" style="font-size: 10px"')
+    assert box[1] == pytest.approx(20 - 16) and box[3] == pytest.approx(20)
+
+
+@pytest.mark.parametrize("markup", ["", " ", "<tspan></tspan>", "\n  "])
+def test_text_without_characters_has_an_empty_box(markup):
+    """Chrome (tests/data/chrome_text_bbox.json): an empty <text> -- or one holding only space -- is 0,0,0,0,
+    wherever it is positioned."""
+    assert _text_box(markup, 'x="5" y="20"') == [0, 0, 0, 0]
+
+
+# ---------------------------------------------------------------------------
+# Namespaced attributes. d3's attr("xlink:href", v) calls setAttributeNS(XLINK, "href", v) -- the local name -- and
+# a serializer gives an attribute that has a namespace and no prefix the namespace's well-known prefix.
+# ---------------------------------------------------------------------------
+
+_XLINK = "http://www.w3.org/1999/xlink"
+_XML_NS = "http://www.w3.org/XML/1998/namespace"
+
+
+def _serialized(js: str):
+    ctx = _make_ctx()
+    return ctx.eval(
+        f"""
+        const el = document.createElementNS("http://www.w3.org/2000/svg", "image");
+        {js}
+        JSON.stringify([new XMLSerializer().serializeToString(el), el.outerHTML]);
+        """
+    )
+
+
+@pytest.mark.parametrize("call, attr", [
+    (f'el.setAttributeNS("{_XLINK}", "href", "x");', ' xlink:href="x"'),
+    (f'el.setAttributeNS("{_XLINK}", "xlink:href", "x");', ' xlink:href="x"'),       # already prefixed: not doubled
+    (f'el.setAttributeNS("{_XML_NS}", "space", "preserve");', ' xml:space="preserve"'),
+    ('el.setAttributeNS(null, "href", "x");', ' href="x"'),                           # no namespace, no prefix
+    ('el.setAttribute("href", "x");', ' href="x"'),
+    (f'el.setAttributeNS("{_XLINK}", "href", "x"); el.setAttribute("href", "y");', ' xlink:href="y"'),   # a value change keeps the namespace
+    (f'el.setAttributeNS("{_XLINK}", "href", "x"); el.removeAttribute("href"); el.setAttribute("href", "y");', ' href="y"'),
+])
+def test_namespaced_attributes_are_serialized_with_their_prefix(call, attr):
+    xml, html = json.loads(_serialized(call))
+    assert attr in xml
+    assert attr in html
+
+
+def test_xlink_attribute_declares_its_prefix_once():
+    xml, _ = json.loads(_serialized(f'el.setAttributeNS("{_XLINK}", "href", "x");'))
+    assert xml == f'<image xmlns="http://www.w3.org/2000/svg" xmlns:xlink="{_XLINK}" xlink:href="x"/>'
+
+
+def test_a_clone_keeps_the_namespace_of_its_attributes():
+    ctx = _make_ctx()
+    got = ctx.eval(
+        f"""
+        const el = document.createElementNS("http://www.w3.org/2000/svg", "image");
+        el.setAttributeNS("{_XLINK}", "href", "x");
+        const clone = el.cloneNode(true);
+        el.removeAttribute("href");   // the clone must not share the original's bookkeeping
+        new XMLSerializer().serializeToString(clone);
+        """
+    )
+    assert ' xlink:href="x"' in got
+
+
+def test_attributes_report_their_namespace():
+    ctx = _make_ctx()
+    got = ctx.eval(
+        f"""
+        const el = document.createElementNS("http://www.w3.org/2000/svg", "image");
+        el.setAttributeNS("{_XLINK}", "href", "x");
+        el.setAttribute("id", "i");
+        JSON.stringify(Array.from(el.attributes).map((a) => [a.name, a.namespaceURI]));
+        """
+    )
+    assert json.loads(got) == [["href", _XLINK], ["id", None]]
+
+
+def test_the_screen_is_the_page_mmdc_opens():
+    """mermaid's C4 diagram wraps its rows at screen.availWidth. mmdc's page has a 800x600 viewport, which
+    also sizes the screen; with the 1920 this shim once had, a C4 diagram laid out four to a row where mmdc's
+    wraps after the first (tests/samples/24_c4_context.svg)."""
+    ctx = _make_ctx()
+    assert json.loads(ctx.eval("JSON.stringify([screen.width, screen.height, screen.availWidth, screen.availHeight])")) == [800, 600, 800, 600]
+
+
+# ---------------------------------------------------------------------------
+# One grammar and one unit table behind every length (CSS font sizes, px lengths, SVG attributes).
+# The SVG side is pinned against Chrome in tests/test_shape_bbox_chrome.py.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("value, px", [
+    ("12px", 12), ("1in", 96), ("1pc", 16), ("72pt", 96), ("2.54cm", 96), ("25.4mm", 96), ("2rem", 32),
+    ("2em", 28), ("2ex", 2 * 14 * 1120 / 2048), ("50%", 7), ("+3px", 3), (".5px", 0.5), ("1e1px", 10), ("12PX", 12), ("  12px ", 12), ("12", 12),
+    ("5.", None), ("10 px", None), ("10abc", None), ("1.2.3px", None), ("", None), ("px", None), ("calc(1px)", None),
+])
+def test_css_length_to_px(value, px):
+    ctx = _make_ctx()
+    got = ctx.eval(f"__lenToPx({value!r}, 14)")
+    assert got == (pytest.approx(px, abs=1e-9) if px is not None else None)
+
+
+@pytest.mark.parametrize("value, expected", [
+    ("12px", 12), ("12.5px", 12.5), ("0px", 0), ("PX", None), ("12PX", 12), (" 12px ", 12),
+    ("-5px", None), ("12", None), ("12em", None), ("12%", None), ("12 px", None), ("", None), (None, None),
+])
+def test_px_value_is_a_non_negative_px_length_only(value, expected):
+    ctx = _make_ctx()
+    assert ctx.eval(f"__pxValue({json.dumps(value)})") == expected
+
+
+@pytest.mark.parametrize("text, numbers", [
+    ("0,0 10,5", [0, 0, 10, 5]),
+    ("  1 , 2   3 ", [1, 2, 3]),
+    ("10-5", [10, -5]),                 # a sign starts the next number
+    ("1.5.5", [1.5, 0.5]),              # so does a second dot
+    ("1e1,2E-1", [10, 0.2]),
+    ("+1 -2", [1, -2]),
+    ("1,2 a,b 3,4", [1, 2]),            # stops at the first thing that is not a number
+    ("1,2 3px,4", [1, 2, 3]),
+    ("1e", [1]),
+    ("a", []), ("", []), (",", []),
+])
+def test_number_list_is_read_up_to_the_first_error(text, numbers):
+    ctx = _make_ctx()
+    got = json.loads(ctx.eval(f"JSON.stringify(__parseNumberList({text!r}))"))
+    assert got == pytest.approx(numbers, abs=1e-6)
+
+
+def test_number_list_numbers_are_float32():
+    ctx = _make_ctx()
+    assert ctx.eval('__parseNumberList("0.1,0.30000000000000004").every((v, i) => v === Math.fround([0.1, 0.30000000000000004][i]))')
+
+
+@pytest.mark.parametrize("attrs, name, expected", [
+    ('x="-5"', "x", -5),                    # a coordinate may be negative
+    ('width="-5"', "width", 0),             # a size may not
+    ('r="-5"', "r", 0), ('rx="-5"', "rx", 0), ('ry="-5"', "ry", 0), ('height="-5"', "height", 0),
+    ('cx="-5"', "cx", -5), ('y1="-5"', "y1", -5),
+    ('width="abc"', "width", 0), ("", "width", 0),
+])
+def test_a_shapes_length_is_zero_when_missing_invalid_or_a_negative_size(attrs, name, expected):
+    ctx = _make_ctx()
+    got = ctx.eval(
+        f"""
+        const holder = document.createElement("div");
+        holder.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg"><rect {attrs}/></svg>';
+        __shapeLength(holder.querySelector("rect"), "{name}");
+        """
+    )
+    assert got == expected
+
+
+@pytest.mark.parametrize("svg_attrs, expected", [
+    ('width="400" height="300"', [40, 30]),
+    ('width="400" height="300" viewBox="0 0 200 100"', [20, 10]),
+    ('width="400" height="300" viewBox="0,0,200,100"', [20, 10]),
+    ('width="400" height="300" viewBox="0 0 200"', [40, 30]),           # not a viewBox: width and height
+    ('width="50%" height="300"', [0, 30]),                              # a percentage of nothing: the outermost svg has no viewport
+    ('width="40mm"', [round(40 * 96 / 25.4 / 10, 4), 0]),
+    ("", [0, 0]),
+])
+def test_percent_lengths_use_the_viewbox_else_width_and_height(svg_attrs, expected):
+    ctx = _make_ctx()
+    got = json.loads(ctx.eval(
+        f"""
+        const holder = document.createElement("div");
+        holder.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" {svg_attrs}><rect x="10%" y="10%"/></svg>';
+        const r = holder.querySelector("rect");
+        JSON.stringify([__svgLength(r, "x"), __svgLength(r, "y")]);
+        """
+    ))
+    assert got == pytest.approx(expected, abs=1e-3)
+
+
+def test_percent_lengths_use_the_nearest_svg():
+    ctx = _make_ctx()
+    got = ctx.eval(
+        """
+        const holder = document.createElement("div");
+        holder.innerHTML = '<svg viewBox="0 0 1000 1000"><svg viewBox="0 0 200 100"><rect x="10%"/></svg></svg>';
+        __svgLength(holder.querySelector("rect"), "x");
+        """
+    )
+    assert got == 20
+
+
+def test_a_detached_element_has_no_viewport():
+    ctx = _make_ctx()
+    assert ctx.eval('const r = document.createElementNS("http://www.w3.org/2000/svg", "rect"); r.setAttribute("x", "10%"); __svgLength(r, "x")') == 0
+
+
+# ---------------------------------------------------------------------------
+# Timers are a browser's macrotask queue, on virtual time: nothing runs until the engine calls __runNextTimer(),
+# which runs the one that is due first (ties: in the order they were scheduled). Promise jobs run between them.
+# ---------------------------------------------------------------------------
+
+def _timers(js: str):
+    """Run *js* (which pushes to `out`), then every timer to exhaustion; return `out`."""
+    ctx = _make_ctx()
+    got = ctx.eval(
+        f"""
+        const out = [];
+        {js}
+        let guard = 0;
+        while (__runNextTimer() && ++guard < 100) {{}}
+        JSON.stringify(out);
+        """
+    )
+    return json.loads(got)
+
+
+def test_a_timer_does_not_run_until_the_engine_runs_it():
+    ctx = _make_ctx()
+    assert ctx.eval('const hits = []; setTimeout(() => hits.push(1), 0); hits.length') == 0
+    assert ctx.eval("__runNextTimer()") is True
+    assert ctx.eval("hits.length") == 1
+    assert ctx.eval("__runNextTimer()") is False
+
+
+def test_timers_run_earliest_due_first_and_ties_in_scheduling_order():
+    assert _timers('setTimeout(() => out.push("b"), 10); setTimeout(() => out.push("a"), 0); setTimeout(() => out.push("c"), 10);') == ["a", "b", "c"]
+
+
+def test_a_timer_scheduled_by_a_timer_goes_behind_those_already_due():
+    assert _timers(
+        'setTimeout(() => { out.push(1); setTimeout(() => out.push(3), 0); }, 0); setTimeout(() => out.push(2), 0);'
+    ) == [1, 2, 3]
+
+
+def test_time_is_virtual_so_a_long_delay_costs_nothing_but_still_orders():
+    assert _timers('setTimeout(() => out.push("late"), 100000); setTimeout(() => out.push("soon"), 5);') == ["soon", "late"]
+
+
+def test_a_delay_counts_from_when_the_timer_was_scheduled():
+    # at t=10 the first timer schedules one 5 later (due 15); the second was due at 12, so it goes first
+    assert _timers(
+        'setTimeout(() => { out.push("a"); setTimeout(() => out.push("c"), 5); }, 10); setTimeout(() => out.push("b"), 12);'
+    ) == ["a", "b", "c"]
+
+
+def test_negative_missing_and_nonnumeric_delays_are_zero():
+    assert _timers('setTimeout(() => out.push("b"), "x"); setTimeout(() => out.push("a"), -5); setTimeout(() => out.push("c"));') == ["b", "a", "c"]
+
+
+def test_extra_arguments_reach_the_callback():
+    assert _timers("setTimeout((a, b) => out.push(a + b), 0, 1, 2);") == [3]
+
+
+def test_clear_timeout_cancels_and_an_unknown_id_is_ignored():
+    assert _timers('const id = setTimeout(() => out.push("x"), 0); setTimeout(() => out.push("y"), 0); clearTimeout(id); clearTimeout(12345); clearTimeout(undefined);') == ["y"]
+
+
+def test_set_timeout_returns_distinct_ids():
+    assert _timers("const a = setTimeout(() => {}, 0), b = setTimeout(() => {}, 0); out.push(a !== b, a > 0, b > 0);") == [True, True, True]
+
+
+def test_an_interval_repeats_until_it_is_cleared():
+    assert _timers('let n = 0; const id = setInterval(() => { out.push(++n); if (n === 3) clearInterval(id); }, 10);') == [1, 2, 3]
+
+
+def test_an_interval_runs_in_step_with_other_timers():
+    assert _timers(
+        'let n = 0; const id = setInterval(() => { out.push("i"); if (++n === 3) clearInterval(id); }, 10); setTimeout(() => out.push("t"), 15);'
+    ) == ["i", "t", "i", "i"]
+
+
+def test_a_cleared_interval_does_not_run_again():
+    assert _timers('const id = setInterval(() => out.push("x"), 10); clearInterval(id);') == []
+
+
+def test_animation_frames_run_on_a_16ms_grid_and_get_a_timestamp():
+    assert _timers('requestAnimationFrame((t) => out.push(t));') == [16]
+
+
+def test_a_frame_requested_in_a_frame_is_the_next_frame():
+    assert _timers(
+        'requestAnimationFrame((t) => { out.push(t); requestAnimationFrame((u) => out.push(u)); });'
+    ) == [16, 32]
+
+
+def test_a_timer_due_before_the_next_frame_runs_before_it():
+    assert _timers('requestAnimationFrame(() => out.push("frame")); setTimeout(() => out.push("t"), 5);') == ["t", "frame"]
+
+
+def test_cancel_animation_frame():
+    assert _timers('const id = requestAnimationFrame(() => out.push("x")); requestAnimationFrame(() => out.push("y")); cancelAnimationFrame(id);') == ["y"]
+
+
+def test_a_throwing_callback_does_not_stop_the_queue():
+    assert _timers('setTimeout(() => { throw new Error("boom"); }, 0); setTimeout(() => out.push("after"), 0);') == ["after"]
+
+
+def test_a_frame_loop_that_never_stops_is_bounded_by_the_engine_not_the_page():
+    # what cytoscape does: every frame asks for the next one. Each __runNextTimer() runs exactly one frame.
+    ctx = _make_ctx()
+    ctx.eval("let frames = 0; const loop = () => { frames++; requestAnimationFrame(loop); }; requestAnimationFrame(loop);")
+    for _ in range(50):
+        assert ctx.eval("__runNextTimer()") is True
+    assert ctx.eval("frames") == 50

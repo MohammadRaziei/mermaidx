@@ -13,6 +13,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Callable, Optional
 
+from mermaidx.font_metrics import get_font
 from mermaidx.path_bbox import PATH_BBOX_JS
 
 _ASSETS_DIR = Path(__file__).parent.parent / "assets"
@@ -84,6 +85,47 @@ def render_script(code: str, theme: Optional[str], config: Optional[dict], css: 
         "  .then(svg => { globalThis.__renderResult = svg; })\n"
         "  .catch(e => { globalThis.__renderError = (e && e.name ? e.name + ': ' + e.message : String(e)); });\n"
     )
+
+
+class TextMeasurer:
+    """Real font metrics via mermaidx.font_metrics (bundled DejaVu Sans) --
+    the same font file mermaidx.raster (novasvg) is told to use for final
+    rendering, so layout and paint always agree (see Engine._init_context /
+    mermaidx.py)."""
+
+    def width(self, text, size, family, weight, style) -> float:
+        return get_font(weight).measure(text or "", float(size or 16))["width"]
+
+    def full(self, text, size, family, weight, style) -> dict:
+        return get_font(weight).measure(text or "", float(size or 16))
+
+    def glyphs(self, text, size, family, weight, style) -> list:
+        return get_font(weight).glyph_boxes(text or "", float(size or 16))
+
+    def foreign_object(self, html, size, family, weight, style) -> dict:
+        return get_font(weight).foreign_object_metrics(html or "", float(size or 16))
+
+
+# Every step of the page's event loop is a promise job or a timer; this bounds a page that never stops scheduling.
+MAX_EVENT_LOOP_STEPS = 200_000
+_RENDER_DONE_JS = "!!globalThis.__renderResult || !!globalThis.__renderError"
+
+
+def run_event_loop(evaluate: Callable[[str], object], run_job: Optional[Callable[[], bool]] = None) -> None:
+    """Runs the page the way a browser does until the render has finished (a result or an error is set): all the
+    promise jobs, then the next timer (dom_shim.js keeps them on a queue with a virtual clock), then all the jobs
+    again, and so on. Stops early when the render is done -- a page that asks for a frame in every frame, as
+    cytoscape's does, would otherwise keep it going for ever -- or when nothing is left that could finish it.
+
+    `run_job` runs one pending promise job and says whether there was one: QuickJS hands them over one at a time.
+    V8 has no such call: it drains them by itself at the end of every eval(), so it passes none."""
+    for _ in range(MAX_EVENT_LOOP_STEPS):
+        if evaluate(_RENDER_DONE_JS):
+            return
+        if run_job is not None and run_job():
+            continue
+        if not evaluate("__runNextTimer()"):
+            return
 
 
 def collect_svg(evaluate: Callable[[str], object]) -> str:

@@ -89,3 +89,94 @@ def test_collect_svg():
         _common.collect_svg({"globalThis.__renderError": "boom"}.get)
     with pytest.raises(_common.MermaidRenderError, match="no output"):
         _common.collect_svg({"globalThis.__renderError": None, "globalThis.__renderResult": None}.get)
+
+
+# ---------------------------------------------------------------------------
+# The page's event loop, shared by both engines: all the promise jobs, then the next timer, then the jobs again...
+# ---------------------------------------------------------------------------
+
+class _FakePage:
+    """What run_event_loop sees of a page: some promise jobs now, a list of timers, each of which may queue more
+    jobs, and a render that is done after a given number of steps of its own."""
+
+    def __init__(self, jobs=0, timers=0, jobs_per_timer=0, done_after_timers=None):
+        self.jobs, self.timers, self.jobs_per_timer = jobs, timers, jobs_per_timer
+        self.done_after_timers = done_after_timers
+        self.log = []
+        self.timer_calls = 0
+
+    def done(self):
+        return self.done_after_timers is not None and self.timers_run >= self.done_after_timers
+
+    timers_run = 0
+
+    def evaluate(self, js):
+        if "__renderResult" in js:
+            return self.done()
+        assert js == "__runNextTimer()", js
+        self.timer_calls += 1
+        if self.timers == 0:
+            return False
+        self.timers -= 1
+        self.timers_run += 1
+        self.jobs += self.jobs_per_timer
+        self.log.append("timer")
+        return True
+
+    def run_job(self):
+        if self.jobs == 0:
+            return False
+        self.jobs -= 1
+        self.log.append("job")
+        return True
+
+
+def test_event_loop_drains_the_jobs_before_each_timer():
+    from mermaidx.engines._common import run_event_loop
+
+    page = _FakePage(jobs=2, timers=2, jobs_per_timer=1)
+    run_event_loop(page.evaluate, page.run_job)
+    assert page.log == ["job", "job", "timer", "job", "timer", "job"]
+
+
+def test_event_loop_stops_as_soon_as_the_render_is_done():
+    from mermaidx.engines._common import run_event_loop
+
+    page = _FakePage(jobs=0, timers=10, jobs_per_timer=1, done_after_timers=2)
+    run_event_loop(page.evaluate, page.run_job)
+    assert page.timers_run == 2 and page.jobs == 1          # the job the second timer queued was not run
+    assert page.log == ["timer", "job", "timer"]
+
+
+def test_event_loop_checks_for_the_result_before_running_anything():
+    from mermaidx.engines._common import run_event_loop
+
+    page = _FakePage(jobs=3, timers=3, done_after_timers=0)
+    run_event_loop(page.evaluate, page.run_job)
+    assert page.log == []
+
+
+def test_event_loop_stops_when_nothing_is_left():
+    from mermaidx.engines._common import run_event_loop
+
+    page = _FakePage(jobs=1, timers=1)
+    run_event_loop(page.evaluate, page.run_job)
+    assert page.log == ["job", "timer"] and page.jobs == 0 and page.timers == 0
+    assert page.timer_calls == 2            # the one that ran, and the one that found the queue empty: then it stopped
+
+
+def test_event_loop_without_a_job_runner_only_runs_timers():
+    from mermaidx.engines._common import run_event_loop
+
+    page = _FakePage(jobs=5, timers=2)
+    run_event_loop(page.evaluate)
+    assert page.log == ["timer", "timer"]
+
+
+def test_event_loop_is_bounded_when_a_page_never_stops(monkeypatch):
+    from mermaidx.engines import _common
+
+    monkeypatch.setattr(_common, "MAX_EVENT_LOOP_STEPS", 50)
+    page = _FakePage(timers=10**9)
+    _common.run_event_loop(page.evaluate, page.run_job)
+    assert page.timers_run == 50

@@ -33,13 +33,12 @@ Everything beyond the base installation is opt-in via standard PyPI extras:
 | Command | Adds |
 | --- | --- |
 | `pip install mermaidx` | Base install — default `backend="quickjs"`, zero system dependencies |
-| `pip install mermaidx[v8engine]` | Real V8 engine (`mini-racer`) as a selectable `backend="v8"` (2-4.5x faster JIT) |
+| `pip install mermaidx[v8engine]` | Real V8 engine (`mini-racer`) as a selectable `backend="v8"` (faster JIT) |
 | `pip install mermaidx[rust]` | Native-Rust backends via [`mmdr`](https://github.com/mohammadraziei/mmdr) — `backend="merman"`, `backend="mermaid-rs-renderer"` |
 | `pip install numpy` | Adds `.numpy()` export support (standard package dependency) |
 | `pip install mermaidx[all]` | Every extra above (`v8engine` + `rust` + `numpy`) in one go |
 
-- **V8 Speedup & Behavior:** V8 renders **2–4.5x faster** (byte-for-byte identical SVG) by leveraging JIT compilation. It runs in an isolated child process to ensure 100% memory reclamation.
-- **Mindmap Exception:** For `mindmap` diagrams, use the default `backend="quickjs"`. Cytoscape animation loops require QuickJS-ng's execution bounding; under `V8`, mindmaps raise an error and clean up the process safely without leaking memory.
+- **V8 Speedup & Behavior:** V8 renders faster than QuickJS by leveraging JIT compilation. It runs in an isolated child process to ensure 100% memory reclamation.
 
 ---
 
@@ -61,11 +60,9 @@ print(mermaidx.backends())
 | Backend | Engine Type | Features & Performance |
 | --- | --- | --- |
 | `quickjs` *(default)* | Embedded JS (QuickJS-ng) | Lightweight, zero-config, always available. Runs real `mermaid.js` in-process. Safe for all diagram types (including `mindmap`). |
-| `v8` | Real V8 JIT (`mini-racer`) | **2–4.5x faster** JIT execution for large diagrams. Byte-for-byte identical SVG output.¹ |
+| `v8` | Real V8 JIT (`mini-racer`) | Faster JIT execution. |
 | `merman` | Native Rust (`mmdr`) | Pure Rust implementation — no JavaScript engine involved.² |
 | `mermaid-rs-renderer` | Native Rust (`mmdr`) | Alternative pure-Rust renderer from `mmdr`.² |
-
-¹ Except `mindmap` — see the Mindmap Exception note above; `v8` falls back to `quickjs` there, in a separate child process so a stuck render can't leak memory.
 ² Every backend shares the same `mermaidx` `DiagramBase` — only `svg()` differs per backend, everything downstream of it (PNG/PDF/raw/numpy) is the same novasvg + PDF-writer pipeline for all of them, so PDF/raw/numpy come along for free here too.
 
 ```python

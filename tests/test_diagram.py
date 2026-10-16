@@ -421,13 +421,9 @@ def test_multiline_edge_label_is_centered_on_its_background():
     Legacy path (config={"flowchart": {"htmlLabels": False}} explicitly,
     forcing mermaid's native <text>/<tspan> renderer): this is where
     the original bug actually lived.
-    __resolveTextPos() (dom_shim.js) finds the tspan that really carries a
-    text element's paint position by walking down through single-child
-    chains. That works for one-line labels (a single positioning tspan),
-    but a multi-line label has one row-tspan PER LINE, so the walk broke
-    immediately at the outer <text> element and used its vestigial,
-    non-"em" y attribute instead of the first row's real y="...em"
-    dy="1.1em" position -- putting the computed bbox (and therefore the
+    A multi-line label has one row-tspan PER LINE; the shim once took the
+    outer <text>'s vestigial, non-"em" y attribute as its position instead
+    of the first row's real y="...em" dy="1.1em" -- putting the computed bbox (and therefore the
     centering transform) tens of pixels off from where the text actually
     paints. Asserts the label's own background rect really encloses
     (rather than merely sits near) the text after the two are combined by

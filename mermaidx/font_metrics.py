@@ -42,6 +42,12 @@ _fonts.add_font_face_from_file(_FAMILY, False, False, str(_ASSETS_FONTS / "DejaV
 _fonts.add_font_face_from_file(_FAMILY, True, False, str(_ASSETS_FONTS / "DejaVuSans-Bold.ttf"))
 
 
+# The f-ligatures novasvg looks for (font_face_init_ligatures() in its render/font.h), longest first.
+_LIGATURE_CANDIDATES = (("ffi", 0xFB03), ("ffl", 0xFB04), ("ff", 0xFB00), ("fi", 0xFB01), ("fl", 0xFB02))
+# The last codepoint Unicode has: in no font's cmap.
+_NOT_IN_ANY_FONT = 0x10FFFF
+
+
 class Font:
     """A bundled font family (regular or bold), backed by a novasvg
     FontFace. Public shape kept identical to the old hand-rolled Font class
@@ -120,6 +126,39 @@ class Font:
                 if k:
                     table[f"{a},{b}"] = k
         return table
+
+    def ligatures(self) -> list:
+        """[[sequence codepoints], ligature codepoint] for each f-ligature novasvg applies with this face, in the
+        order it tries them (longest first). novasvg looks for these five and applies each only if the face's own
+        GSUB table agrees; that is asked of it here rather than copied: a sequence is a ligature when it is
+        measured and drawn as the one glyph of its presentation form.
+
+        Exists only for mermaidx.engines.v8_engine, to reproduce the walk of Font.measure() / glyph_boxes() in JS."""
+        at = self._at_size(float(self._face.units_per_em))
+        return [
+            [[ord(c) for c in seq], lig]
+            for seq, lig in _LIGATURE_CANDIDATES
+            if len(at.glyph_boxes(seq)) == 1 and at.glyph_boxes(seq) == at.glyph_boxes(chr(lig))
+        ]
+
+    def full_glyph_table(self) -> dict:
+        """Every codepoint this font can render that has an outline, mapped to [ink_left, ink_right, ink_top,
+        ink_bottom] in font design units (unscaled), relative to the glyph's own pen -- the numbers glyph_boxes()
+        gives scaled to the size. A space has no outline and is left out.
+
+        Exists only for mermaidx.engines.v8_engine (see ligatures())."""
+        at = self._at_size(float(self._face.units_per_em))
+        table = {}
+        for cp in self._face.codepoints():
+            boxes = at.glyph_boxes(chr(cp))
+            if boxes:
+                table[cp] = list(boxes[0][1:])
+        return table
+
+    def notdef_glyph_box(self) -> list:
+        """Ink of the glyph novasvg draws for a codepoint the font does not have, like full_glyph_table()'s."""
+        at = self._at_size(float(self._face.units_per_em))
+        return list(at.glyph_boxes(chr(_NOT_IN_ANY_FONT))[0][1:])
 
     def metrics_summary(self) -> dict:
         """unitsPerEm/ascender/descender/xHeight -- everything besides the
