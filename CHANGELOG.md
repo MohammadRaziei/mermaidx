@@ -73,6 +73,5 @@ It also moves rasterization to novasvg only and adds JPEG, BMP and TGA output.
   other 42 samples match on both engines, as far as Linux has been measured. This is recorded as a strict
   expected failure in the test suite, with details in `note.md`. A deterministic `Math` layer is under
   consideration but not part of this release.
-- Windows has not been verified for the structural comparison tests.
 
 [0.10.0]: https://github.com/mohammadraziei/mermaidx/compare/v0.9.5...v0.10.0
