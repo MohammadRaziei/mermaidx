@@ -2,29 +2,15 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Layout from '@theme/Layout';
 import Link from '@docusaurus/Link';
 import useBaseUrl from '@docusaurus/useBaseUrl';
+import BenchCharts from '../components/BenchCharts';
+import { colorOf, fmtMs } from '../components/bench-utils';
 import styles from './benchmarks.module.css';
-
-const COLORS = {
-  mmdc: 'var(--mx-mmdc)',
-  'mermaidx-quickjs': 'var(--mx-quickjs)',
-  'mermaidx-v8': 'var(--mx-v8)',
-  'mermaidx-merman': 'var(--mx-merman)',
-  'mermaidx-mermaid-rs-renderer': 'var(--mx-rust)',
-};
-const colorOf = (id) => COLORS[id] || 'var(--mx-muted)';
 
 function median(values) {
   if (!values.length) return null;
   const s = [...values].sort((a, b) => a - b);
   const m = Math.floor(s.length / 2);
   return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
-}
-
-function fmtMs(ms) {
-  if (ms == null) return '–';
-  if (ms >= 10000) return `${(ms / 1000).toFixed(1)} s`;
-  if (ms >= 1000) return `${(ms / 1000).toFixed(2)} s`;
-  return `${ms < 100 ? ms.toFixed(1) : Math.round(ms)} ms`;
 }
 
 function summarize(data) {
@@ -52,53 +38,6 @@ function summarize(data) {
       reference,
     };
   });
-}
-
-function Summary({ rows }) {
-  const slowest = Math.max(...rows.map((r) => r.median || 0), 1);
-  const ref = rows[0].reference;
-  return (
-    <section aria-labelledby="summary">
-      <h2 id="summary">Results at a glance</h2>
-      <div className={styles.tableWrap}>
-        <table className={styles.summary}>
-          <thead>
-            <tr>
-              <th>Renderer</th>
-              <th>Median time per diagram</th>
-              <th>Faster than {ref.label}</th>
-              <th>Produced an image</th>
-              <th>First render</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => (
-              <tr key={r.id}>
-                <th scope="row">
-                  <span className={styles.swatch} style={{ background: colorOf(r.id) }} aria-hidden="true" />
-                  {r.label}
-                </th>
-                <td>
-                  <div className={styles.barRow}>
-                    <div className={styles.bar} style={{ width: `${Math.max(((r.median || 0) / slowest) * 100, 1.5)}%`, background: colorOf(r.id) }} />
-                    <span>{fmtMs(r.median)}</span>
-                  </div>
-                </td>
-                <td>{r.speedup ? `${r.speedup.toFixed(r.speedup >= 10 ? 0 : 1)}×` : r.id === ref.id ? 'reference' : '–'}</td>
-                <td>{r.ok} of {r.total}</td>
-                <td>{fmtMs(r.startup_ms)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <p className={styles.note}>
-        Medians over the diagrams each renderer handled. mermaidx runs in one Python process and <code>mmdc</code> is
-        started for every diagram, so read the comparison as "per diagram in a script".{' '}
-        <Link to="/docs/benchmarks-method">How the benchmarks work</Link>.
-      </p>
-    </section>
-  );
 }
 
 function Cell({ renderer, res, fastest, onOpen, sample }) {
@@ -285,6 +224,7 @@ function Meta({ meta }) {
 export default function Benchmarks() {
   const url = useBaseUrl('/benchmarks/results.json');
   const [state, setState] = useState({ status: 'loading' });
+  const [log, setLog] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -320,7 +260,7 @@ export default function Benchmarks() {
         )}
         {state.status === 'ok' && (
           <>
-            <Summary rows={summarize(state.data)} />
+            <BenchCharts data={state.data} rows={summarize(state.data)} log={log} onLogChange={setLog} />
             <Gallery data={state.data} />
             <Meta meta={state.data.meta} />
           </>

@@ -1,7 +1,7 @@
 .page {
   width: 100%;
   box-sizing: border-box;
-  max-width: 1240px;
+  max-width: 1120px;
   margin: 0 auto;
   padding: 2.5rem 1.5rem 5rem;
 }
@@ -18,57 +18,10 @@
 }
 
 .intro {
-  max-width: 42rem;
+  max-width: 46rem;
   font-size: 1.1rem;
   line-height: 1.6;
   color: var(--mx-muted);
-}
-
-.tableWrap {
-  max-width: 100%;
-  overflow-x: auto;
-}
-
-.summary {
-  width: 100%;
-  min-width: 640px;
-  border-collapse: collapse;
-  font-variant-numeric: tabular-nums;
-}
-
-.summary th,
-.summary td {
-  padding: 0.7rem 0.9rem 0.7rem 0;
-  text-align: left;
-  border: none;
-  border-bottom: 1px solid var(--mx-line);
-  background: none;
-  vertical-align: middle;
-}
-
-.summary thead th {
-  font-size: 0.9rem;
-  font-weight: 600;
-  color: var(--mx-muted);
-}
-
-.summary tbody th {
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-.barRow {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  min-width: 240px;
-}
-
-.bar {
-  height: 0.7rem;
-  border-radius: 2px;
-  flex: none;
-  max-width: 70%;
 }
 
 .swatch {
@@ -78,13 +31,6 @@
   margin-right: 0.5rem;
   border-radius: 2px;
   flex: none;
-}
-
-.note {
-  max-width: 46rem;
-  margin-top: 1rem;
-  font-size: 0.95rem;
-  color: var(--mx-muted);
 }
 
 .controls {

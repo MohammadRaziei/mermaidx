@@ -31,16 +31,24 @@ The two groups are not measuring the same thing. Compare mermaidx backends with 
 
 - A cell that says **not supported** means the renderer raised an error or produced no image for that sample. These are never counted in the averages.
 - Producing an image does not mean producing a correct one. A renderer may draw a diagram type it does not know as a generic picture instead of raising an error, so look at the pictures, not only at the counts.
-- The speed-up in the summary is the median, over the samples both renderers handled, of `mmdc` time divided by that renderer's time.
+- The speed-up written next to each bar in the first chart is the median, over the samples both renderers handled, of `mmdc` time divided by that renderer's time.
 - Absolute times depend on the CI machine. The machine and every version are listed on the page, so treat the numbers as relative.
 - The images are not identical. Each renderer lays out and paints text its own way, which makes the gallery useful for spotting visual differences too.
 
 ## Run it yourself
 
+Everything goes through the `Makefile` in the repository root, and CI runs the same targets.
+
 ```bash
-pip install "mermaidx[all]"
-npm install -g @mermaid-js/mermaid-cli
-python benchmarks/run.py --out docs/static/benchmarks
+make install-python install-mmdc    # mermaidx with every backend, and mermaid-cli
+make benchmark                      # writes docs/static/benchmarks/results.json and the PNGs
+make serve                          # browse the site with live reload
 ```
 
-Use `--skip-mmdc` if you do not have mermaid-cli, `--only 01_simple_flowchart` to run one sample, and `--repeats N` to change how many times each render is timed.
+Skip `make install-mmdc` if you do not have Node.js: the benchmark then runs without `mmdc`. To change how it runs, pass arguments to `benchmarks/run.py`, for example:
+
+```bash
+make benchmark BENCH_ARGS="--only 31_venn --repeats 10"
+```
+
+`make help` lists every target.

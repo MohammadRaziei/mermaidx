@@ -1,7 +1,10 @@
 name: Docs and benchmarks
 
-# Renders every tests/samples diagram with mermaid-cli and each mermaidx backend,
-# builds the Docusaurus site with the results, and publishes it to GitHub Pages.
+# Everything runs through the Makefile, so the same commands work locally:
+#   make install-python install-mmdc install-docs
+#   make all
+# That renders tests/samples with mermaid-cli and every mermaidx backend, renders the
+# landing-page examples, builds the Docusaurus site and (here) publishes it to GitHub Pages.
 # One-time setup: Settings -> Pages -> Source: "GitHub Actions".
 
 on:
@@ -15,6 +18,7 @@ on:
       - "tests/samples/**"
       - "architecture.md"
       - "CHANGELOG.md"
+      - "Makefile"
       - ".github/workflows/docs.yml"
   pull_request:
     paths:
@@ -22,6 +26,7 @@ on:
       - "benchmarks/**"
       - "architecture.md"
       - "CHANGELOG.md"
+      - "Makefile"
 
 permissions:
   contents: read
@@ -31,7 +36,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  benchmark:
+  build:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -40,40 +45,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      - name: Install mermaidx with every backend
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[all]"
-
-      - name: Install mermaid-cli
-        run: npm install -g @mermaid-js/mermaid-cli
-
-      - name: Allow headless Chrome on the runner
-        run: |
-          echo '{"args": ["--no-sandbox"]}' > "$RUNNER_TEMP/puppeteer.json"
-
-      - name: Run the benchmark
-        run: |
-          python benchmarks/run.py \
-            --out benchmarks-out \
-            --puppeteer-config "$RUNNER_TEMP/puppeteer.json"
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: benchmarks
-          path: benchmarks-out
-          if-no-files-found: error
-
-  build:
-    needs: benchmark
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+          cache: pip
 
       - uses: actions/setup-node@v4
         with:
@@ -81,16 +53,13 @@ jobs:
           cache: npm
           cache-dependency-path: docs/package-lock.json
 
-      - uses: actions/download-artifact@v4
-        with:
-          name: benchmarks
-          path: docs/static/benchmarks
+      - name: Install dependencies
+        run: make install-python install-mmdc install-docs
 
-      - name: Build the site
-        working-directory: docs
-        run: |
-          npm ci
-          npm run build
+      - name: Benchmark, render the examples and build the site
+        run: make all
+        env:
+          NO_SANDBOX: "1"
 
       - uses: actions/upload-pages-artifact@v3
         with:

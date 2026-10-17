@@ -1,24 +1,11 @@
 import React from 'react';
 import Layout from '@theme/Layout';
 import Link from '@docusaurus/Link';
-import useBaseUrl from '@docusaurus/useBaseUrl';
 import CodeBlock from '@theme/CodeBlock';
+import Showcase from '../components/Showcase';
 import styles from './index.module.css';
 
-const snippet = `import mermaidx
-
-d = mermaidx.render("""
-graph TD
-    A[Install] --> B[Import]
-    B --> C[Convert]
-    C --> D[Done]
-""")
-
-d.save("diagram.png", scale=2.0)
-d.save("diagram.pdf")`;
-
 export default function Home() {
-  const hero = useBaseUrl('/img/hero.png');
   return (
     <Layout
       title="Mermaid diagrams from Python"
@@ -30,8 +17,8 @@ export default function Home() {
             mermaidx runs the real mermaid.js inside a small embedded engine. One <code>pip install</code> gives you
             SVG, PNG, JPEG, PDF and ASCII output, with no Node.js, no Chrome and nothing to compile.
           </p>
-          <CodeBlock language="bash">pip install mermaidx</CodeBlock>
           <div className={styles.actions}>
+            <CodeBlock language="bash">pip install mermaidx</CodeBlock>
             <Link className="button button--primary button--lg" to="/docs/quickstart">
               Get started
             </Link>
@@ -41,11 +28,7 @@ export default function Home() {
           </div>
         </div>
         <div className={styles.demo}>
-          <CodeBlock language="python">{snippet}</CodeBlock>
-          <figure className={styles.result}>
-            <img src={hero} width="279" height="764" alt="A flowchart with four steps: Install, Import, Convert, Done" />
-            <figcaption>Rendered by mermaidx</figcaption>
-          </figure>
+          <Showcase />
         </div>
       </header>
 
@@ -61,8 +44,8 @@ export default function Home() {
         <section>
           <h2>Four backends, one API</h2>
           <p>
-            <code>quickjs</code> is the default and has no dependencies. <code>v8</code> is faster for large batches.
-            <code> merman</code> and <code>mermaid-rs-renderer</code> are native Rust renderers. Switching is one
+            <code>quickjs</code> is the default and has no dependencies. <code>v8</code> is faster for large batches.{' '}
+            <code>merman</code> and <code>mermaid-rs-renderer</code> are native Rust renderers. Switching is one
             argument: <code>mermaidx.render(source, backend="v8")</code>. The{' '}
             <Link to="/docs/backends">backends page</Link> says when to choose each.
           </p>

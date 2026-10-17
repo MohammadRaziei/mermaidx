@@ -1,0 +1,127 @@
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem 1.5rem;
+}
+
+.segment {
+  display: inline-flex;
+  border: 1px solid var(--mx-line);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.segment button {
+  padding: 0.35rem 0.9rem;
+  font: inherit;
+  font-size: 0.9rem;
+  color: var(--mx-muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.segment button + button {
+  border-left: 1px solid var(--mx-line);
+}
+
+.segment button[aria-pressed='true'] {
+  color: var(--ifm-font-color-base);
+  font-weight: 600;
+  background: var(--mx-surface);
+  box-shadow: inset 0 -2px 0 var(--ifm-color-primary);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+  gap: 2.5rem;
+  margin-top: 1rem;
+}
+
+.figure {
+  min-width: 0;
+  margin: 1.5rem 0 0;
+}
+
+.grid .figure {
+  margin-top: 0;
+}
+
+.figure figcaption {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  margin-bottom: 0.9rem;
+}
+
+.figure figcaption span {
+  font-size: 0.9rem;
+  color: var(--mx-muted);
+}
+
+.canvasWrap {
+  position: relative;
+  width: 100%;
+}
+
+.scroll {
+  overflow-x: auto;
+}
+
+.wide {
+  position: relative;
+  min-width: 920px;
+  height: 440px;
+}
+
+.numbers {
+  margin-top: 1.5rem;
+}
+
+.numbers summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.numbersScroll {
+  overflow-x: auto;
+  margin-top: 0.75rem;
+}
+
+.numbers table {
+  width: 100%;
+  min-width: 560px;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.numbers th,
+.numbers td {
+  padding: 0.45rem 0.9rem 0.45rem 0;
+  text-align: left;
+  border: none;
+  border-bottom: 1px solid var(--mx-line);
+  background: none;
+}
+
+.numbers thead th {
+  font-size: 0.9rem;
+  color: var(--mx-muted);
+}
+
+.note {
+  max-width: 46rem;
+  margin-top: 1rem;
+  font-size: 0.95rem;
+  color: var(--mx-muted);
+}
+
+@media (max-width: 860px) {
+  .grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1.5rem;
+  }
+}
