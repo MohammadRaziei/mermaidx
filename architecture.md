@@ -59,7 +59,7 @@ sequenceDiagram
     loop for every label / shape (100-300+ times per diagram)
         M->>S: text.getBBox() / div.getBoundingClientRect()
         S->>E: __measureTextFull_raw(text, size, family, weight)<br/>or __measureForeignObject_raw(html, size, ...)
-        E->>E: font_metrics.py asks novasvg (same DejaVu Sans<br/>file novasvg paints with; kerning-aware)
+        E->>E: font_metrics.py asks novasvg (same DejaVu Sans<br/>file novasvg paints with#59; kerning-aware)
         E-->>S: {width, ascent, descent}
         S-->>M: DOMRect-shaped result
         M->>S: shape.getBBox()  (after drawing a <path>/<polygon>)

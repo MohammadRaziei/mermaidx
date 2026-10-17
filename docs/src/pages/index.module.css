@@ -1,0 +1,98 @@
+.hero {
+  width: 100%;
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 3rem;
+  align-items: start;
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 4rem 1.5rem 3rem;
+}
+
+.heroText h1 {
+  font-size: clamp(2rem, 4.2vw, 3.1rem);
+  line-height: 1.08;
+  letter-spacing: -0.025em;
+  margin-bottom: 1.25rem;
+}
+
+.lead {
+  font-size: 1.15rem;
+  line-height: 1.6;
+  max-width: 34rem;
+  color: var(--mx-muted);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
+}
+
+.demo {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.demo pre {
+  margin: 0;
+}
+
+.result {
+  margin: 0;
+  padding: 0.75rem;
+  background: #ffffff;
+  border: 1px solid var(--mx-line);
+  border-radius: 6px;
+  text-align: center;
+}
+
+.result img {
+  max-width: 100%;
+  height: auto;
+}
+
+.result figcaption {
+  margin-top: 0.4rem;
+  font-size: 0.85rem;
+  color: #5a6670;
+}
+
+.main {
+  width: 100%;
+  box-sizing: border-box;
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 1rem 1.5rem 5rem;
+}
+
+.main section + section {
+  margin-top: 2.25rem;
+}
+
+.main h2 {
+  font-size: 1.5rem;
+  letter-spacing: -0.015em;
+}
+
+.main p {
+  font-size: 1.05rem;
+  line-height: 1.7;
+}
+
+@media (max-width: 996px) {
+  .hero {
+    grid-template-columns: minmax(0, 1fr);
+    padding-top: 2.5rem;
+  }
+}
+
+@media (max-width: 560px) {
+  .demo {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
