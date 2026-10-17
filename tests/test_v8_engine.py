@@ -1,12 +1,12 @@
 """Tests for mermaidx.engines.v8_engine's subprocess-based memory safety.
 
-mindmap diagrams schedule an internal animation loop that never stops on
-its own (see v8_engine.py's module docstring) -- py_mini_racer has no way
-to interrupt it in-process, so the V8 isolate that gets stuck running it
-lives in a child *process* instead of a thread: on timeout, that process is
-killed outright (SIGKILL) and the OS reclaims 100% of its memory
-immediately, unconditionally. These tests use a short render_timeout_ms to
-exercise that path quickly rather than waiting out the real 8s default.
+The V8 isolate lives in a child *process* instead of a thread: py_mini_racer has no way to interrupt a render
+in-process, so when a render exceeds its timeout, that process is killed outright (SIGKILL) and the OS reclaims
+100% of its memory immediately, unconditionally. A fresh child serves the next render.
+
+These tests trigger that path with a render timeout far below what any render takes (a fresh V8 context alone
+needs ~0.4s), not with a diagram that never ends: since the timers of the shim run on a virtual clock and the event
+loop is capped, mindmap renders in well under a second and no longer hangs.
 """
 
 from __future__ import annotations
@@ -15,6 +15,7 @@ import base64
 import json
 import os
 import re
+import signal
 import time
 
 import psutil
@@ -24,13 +25,16 @@ pytest.importorskip("py_mini_racer")
 
 from mermaidx.engines.v8_engine import Engine, MermaidRenderError  # noqa: E402
 
-MINDMAP = "mindmap\n  root((mindmap))\n    Origins\n      Long history\n"
 FLOWCHART = "flowchart TD\nA-->B"
+
+
+TIGHT_TIMEOUT_MS = 50  # below the time any render needs, so it always times out
+GENEROUS_TIMEOUT_MS = 30_000
 
 
 @pytest.fixture
 def engine():
-    eng = Engine(render_timeout_ms=3000)  # short, just to exercise the path quickly
+    eng = Engine(render_timeout_ms=TIGHT_TIMEOUT_MS)
     eng.start()
     yield eng
     eng.close()
@@ -50,31 +54,37 @@ def _total_rss_mb(pid: int) -> float:
 
 
 def test_timed_out_render_raises_and_engine_recovers(engine):
+    child = engine._process
     with pytest.raises(MermaidRenderError, match="killed"):
-        engine.render_svg(MINDMAP, "default", None, None)
+        engine.render_svg(FLOWCHART, "default", None, None)
+    assert child is not engine._process
+    if os.name == "posix":
+        # killed, not asked to stop: a child stuck in a render would never read the EOF that closing the pipe gives
+        assert child.exitcode == -signal.SIGKILL
     # the engine replaced its killed child process -- a normal render works right after
+    engine._render_timeout_ms = GENEROUS_TIMEOUT_MS
     svg = engine.render_svg(FLOWCHART, "default", None, None)
     assert svg.startswith("<svg")
 
 
 def test_killed_render_does_not_leak_memory(engine):
-    """The regression this whole module exists to catch: an earlier,
-    thread-based version of this engine leaked ~140-160MB *every single
-    time* a render timed out, since an abandoned thread's V8 isolate could
-    never be reclaimed. A killed child *process* must not show that
-    pattern -- total memory should stay flat across repeated timeouts."""
+    """A killed render must give its memory back. An earlier, thread-based version of this engine leaked
+    ~140-160MB every time a render timed out (an abandoned thread's V8 isolate can never be reclaimed). That
+    needed a diagram that never ends, which no longer exists, so this cannot reproduce that exact leak. What it
+    still catches: a timeout that does not kill the child (the children pile up and so does the total RSS) or
+    that keeps the work in this process."""
     pid = os.getpid()
 
     for _ in range(3):
         with pytest.raises(MermaidRenderError, match="killed"):
-            engine.render_svg(MINDMAP, "default", None, None)
+            engine.render_svg(FLOWCHART, "default", None, None)
         time.sleep(0.5)  # let the OS finish reaping the killed child
 
     rss_after_first_batch = _total_rss_mb(pid)
 
     for _ in range(3):
         with pytest.raises(MermaidRenderError, match="killed"):
-            engine.render_svg(MINDMAP, "default", None, None)
+            engine.render_svg(FLOWCHART, "default", None, None)
         time.sleep(0.5)
 
     rss_after_second_batch = _total_rss_mb(pid)
