@@ -29,6 +29,7 @@ SLIDES = [
 ]
 
 IMG_DIR.mkdir(parents=True, exist_ok=True)
+DATA.parent.mkdir(parents=True, exist_ok=True)  # absent on a fresh checkout: git does not keep empty folders
 out = []
 for sample_id, label in SLIDES:
     source = (SAMPLES / f"{sample_id}.mmd").read_text(encoding="utf-8").strip("\n")
