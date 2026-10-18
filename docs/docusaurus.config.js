@@ -53,6 +53,7 @@ const config = {
           { to: '/docs/installation', label: 'Docs', position: 'left' },
           { to: '/benchmarks', label: 'Benchmarks', position: 'left' },
           { to: '/docs/changelog', label: 'Changelog', position: 'left' },
+          { to: '/docs/story', label: 'Story', position: 'left' },
           { href: 'https://pypi.org/project/mermaidx', label: 'PyPI', position: 'right' },
           { href: 'https://github.com/MohammadRaziei/mermaidx', label: 'GitHub', position: 'right' },
         ],

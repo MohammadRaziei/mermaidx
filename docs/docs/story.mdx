@@ -70,6 +70,15 @@ So in 0.10.0 (2026-10-17) the work was split:
 - **mermaidx** pretends to be a browser and returns the SVG. It was developed test-first and error-first.
 - **novasvg** turns that SVG into PNG, JPEG, BMP and TGA, and it is also the only thing that measures text and HTML labels.
 
+```mermaid
+flowchart TB
+    SRC["Mermaid source"] --> ENG["mermaid.js + DOM shim<br/>in QuickJS-ng or V8"]
+    ENG --> SVG["SVG"]
+    SVG --> NOVA["novasvg"]
+    NOVA --> OUT["PNG, JPEG, BMP, TGA, PDF"]
+    NOVA -. "text measurements" .-> ENG
+```
+
 Because I wrote both, one more thing became possible. novasvg needs fonts and text layout anyway, so I could export its helper functions to Python and use them in mermaidx to estimate font sizes.
 
 Along with that, 0.10.0 removed font embedding, resvg and the post-render SVG patching, and put Mermaid's default HTML labels back. The changelog lists the breaking changes. The reference set is 43 samples. On Linux, `quickjs` matches all of them and `v8` matches 42; the exception is `39_mindmap_shapes`, which also differs on `quickjs` under macOS. It is described in [Known issues](./known-issues.md).
