@@ -77,6 +77,18 @@ function Cell({ renderer, res, fastest, onOpen, sample }) {
   );
 }
 
+function SourceDownload({ sample }) {
+  const base = useBaseUrl('/benchmarks/');
+  const href = base + (sample.source || `mmd/${sample.id}.mmd`);
+  return (
+    <div className={styles.rowFoot}>
+      <a className={styles.download} href={href} download={`${sample.id}.mmd`} aria-label={`Download the Mermaid source of ${sample.title}`}>
+        Download .mmd
+      </a>
+    </div>
+  );
+}
+
 function Lightbox({ item, onClose }) {
   const ref = useRef(null);
   useEffect(() => {
@@ -116,16 +128,15 @@ function Gallery({ data }) {
   const reference = renderers[0];
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState('name');
-  const [onlyFailures, setOnlyFailures] = useState(false);
+  const [filter, setFilter] = useState('all');
   const [open, setOpen] = useState(null);
 
   const hasFailure = (s) => renderers.some((r) => !s.results[r.id] || s.results[r.id].status !== 'ok');
 
   const samples = useMemo(() => {
     const q = query.trim().toLowerCase();
-    let list = data.samples.filter(
-      (s) => (!q || `${s.id} ${s.type}`.toLowerCase().includes(q)) && (!onlyFailures || hasFailure(s)),
-    );
+    const passesFilter = (s) => filter === 'all' || (filter === 'complete' ? !hasFailure(s) : hasFailure(s));
+    let list = data.samples.filter((s) => (!q || `${s.id} ${s.type}`.toLowerCase().includes(q)) && passesFilter(s));
     const refTime = (s) => {
       const res = s.results[reference.id];
       return res && res.status === 'ok' ? res.time_ms : -1;
@@ -133,7 +144,7 @@ function Gallery({ data }) {
     if (sort === 'slowest') list = [...list].sort((a, b) => refTime(b) - refTime(a));
     if (sort === 'failures') list = [...list].sort((a, b) => Number(hasFailure(b)) - Number(hasFailure(a)));
     return list;
-  }, [data, query, sort, onlyFailures]);
+  }, [data, query, sort, filter]);
 
   // Jump to a sample linked as /benchmarks#31_venn once the list has rendered.
   useEffect(() => {
@@ -157,9 +168,13 @@ function Gallery({ data }) {
             <option value="failures">Failures first</option>
           </select>
         </label>
-        <label className={styles.check}>
-          <input type="checkbox" checked={onlyFailures} onChange={(e) => setOnlyFailures(e.target.checked)} />
-          Only diagrams some renderer could not draw
+        <label>
+          Filter
+          <select value={filter} onChange={(e) => setFilter(e.target.value)}>
+            <option value="all">All diagrams</option>
+            <option value="complete">Drawn by every renderer</option>
+            <option value="incomplete">Not supported by at least one renderer</option>
+          </select>
         </label>
         <span className={styles.count} aria-live="polite">{samples.length} of {data.samples.length} diagrams</span>
       </div>
@@ -170,10 +185,12 @@ function Gallery({ data }) {
         {samples.map((s) => {
           const times = renderers.map((r) => (s.results[r.id] && s.results[r.id].status === 'ok' ? s.results[r.id].time_ms : Infinity));
           const best = Math.min(...times);
+          const number = (s.id.match(/^\d+/) || [''])[0];
           return (
             <li key={s.id} id={s.id} className={styles.row}>
               <div className={styles.rowHead}>
                 <h3>
+                  {number && <span className={styles.num}>{number}</span>}
                   {s.title}
                   <a className="hash-link" href={`#${s.id}`} aria-label={`Link to ${s.title}`} />
                 </h3>
@@ -184,6 +201,7 @@ function Gallery({ data }) {
                   <Cell key={r.id} renderer={r} res={s.results[r.id]} sample={s} fastest={s.results[r.id] && s.results[r.id].time_ms === best} onOpen={setOpen} />
                 ))}
               </div>
+              <SourceDownload sample={s} />
             </li>
           );
         })}

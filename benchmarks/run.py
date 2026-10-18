@@ -4,6 +4,7 @@
 Writes, under --out:
     results.json                      timings, status, versions, machine
     png/<sample>/<renderer>.png       the rendered image
+    mmd/<sample>.mmd                  the Mermaid source, for the download button
 
 The clock covers Mermaid text -> PNG. mermaidx is called as a library (warm,
 median of --repeats); mmdc is started once per run (median of --mmdc-repeats),
@@ -205,6 +206,10 @@ def main(argv=None):
 
     args.out.mkdir(parents=True, exist_ok=True)
     shutil.rmtree(args.out / "png", ignore_errors=True)
+    shutil.rmtree(args.out / "mmd", ignore_errors=True)
+    (args.out / "mmd").mkdir(parents=True)
+    for s in samples:
+        shutil.copyfile(s, args.out / "mmd" / s.name)
 
     renderers, per_renderer, skipped = [], {}, []
 
@@ -271,6 +276,7 @@ def main(argv=None):
                 "id": s.stem,
                 "title": re.sub(r"^\d+_", "", s.stem).replace("_", " "),
                 "type": diagram_type(s.read_text(encoding="utf-8")),
+                "source": f"mmd/{s.name}",
                 "results": {r["id"]: per_renderer[r["id"]].get(s.stem) for r in renderers},
             }
             for s in samples

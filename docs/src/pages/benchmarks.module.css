@@ -63,13 +63,6 @@
   border-radius: 4px;
 }
 
-.controls .check {
-  flex-direction: row;
-  align-items: center;
-  gap: 0.5rem;
-  font-weight: 400;
-}
-
 .count {
   margin-left: auto;
   font-size: 0.9rem;
@@ -99,6 +92,41 @@
   margin: 0;
   font-size: 1.15rem;
   text-transform: none;
+}
+
+.num {
+  display: inline-block;
+  min-width: 2.4em;
+  margin-right: 0.6rem;
+  padding: 0.05rem 0.5rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  color: var(--mx-muted);
+  border: 1px solid var(--mx-line);
+  border-radius: 999px;
+  vertical-align: 0.12em;
+}
+
+.rowFoot {
+  margin-top: 0.9rem;
+}
+
+.download {
+  display: inline-block;
+  padding: 0.3rem 0.8rem;
+  font-size: 0.9rem;
+  color: inherit;
+  text-decoration: none;
+  border: 1px solid var(--mx-line);
+  border-radius: 4px;
+}
+
+.download:hover {
+  color: var(--ifm-color-primary);
+  border-color: var(--ifm-color-primary);
+  text-decoration: none;
 }
 
 .cells {
@@ -266,7 +294,7 @@
     min-width: 0;
     width: 100%;
   }
-  .controls label:not(.check) {
+  .controls label {
     width: 100%;
   }
 }
