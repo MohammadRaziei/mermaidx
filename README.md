@@ -169,12 +169,12 @@ print(mermaidx.backends())
 # ['quickjs', 'merman', 'mermaid-rs-renderer']   with mermaidx[rust]
 ```
 
-| Backend | Engine | Notes |
+| Backend | What runs | Notes |
 | --- | --- | --- |
-| `quickjs` *(default)* | Embedded QuickJS-ng | Lightweight and always available. Runs real `mermaid.js` in-process. Safe for every diagram type, including `mindmap`. |
-| `v8` | V8 JIT via `mini-racer` | Faster. Runs in an isolated child process so memory is fully reclaimed. |
-| `merman` | Native Rust (`mmdr`) | No JavaScript engine involved. |
-| `mermaid-rs-renderer` | Native Rust (`mmdr`) | Alternative pure-Rust renderer from `mmdr`. |
+| `quickjs` *(default)* | The **original mermaid.js** in QuickJS-ng | Lightweight and always available, runs in-process. Safe for every diagram type, including `mindmap`. |
+| `v8` | The **original mermaid.js** in V8 (`mini-racer`) | Faster thanks to the JIT. Runs in an isolated child process so memory is fully reclaimed. |
+| `merman` | A **Rust reimplementation** (`mmdr`) | No JavaScript engine involved. Not mermaid.js. |
+| `mermaid-rs-renderer` | A **different Rust reimplementation** (`mmdr`) | Same idea as `merman`, with its own layout engine. |
 
 ```mermaid
 flowchart TB
@@ -203,11 +203,43 @@ flowchart TB
     SVG(["svg()<br/>the only step that differs per backend"]) --> SHARED["DiagramBase, shared by all backends<br/>novasvg: PNG, JPG, BMP, TGA, raw, numpy<br/>PDF writer<br/>save(), caching"]
 ```
 
-Only `svg()` differs per backend, so PNG, PDF, raw and NumPy output come along for free:
+The API is the same for every backend: `render()` always returns a `Diagram`, and `.svg()`, `.png()`, `.pdf()` and `.save()` work identically whichever one you pick. What is **not** the same is how the SVG gets made, so **speed and the rendered result can differ** between backends:
+
+- **`quickjs` and `v8` run the original mermaid.js.** Same library, same diagram types, same options (`theme`, `config`, `css`). Only the JavaScript engine differs: V8 is faster, QuickJS installs anywhere.
+- **`merman` and `mermaid-rs-renderer` are different implementations**, written in Rust rather than JavaScript. Their layout can differ from mermaid.js, they may not support every diagram type, and they take different options (`theme`, `node_spacing`, `rank_spacing`, `aspect_ratio` instead of `config` and `css`).
+
+Whatever the backend, the SVG then goes through the same novasvg rasterizer, so the pixels are painted the same way. Only the SVG it receives differs.
 
 ```python
-d = mermaidx.render(source, backend="merman")
-d.pdf()   # mmdr's SVG goes through the same novasvg + PDF pipeline
+import mermaidx
+
+source = "flowchart LR; A[Parse] --> B[Layout] --> C[Render]"
+
+# Original mermaid.js: same output, different JS engine
+mermaidx.render(source).png()                        # quickjs, the default
+mermaidx.render(source, backend="quickjs").png()     # the same, spelled out
+mermaidx.render(source, backend="v8").png()          # JIT, faster on big batches
+
+# Rust reimplementations: no JS engine, output may differ
+mermaidx.render(source, backend="merman").png()
+mermaidx.render(source, backend="mermaid-rs-renderer").png()
+```
+
+To see the differences yourself, render the same diagram with every backend you have installed:
+
+```python
+for name in mermaidx.backends():
+    mermaidx.render(source, backend=name).save(f"diagram-{name}.png")
+```
+
+Options depend on the family:
+
+```python
+# mermaid.js backends: config and css
+mermaidx.render(source, theme="dark", config={"flowchart": {"curve": "basis"}})
+
+# Rust backends: spacing and aspect ratio
+mermaidx.render(source, backend="merman", theme="dark", node_spacing=60, rank_spacing=80)
 ```
 
 ## Python API
