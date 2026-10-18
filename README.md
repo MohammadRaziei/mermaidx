@@ -176,6 +176,33 @@ print(mermaidx.backends())
 | `merman` | Native Rust (`mmdr`) | No JavaScript engine involved. |
 | `mermaid-rs-renderer` | Native Rust (`mmdr`) | Alternative pure-Rust renderer from `mmdr`. |
 
+```mermaid
+flowchart TB
+    CALL["mermaidx.render(source, backend=...)"] --> PICK{"backend"}
+
+    subgraph JSB ["Diagram: real mermaid.js v11 + DOM/SVG shims"]
+        QJ["quickjs (default)<br/>QuickJS-ng, in-process<br/>text metrics via Python callback"]
+        V8["v8<br/>V8 via mini-racer, child process<br/>text metrics via JS-side tables"]
+    end
+
+    subgraph RSB ["DiagramRust: optional mmdr package"]
+        MM["merman<br/>native Rust"]
+        MR["mermaid-rs-renderer<br/>native Rust"]
+    end
+
+    PICK -->|"default"| QJ
+    PICK -->|"mermaidx[v8engine]"| V8
+    PICK -->|"mermaidx[rust]"| MM
+    PICK -->|"mermaidx[rust]"| MR
+
+    QJ --> SVG
+    V8 --> SVG
+    MM --> SVG
+    MR --> SVG
+
+    SVG(["svg()<br/>the only step that differs per backend"]) --> SHARED["DiagramBase, shared by all backends<br/>novasvg: PNG, JPG, BMP, TGA, raw, numpy<br/>PDF writer<br/>save(), caching"]
+```
+
 Only `svg()` differs per backend, so PNG, PDF, raw and NumPy output come along for free:
 
 ```python
