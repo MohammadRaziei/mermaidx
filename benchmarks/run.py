@@ -75,16 +75,23 @@ def cpu_name() -> str:
 # --------------------------------------------------------------------------- mermaidx
 
 
+class BackendUnavailable(RuntimeError):
+    """The backend is installed but cannot render on this machine."""
+
+
 def run_mermaidx_backend(backend, samples, out_dir, repeats, log):
     import mermaidx
 
     def render_png(source):
         return mermaidx.render(source, backend=backend).png(background=BACKGROUND)
 
-    t0 = time.perf_counter()
-    render_png(WARMUP_SOURCE)
-    startup_ms = (time.perf_counter() - t0) * 1000
-    render_png(WARMUP_SOURCE)
+    try:
+        t0 = time.perf_counter()
+        render_png(WARMUP_SOURCE)
+        startup_ms = (time.perf_counter() - t0) * 1000
+        render_png(WARMUP_SOURCE)
+    except Exception as exc:
+        raise BackendUnavailable(short_error(exc)) from exc
 
     results = {}
     for sample in samples:
@@ -199,7 +206,13 @@ def main(argv=None):
     args.out.mkdir(parents=True, exist_ok=True)
     shutil.rmtree(args.out / "png", ignore_errors=True)
 
-    renderers, per_renderer = [], {}
+    renderers, per_renderer, skipped = [], {}, []
+
+    def skip(rid, label, msg):
+        log(f"  skipped: {msg}")
+        skipped.append({"id": rid, "label": label, "error": msg})
+        if os.environ.get("GITHUB_ACTIONS"):
+            print(f"::warning title=Benchmark::{label} was skipped: {msg}", flush=True)
 
     if not args.skip_mmdc:
         log("mmdc")
@@ -209,19 +222,27 @@ def main(argv=None):
                               "version": command_output(["mmdc", "--version"])})
             per_renderer["mmdc"] = res
         except Exception as exc:
-            log(f"  skipped: {short_error(exc)}")
+            skip("mmdc", "mmdc", short_error(exc))
 
     available = mermaidx.backends()
     for backend in args.backend or available:
         if backend not in available:
-            log(f"mermaidx {backend}\n  skipped: backend not available")
+            log(f"mermaidx {backend}")
+            skip(f"mermaidx-{backend}", f"mermaidx {backend}", "backend not available in this environment")
             continue
         rid = f"mermaidx-{backend}"
         log(rid)
-        startup, res = run_mermaidx_backend(backend, samples, args.out, args.repeats, log)
+        try:
+            startup, res = run_mermaidx_backend(backend, samples, args.out, args.repeats, log)
+        except BackendUnavailable as exc:
+            skip(rid, f"mermaidx {backend}", str(exc))
+            continue
         renderers.append({"id": rid, "label": f"mermaidx {backend}", "kind": "library",
                           "startup_ms": round(startup, 1), "version": mermaidx.__version__})
         per_renderer[rid] = res
+
+    if not renderers:
+        sys.exit("no renderer produced any result, see the messages above")
 
     def version(pkg):
         try:
@@ -243,6 +264,7 @@ def main(argv=None):
             "versions": {"mermaidx": mermaidx.__version__, "novasvg": version("novasvg"),
                          "mmdc": command_output(["mmdc", "--version"]) if not args.skip_mmdc else None},
             "renderers": renderers,
+            "skipped": skipped,
         },
         "samples": [
             {

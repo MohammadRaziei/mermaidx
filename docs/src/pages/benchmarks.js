@@ -260,6 +260,12 @@ export default function Benchmarks() {
         )}
         {state.status === 'ok' && (
           <>
+            {state.data.meta.skipped && state.data.meta.skipped.length > 0 && (
+              <div className="alert alert--warning" role="status">
+                <strong>Not measured in this run:</strong>{' '}
+                {state.data.meta.skipped.map((r) => `${r.label} (${r.error})`).join('; ')}
+              </div>
+            )}
             <BenchCharts data={state.data} rows={summarize(state.data)} log={log} onLogChange={setLog} />
             <Gallery data={state.data} />
             <Meta meta={state.data.meta} />

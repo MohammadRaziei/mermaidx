@@ -30,3 +30,10 @@ export function fmtTick(v) {
 export function chartLabel(r) {
   return r.id.startsWith('mermaidx-') ? ['mermaidx', r.id.slice('mermaidx-'.length)] : r.label;
 }
+
+// "23× faster", "1.4× slower" or "about the same", for a ratio of reference time / own time.
+export function fmtSpeed(ratio) {
+  if (ratio >= 1.05) return `${fmtTimes(ratio)} faster`;
+  if (ratio <= 0.95) return `${fmtTimes(1 / ratio)} slower`;
+  return 'about the same';
+}

@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import { Chart, registerables } from 'chart.js';
 import Link from '@docusaurus/Link';
 import { useColorMode } from '@docusaurus/theme-common';
-import { COLOR_VARS, chartLabel, fmtMs, fmtTick, fmtTimes } from './bench-utils';
+import { COLOR_VARS, chartLabel, fmtMs, fmtSpeed, fmtTick } from './bench-utils';
 import styles from './BenchCharts.module.css';
 
 Chart.register(...registerables);
@@ -106,7 +106,7 @@ function MedianChart({ rows, log }) {
             legend: { display: false },
             valueLabels: {
               color: theme.text,
-              labels: rows.map((r) => `${fmtMs(r.median)}${r.speedup ? `  ·  ${fmtTimes(r.speedup)} faster` : ''}`),
+              labels: rows.map((r) => `${fmtMs(r.median)}${r.speedup ? `  ·  ${fmtSpeed(r.speedup)}` : ''}`),
             },
             tooltip: {
               ...tooltipBase(theme),
@@ -115,7 +115,7 @@ function MedianChart({ rows, log }) {
                 label: (item) => {
                   const r = rows[item.dataIndex];
                   const out = [`Median per diagram: ${fmtMs(r.median)}`, `First render: ${fmtMs(r.startup_ms)}`, `Drew ${r.ok} of ${r.total} diagrams`];
-                  if (r.speedup) out.push(`${fmtTimes(r.speedup)} faster than ${r.reference.label}`);
+                  if (r.speedup) out.push(`${fmtSpeed(r.speedup)} than ${r.reference.label}`.replace('about the same than', 'about the same as'));
                   return out;
                 },
               },
@@ -271,14 +271,14 @@ export default function BenchCharts({ data, rows, log, onLogChange }) {
         <div className={styles.numbersScroll}>
           <table>
             <thead>
-              <tr><th>Renderer</th><th>Median per diagram</th><th>Faster than {ref.label}</th><th>Produced an image</th><th>First render</th></tr>
+              <tr><th>Renderer</th><th>Median per diagram</th><th>Compared with {ref.label}</th><th>Produced an image</th><th>First render</th></tr>
             </thead>
             <tbody>
               {rows.map((r) => (
                 <tr key={r.id}>
                   <th scope="row">{r.label}</th>
                   <td>{fmtMs(r.median)}</td>
-                  <td>{r.speedup ? fmtTimes(r.speedup) : r.id === ref.id ? 'reference' : '–'}</td>
+                  <td>{r.speedup ? fmtSpeed(r.speedup) : r.id === ref.id ? 'reference' : '–'}</td>
                   <td>{r.ok} of {r.total}</td>
                   <td>{fmtMs(r.startup_ms)}</td>
                 </tr>
