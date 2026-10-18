@@ -1,4 +1,11 @@
-# MermaidX — Mermaid Diagram Converter for Python
+<div align="center">
+
+<img src="https://raw.githubusercontent.com/MohammadRaziei/mermaidx/master/docs/static/img/logo.svg" width="130" alt="mermaidx logo"/>
+
+# mermaidx
+
+**Mermaid diagrams → SVG, PNG, JPG, PDF and ASCII, from plain Python.**<br/>
+No browser. No Node.js. No system packages. Just `pip install mermaidx`.
 
 [![PyPI](https://img.shields.io/pypi/v/mermaidx.svg)](https://pypi.org/project/mermaidx)
 [![Python](https://img.shields.io/pypi/pyversions/mermaidx.svg)](https://pypi.org/project/mermaidx)
@@ -6,86 +13,56 @@
 [![Tests](https://github.com/MohammadRaziei/mermaidx/actions/workflows/wheel.yml/badge.svg)](https://github.com/MohammadRaziei/mermaidx/actions/workflows/wheel.yml)
 [![GitHub stars](https://img.shields.io/github/stars/MohammadRaziei/mermaidx?style=social)](https://github.com/MohammadRaziei/mermaidx/stargazers)
 
-<div align="center">
-<img src="https://raw.githubusercontent.com/MohammadRaziei/mermaidx/master/docs/static/img/logo.svg" width="150pt"/>
+[Documentation](https://mohammadraziei.github.io/mermaidx) ·
+[Quick start](#quick-start) ·
+[How it works](#how-it-works) ·
+[Python API](#python-api) ·
+[CLI](#cli) ·
+[Changelog](CHANGELOG.md)
+
 </div>
 
-Convert Mermaid diagrams to SVG, PNG, PDF, or ASCII art — **fully offline and fast, just `pip install mermaidx`**.
-
-**Completely browserless.** No Node.js, no npm, no Chrome, no system packages, nothing to compile. And because there's no browser to boot, `mermaidx` renders noticeably faster than the official `mermaid-cli`, which drives a real headless Chrome through Puppeteer for every single diagram — `mermaidx` uses a fast, embedded JS engine instead.
-
 ---
-
-## Installation
-
-`mermaidx` is published on [PyPI](https://pypi.org/project/mermaidx) as prebuilt wheels. It is entirely contained within the Python ecosystem — **zero system dependencies, no system Node/Mermaid binaries, no browser, and no C/C++ compilers required.**
-
-### Base Install
-SVG, PNG, PDF, and ASCII output work fully out of the box with zero extra configuration:
-```bash
-pip install mermaidx
-```
-
-### Optional Extras
-
-Everything beyond the base installation is opt-in via standard PyPI extras:
-
-| Command | Adds |
-| --- | --- |
-| `pip install mermaidx` | Base install — default `backend="quickjs"`, zero system dependencies |
-| `pip install mermaidx[v8engine]` | Real V8 engine (`mini-racer`) as a selectable `backend="v8"` (faster JIT) |
-| `pip install mermaidx[rust]` | Native-Rust backends via [`mmdr`](https://github.com/mohammadraziei/mmdr) — `backend="merman"`, `backend="mermaid-rs-renderer"` |
-| `pip install numpy` | Adds `.numpy()` export support (standard package dependency) |
-| `pip install mermaidx[all]` | Every extra above (`v8engine` + `rust` + `numpy`) in one go |
-
-- **V8 Speedup & Behavior:** V8 renders faster than QuickJS by leveraging JIT compilation. It runs in an isolated child process to ensure 100% memory reclamation.
-
----
-
-## Available Backends
-
-`mermaidx` normalizes every backend under a single unified API (`DiagramBase`). Check currently available backends programmatically at runtime:
 
 ```python
 import mermaidx
 
-print(mermaidx.backends())
-# ['quickjs']                                    # Base install
-# ['quickjs', 'v8']                               # with mermaidx[v8engine]
-# ['quickjs', 'merman', 'mermaid-rs-renderer']     # with mermaidx[rust]
+d = mermaidx.render("graph TD; A[Install] --> B[Import] --> C[Convert] --> D[Done]")
+d.save("diagram.svg")
+d.save("diagram.png", scale=2.0)
 ```
 
-### Backend Comparison Table
+`mermaidx` runs the **real Mermaid v11 JavaScript library** inside a small embedded JS engine instead of a headless Chrome. The result is the same SVG you would get from the official `mermaid-cli`, produced without spawning a browser, which makes it a good fit for CI pipelines, notebooks and serverless functions.
 
-| Backend | Engine Type | Features & Performance |
-| --- | --- | --- |
-| `quickjs` *(default)* | Embedded JS (QuickJS-ng) | Lightweight, zero-config, always available. Runs real `mermaid.js` in-process. Safe for all diagram types (including `mindmap`). |
-| `v8` | Real V8 JIT (`mini-racer`) | Faster JIT execution. |
-| `merman` | Native Rust (`mmdr`) | Pure Rust implementation — no JavaScript engine involved.² |
-| `mermaid-rs-renderer` | Native Rust (`mmdr`) | Alternative pure-Rust renderer from `mmdr`.² |
-² Every backend shares the same `mermaidx` `DiagramBase` — only `svg()` differs per backend, everything downstream of it (PNG/PDF/raw/numpy) is the same novasvg + PDF-writer pipeline for all of them, so PDF/raw/numpy come along for free here too.
+## Highlights
 
-```python
-# Unified interface regardless of backend:
-d = mermaidx.render(source, backend="merman")
-d.pdf()  # Works flawlessly, bridging mmdr's SVG into mermaidx's PDF engine
+- **Browserless.** No Chromium (~170 MB), no Puppeteer, no Node.js, no compiler. Prebuilt wheels only.
+- **The real Mermaid.** Not a reimplementation and not a subset: every diagram type Mermaid v11 supports.
+- **Many outputs.** SVG, PNG, JPG/JPEG, BMP, TGA, PDF, raw RGBA, NumPy arrays and terminal ASCII art.
+- **One process.** Synchronous, in-process rendering, plus `render_many()` for parallel batches.
+- **Jupyter-ready.** A diagram displays itself as the last expression of a cell.
+- **Pluggable backends.** QuickJS-ng (default), V8 (optional) or native Rust (optional).
+
+## Installation
+
+```bash
+pip install mermaidx
 ```
 
-There isn't really an equivalent to this in the Python ecosystem. Every other Mermaid-to-image tool reachable from Python — including the official `mermaid-cli` itself — works by driving an actual browser (Puppeteer/Chrome) or shelling out to a separate Node.js process. `mermaidx` is the only one that renders real, current Mermaid JS with no browser and no subprocess at all.
+Extras are opt-in:
 
-> **Looking for `mmdc`?** That was this project's old name, renamed to `mermaidx` — see [History](#history) for why. `mmdc` is no longer published or maintained under that name; install `mermaidx` instead.
+| Command | Adds |
+| --- | --- |
+| `pip install mermaidx` | Base install. Default `backend="quickjs"`, zero system dependencies. |
+| `pip install mermaidx[v8engine]` | Real V8 (`mini-racer`) as `backend="v8"`. Faster thanks to JIT, runs in an isolated child process. |
+| `pip install mermaidx[rust]` | Native-Rust backends via [`mmdr`](https://github.com/mohammadraziei/mmdr): `merman` and `mermaid-rs-renderer`. |
+| `pip install numpy` | Enables `.numpy()` export. |
+| `pip install mermaidx[all]` | Every extra above (`v8engine` + `rust` + `numpy`). |
 
----
+> [!NOTE]
+> Coming from `mmdc`? That was this project's old name (until 0.7.0). It is no longer published, so uninstall it and install `mermaidx` instead. The module name changed from `mmdc` to `mermaidx` too. See [History](#history).
 
-## Why mermaidx?
-
-The official Mermaid CLI (`@mermaid-js/mermaid-cli`) works by spinning up a real headless Chrome via Puppeteer for every render. That works, but a full browser is slow to start and heavy to install (~170MB+ of Chromium), which shows up directly in wall-clock time — especially in CI pipelines rendering many diagrams, or anything short-lived like a serverless function.
-
-`mermaidx` renders the actual, current Mermaid v11 JS library — not a reimplementation, not a subset — but runs it inside a small embedded JavaScript engine instead of a browser. No browser process to spawn, no page to load, no DOM to boot — just the JS engine running Mermaid's own layout code directly. That's the whole speed difference in one sentence: **browser vs. no browser.**
-
----
-
-## Quick Start
+## Quick start
 
 [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/mohammadraziei/mermaidx/blob/master/examples/jupyter_demo.ipynb)
 
@@ -106,117 +83,141 @@ d.save("diagram.pdf", pdf_format="A4")
 print(d.ascii())
 ```
 
+The same from the command line:
+
 ```bash
 mermaidx -i diagram.mermaid -o diagram.svg
 mermaidx -i diagram.mermaid -o diagram.png --scale 2.0
 cat diagram.mermaid | mermaidx -i - -o diagram.pdf
 ```
 
----
-
-## Jupyter
-
-A `Diagram` displays automatically as the last expression in a cell — no extra code needed, the same way a DataFrame or a matplotlib figure does:
+In Jupyter there is nothing to call. A `Diagram` renders itself, like a DataFrame or a matplotlib figure:
 
 ```python
-import mermaidx
 mermaidx.render("flowchart LR; A-->B-->C")   # just shows up
 ```
 
-`.show()` displays it explicitly (e.g. inside a loop) — it always shows exactly what `.svg()` returns, so what you see is this package's own render output, not a separate re-render through some other engine.
+## How it works
 
-See [`examples/jupyter_demo.ipynb`](examples/jupyter_demo.ipynb) for a full walkthrough: display, PNG/PDF/ASCII export, themes, and batch rendering.
-
----
-
-## How It Works
+`mermaidx` has a deliberately narrow job: **turn Mermaid source into an SVG that matches `mermaid-cli`**. Everything after the SVG (PNG, JPG and friends) is [novasvg](https://github.com/mohammadraziei/novasvg)'s job.
 
 ```mermaid
-flowchart LR
-    A[Mermaid source] --> B["QuickJS-ng (or V8, optional)"]
-    B -->|"mermaid.js v11 (bundled)"| C[SVG]
-    C --> D[novasvg]
-    D --> E[PNG]
-    C --> F["hand-written PDF writer<br/>(stdlib only)"]
-    F --> G[PDF]
+flowchart TB
+    SRC["Mermaid source"] --> MX
+    SRC -.-> ASCII["ASCII art<br/>termaid, straight from the source"]
 
-    H[bundled DejaVu Sans] -.font metrics.-> B
-    H -.same font, forced.-> D
+    subgraph MX ["mermaidx: Mermaid to SVG"]
+        direction LR
+        JS["JS engine<br/>QuickJS-ng, or V8 (optional)"] --> MJS["mermaid.js v11<br/>bundled, unmodified"]
+        SHIM["DOM and SVG shims<br/>stand-ins for browser APIs"] -.-> MJS
+    end
+
+    MX --> SVG(["SVG<br/>same output as mermaid-cli"])
+    SVG --> RAS
+
+    subgraph NS ["novasvg: SVG to pixels"]
+        direction LR
+        RAS["Rasterizer<br/>paints foreignObject labels"] --> PNG["PNG"]
+        RAS --> OTHER["JPG, BMP, TGA, raw RGBA"]
+    end
+
+    RAS -.-> PDF["PDF<br/>tiny stdlib-only writer in mermaidx<br/>embeds the rendered pixels"]
 ```
 
-Everything happens in one process, no subprocess, no I/O — with one deliberate exception, `backend="v8"`, noted below.
+| Stage | Who does it | Notes |
+| --- | --- | --- |
+| **Mermaid → SVG** | `mermaidx` | `mermaid.js` runs unmodified in QuickJS-ng (or V8) against a minimal fake DOM/SVG layer (the shims). Anything a real browser would answer, such as text size via `getBBox`, comes from novasvg's font stack and one bundled font. |
+| **SVG → PNG / JPG / BMP / TGA / raw** | [`novasvg`](https://github.com/mohammadraziei/novasvg) | Same bundled font as the layout step, so what Mermaid measured is exactly what gets painted. JPEG has no alpha, so it defaults to a white background. |
+| **SVG → PDF** | `mermaidx` | A small hand-written PDF writer (stdlib `zlib`/`struct`) embeds the rasterized pixels. No Pillow, no Cairo, no reportlab. |
+| **Source → ASCII** | [`termaid`](https://pypi.org/project/termaid/) | A separate lightweight path that parses the Mermaid source directly, without going through the SVG. |
 
-* **SVG** — mermaid.js runs inside QuickJS-ng (default, in-process) or, optionally, real V8 (`backend="v8"`, in its own child process) against a minimal fake DOM/SVG implementation. The one thing a fake DOM can't fabricate — real text metrics (`getBBox`/`getComputedTextLength`) — is bridged back into Python (QuickJS) or reproduced from a precomputed per-glyph advance-width table plus a sparse ASCII kerning table (V8) — both backed by [novasvg](https://github.com/mohammadraziei/novasvg)'s own font stack and the same bundled font.
-* **PNG** — the SVG is rasterized by [novasvg](https://github.com/mohammadraziei/novasvg), forced to use that *same* bundled font, so what mermaid measured during layout is exactly what gets painted. Unlike the resvg this project used before (retired in this version), novasvg paints `<foreignObject>` HTML labels directly, so mermaid.js's own default labels reach the pixels unmodified.
-* **JPEG / BMP / TGA** — the same rasterized bitmap, encoded by novasvg's own encoders (`Bitmap.to_jpg()`/`.to_bmp()`/`.to_tga()`) — no Pillow, no temp file. JPEG has no alpha channel, so `.jpg()`/`.save("x.jpg")` default to an opaque white background instead of novasvg's usual transparent (which would otherwise come out black).
-* **PDF** — a small hand-written PDF writer (stdlib `zlib`/`struct` only) embeds the rendered pixels directly. No Pillow, no Cairo, no reportlab — every mainstream "put an image in a PDF" library pulls in Pillow as a transitive dependency; this avoids that entirely.
-* **ASCII** — a completely separate, lightweight path via [termaid](https://pypi.org/project/termaid/) (pure Python, ~700KB, zero dependencies), which parses the Mermaid source itself rather than going through the SVG.
+Every backend is a small subclass of one shared `DiagramBase` and only overrides the private `_svg()` hook. Everything downstream (`png()`, `pdf()`, `raw()`, `numpy()`, `ascii()`, `save()`) is written once and behaves identically no matter which backend produced the SVG.
 
-Rendering is CPU-bound, synchronous — there's no browser to wait on, so there's nothing for `async` to usefully overlap. See [`mermaidx.render_many()`](#parallel-batch-rendering) below for real parallelism instead.
+### Why novasvg?
 
-Every backend is a small subclass of one shared `DiagramBase` — `Diagram` for `'quickjs'`/`'v8'`, `DiagramRust` for anything from the optional `mmdr` package. Subclasses only override the private `_svg()` hook; the public, cached `svg()`/`png()`/`pdf()`/`raw()`/`numpy()`/`ascii()`/`save()` are all written once in the base class and work identically regardless of which backend produced the SVG.
+Mermaid draws its labels as HTML inside `<foreignObject>`. Many SVG rasterizers skip that element, so the text silently disappears or the layout breaks. `mermaidx` originally used `resvg`, which cannot paint `<foreignObject>`, and had to force plain SVG text as a workaround. With novasvg the default HTML labels are used again, and their box sizes are computed by novasvg itself, so layout and paint cannot disagree.
 
----
+In [novasvg's own benchmark](https://mohammadraziei.github.io/novasvg/benchmarks/) (60 samples, 49 of them Mermaid diagrams, compared against Chromium as ground truth), it came out the most accurate renderer while staying among the fastest:
 
-## Python API
+| Renderer | Samples that look right (of 60) | Mean RMSE vs Chromium (lower is better) | Avg render time |
+| --- | :---: | :---: | :---: |
+| **novasvg** | **59** | **15.4** | 1.28 ms |
+| resvg | 7 | 19.2 | 3.38 ms |
+| lunasvg | 31 | 30.9 | 1.85 ms |
+| cairosvg | 19 | 46.0 | 42.92 ms |
+| nanosvg | 4 | 48.3 | 0.99 ms |
+| thorvg | 6 | 76.4 | 0.64 ms |
 
-### `render(source, backend=None, **opts) -> Diagram`
+thorvg and nanosvg are faster, but they get far more samples visibly wrong. See the [benchmark page](https://mohammadraziei.github.io/novasvg/benchmarks/) for the methodology and side-by-side renders.
+
+### Why not a browser?
+
+The official `@mermaid-js/mermaid-cli` drives a real headless Chrome through Puppeteer. That works, but a browser is slow to boot and heavy to install, which shows up directly in wall-clock time for CI jobs that render many diagrams. `mermaidx` removes the browser and nothing else: **same Mermaid library, no browser process, no page load, no DOM boot.**
+
+Every other Mermaid-to-image tool reachable from Python either drives a browser or shells out to Node.js. `mermaidx` is the one that renders current Mermaid with neither.
+
+## Backends
+
+All backends share one API. List what is installed at runtime:
 
 ```python
 import mermaidx
 
-d = mermaidx.render("flowchart LR; A-->B-->C")
+print(mermaidx.backends())
+# ['quickjs']                                    base install
+# ['quickjs', 'v8']                              with mermaidx[v8engine]
+# ['quickjs', 'merman', 'mermaid-rs-renderer']   with mermaidx[rust]
 ```
 
-`render()` itself does nothing but store the source — every `Diagram` method below is **lazy and cached**: nothing is computed until you call it, and calling it again with the same arguments returns the memoized result instead of recomputing.
+| Backend | Engine | Notes |
+| --- | --- | --- |
+| `quickjs` *(default)* | Embedded QuickJS-ng | Lightweight and always available. Runs real `mermaid.js` in-process. Safe for every diagram type, including `mindmap`. |
+| `v8` | V8 JIT via `mini-racer` | Faster. Runs in an isolated child process so memory is fully reclaimed. |
+| `merman` | Native Rust (`mmdr`) | No JavaScript engine involved. |
+| `mermaid-rs-renderer` | Native Rust (`mmdr`) | Alternative pure-Rust renderer from `mmdr`. |
+
+Only `svg()` differs per backend, so PNG, PDF, raw and NumPy output come along for free:
+
+```python
+d = mermaidx.render(source, backend="merman")
+d.pdf()   # mmdr's SVG goes through the same novasvg + PDF pipeline
+```
+
+## Python API
+
+`render()` only stores the source. Every `Diagram` method is **lazy and cached**: nothing is computed until you call it, and repeating a call returns the memoized result.
+
+```python
+d = mermaidx.render("flowchart LR; A-->B-->C")
+d.svg() is d.svg()   # True, the second call is a cache hit
+```
 
 | Method | Returns | Notes |
 | --- | --- | --- |
-| `.svg()` | `str` | Computed on first call, cached after |
-| `.png(width?, height?, scale?, background?)` | `bytes` | Aspect ratio always preserved |
-| `.pdf(pdf_format?, pdf_landscape?, pdf_margin?, width?, height?, scale?, background?)` | `bytes` | `pdf_format=None` (default) fits the page to the diagram |
-| `.ascii(**opts)` | `str` | Renders straight from the Mermaid source, doesn't need `.svg()` first |
-| `.raw(width?, height?, background?)` | `(bytes, w, h)` | Raw RGBA8888, no imaging library involved |
-| `.numpy(width?, height?, background?)` | `np.ndarray` | `(H, W, 4)` uint8; requires `numpy` |
-| `.save(path, format=None, ...)` | `None` | Format from `format=`, or inferred from the extension otherwise |
-| `._repr_svg_()` | `str` | Automatic inline rendering in Jupyter/IPython |
+| `.svg()` | `str` | |
+| `.png(width?, height?, scale?, background?)` | `bytes` | Aspect ratio is always preserved. |
+| `.jpg(quality?)`, `.bmp()`, `.tga()` | `bytes` | Same defaults as `.save()`. |
+| `.pdf(pdf_format?, pdf_landscape?, pdf_margin?, ...)` | `bytes` | `pdf_format=None` fits the page to the diagram. |
+| `.ascii(**opts)` | `str` | Renders from the source, no SVG needed. |
+| `.raw(width?, height?, background?)` | `(bytes, w, h)` | Raw RGBA8888, no imaging library. |
+| `.numpy(width?, height?, background?)` | `np.ndarray` | `(H, W, 4)` uint8. Requires `numpy`. |
+| `.save(path, format=None, ...)` | `None` | Format comes from the extension unless forced with `format=`. |
 
 ```python
-d.svg() is d.svg()      # True -- second call is a cache hit, not a re-render
-d.png(width=1200, background="#ffffff")
-d.raw()                 # (bytes, width, height) -- RGBA8888
-d.numpy()                # np.ndarray, no Pillow needed
-d.ascii()                # ASCII/Unicode box-drawing art
+d.save("out.png")                      # format from the extension
+d.save("out.whatever", format="png")   # or forced explicitly
 d.save("out.pdf", pdf_format="A4", pdf_margin="1cm")
 ```
 
-### `save()`: format from the extension, or forced explicitly
+**Themes, config and CSS**
 
 ```python
-d.save("out.svg")                       # -> svg
-d.save("out.png")                       # -> png
-d.save("out.jpg")                       # -> jpg  (also .jpeg; opaque white background by default)
-d.save("out.bmp")                       # -> bmp
-d.save("out.tga")                       # -> tga
-d.save("out.pdf")                       # -> pdf
-d.save("out.txt")                       # -> ascii
-d.save("out.whatever", format="png")    # force a format regardless of extension
-
-d.jpg(quality=90)                       # bytes, same defaults as .save(".jpg")
-d.bmp(); d.tga()                        # bytes
-```
-
-### Themes, config, CSS
-
-```python
-mermaidx.render(source, theme="dark")                    # "default" | "forest" | "dark" | "neutral"
+mermaidx.render(source, theme="dark")   # "default" | "forest" | "dark" | "neutral"
 mermaidx.render(source, config={"flowchart": {"curve": "basis"}})
 mermaidx.render(source, css=".node rect { rx: 8; ry: 8; }")
 ```
 
-### Parallel batch rendering
-
-Rendering is pure CPU work — no I/O to overlap, so real concurrency means real processes, not `async`:
+**Parallel batches.** Rendering is pure CPU work, so real concurrency means processes rather than `async`. Each worker starts its own engine once and reuses it:
 
 ```python
 diagrams = mermaidx.render_many(sources, workers=4, theme="dark")
@@ -224,15 +225,10 @@ for d, name in zip(diagrams, output_names):
     d.save(name)
 ```
 
-Each worker process starts its own persistent engine once and reuses it for every diagram routed to it.
-
-### ASCII / terminal output
-
-Works out of the box — [termaid](https://pypi.org/project/termaid/) (pure Python, ~700KB, zero dependencies of its own) is a core dependency, not an optional extra:
+**ASCII output** works out of the box (`termaid` is a core dependency):
 
 ```python
 print(mermaidx.render_ascii("graph LR; A-->B-->C"))
-# or, equivalently: mermaidx.render("graph LR; A-->B-->C").ascii()
 ```
 
 ```
@@ -241,9 +237,7 @@ print(mermaidx.render_ascii("graph LR; A-->B-->C"))
 └───┘    └───┘    └───┘
 ```
 
-### Low-level utilities
-
-Rasterize any SVG string directly, without going through `render()`:
+**Rasterize any SVG** without going through `render()`:
 
 ```python
 from mermaidx import svg_to_png, svg_to_raw
@@ -253,69 +247,43 @@ png = svg_to_png(svg, width=1200, background="#ffffff")
 raw, w, h = svg_to_raw(svg)
 ```
 
----
+Full reference: [Python API docs](https://mohammadraziei.github.io/mermaidx/docs/api).
 
 ## CLI
 
 ```bash
-# SVG to stdout (no -o needed)
-mermaidx -i diagram.mermaid
-cat diagram.mermaid | mermaidx -i -
-
-# save to file (format from extension)
-mermaidx -i diagram.mermaid -o diagram.svg
-mermaidx -i diagram.mermaid -o diagram.png
-mermaidx -i diagram.mermaid -o diagram.pdf
-
-# size
-mermaidx -i diagram.mermaid -o diagram.png -w 1200
-mermaidx -i diagram.mermaid -o diagram.png --scale 2.0
-
-# theme & background
+mermaidx -i diagram.mermaid                        # SVG to stdout
+mermaidx -i diagram.mermaid -o diagram.png         # format from the extension
+mermaidx -i diagram.mermaid -o diagram.png -w 1200 # or --scale 2.0
 mermaidx -i diagram.mermaid -o diagram.svg --theme dark
-mermaidx -i diagram.mermaid -o diagram.png --background "#f5f5f5"
-
-# PDF options
 mermaidx -i diagram.mermaid -o diagram.pdf --pdf-format A4 --landscape --margin 1cm
-
-# config & CSS
 mermaidx -i diagram.mermaid -o diagram.svg --config config.json --css style.css
+mermaidx -i diagram.mermaid -o diagram.svg --backend merman   # needs mermaidx[rust]
 
-# suppress the "saved to..." message
-mermaidx -i diagram.mermaid -o diagram.svg -q
-
-# info — Mermaid library version
-mermaidx --info
-
-# list available backends
 mermaidx --list-backends
-
-# pick a backend explicitly (quickjs/v8 always/optionally available; anything
-# else requires mermaidx[rust])
-mermaidx -i diagram.mermaid -o diagram.svg --backend merman
-
-# version
-mermaidx --version   # or -v
+mermaidx --info          # bundled Mermaid version
+mermaidx --version
 ```
 
----
+Use `-q` to silence the "saved to…" message and `--quality N` for JPEG quality. More in the [CLI docs](https://mohammadraziei.github.io/mermaidx/docs/cli).
 
-## Supported Diagram Types
+## Supported diagrams
 
-Everything Mermaid v11 itself supports (this bundles the real library, not a subset):
-flowcharts, sequence diagrams, class diagrams, state diagrams, ER diagrams, Gantt charts,
-pie charts, git graphs, and more.
-
----
+Everything Mermaid v11 itself supports, because the real library is bundled: flowcharts, sequence, class, state, ER, Gantt, pie, git graphs, mindmaps, timelines, and more.
 
 ## Requirements
 
-* Python 3.9+
-* `quickjs-ng`, `novasvg`, `termaid` (installed automatically)
-* `mini-racer` (optional, `pip install mermaidx[v8engine]`, for the V8 engine)
-* No system packages, no Node.js, no npm, no browser
+- Python 3.9+
+- `quickjs-ng`, `novasvg`, `termaid` (installed automatically)
+- `mini-racer` (optional, for `backend="v8"`)
 
----
+## Documentation
+
+| | |
+| --- | --- |
+| [Quick start](https://mohammadraziei.github.io/mermaidx/docs/quickstart) | [Python API](https://mohammadraziei.github.io/mermaidx/docs/api) |
+| [Command line](https://mohammadraziei.github.io/mermaidx/docs/cli) | [Backends](https://mohammadraziei.github.io/mermaidx/docs/backends) |
+| [Known issues](https://mohammadraziei.github.io/mermaidx/docs/known-issues) | [Architecture](architecture.md) |
 
 ## Testing
 
@@ -324,37 +292,42 @@ pip install -e ".[test]"
 pytest tests/ -v
 ```
 
----
-
 ## History
 
-* **mmdc, powered by [phasma**](https://github.com/mohammadraziei/phasma) — the original version of this project. It bundled a real (if small — around 20MB) headless browser, PhantomJS, and exposed an `async` Python API to match: rendering meant talking to a subprocess, so `async`/`await` genuinely mattered for concurrency.
-* **0.6.x** — a full rewrite: PhantomJS's engine couldn't parse modern Mermaid (v11's ES2022+ syntax) at all, so the whole browser was replaced with mermaid.js running inside QuickJS-ng against a hand-written DOM/SVG shim, with resvg for rasterization (replaced by novasvg in a later release). No subprocess left to wait on, so the API became synchronous. Three backends appeared: `js` (this engine), plus `merman` and `mermaid-rs-renderer` via the optional [`mmdr`](https://github.com/mohammadraziei/mmdr) package.
-* **0.7.x, renamed to mermaidx** — same engine, new name. The old name, `mmdc`, was identical to the official Mermaid CLI's own binary name (`@mermaid-js/mermaid-cli` installs a command called `mmdc`) — a real collision, not just a branding concern. Renamed early, while it still could be. **If you have `mmdc` pinned anywhere (`requirements.txt`, a Dockerfile, CI config), switch it to `mermaidx` — the old name isn't maintained or published anymore.**
-* **Later 0.7.x** — the embedded-JS-engine backend split into `mermaidx/engines/` (`quickjs_engine.py` / `v8_engine.py`), and gained an optional real-V8 path (`pip install mermaidx[v8engine]`, `backend="v8"`) alongside the original QuickJS-ng one (`backend="quickjs"`, still the default) — same mermaid.js, same output, just a choice of engine.
-* **novasvg release** — resvg retired; [novasvg](https://github.com/mohammadraziei/novasvg) is now the sole rasterizer *and* the text-measurement engine (`font_metrics.py` no longer hand-parses TrueType tables). Because novasvg paints `<foreignObject>` directly, mermaid.js's default HTML labels are used again (`htmlLabels: true`), with their box sizes computed by novasvg itself (`novasvg.fonts.measure_foreign_object`) so layout and paint can't disagree.
+<details>
+<summary>How the project got here (mmdc → mermaidx)</summary>
 
----
+- **mmdc, powered by [phasma](https://github.com/mohammadraziei/phasma)**: the original version. It bundled a small (around 20 MB) headless browser, PhantomJS, and exposed an `async` Python API because rendering meant talking to a subprocess.
+- **0.6.x**: a full rewrite. PhantomJS could not parse modern Mermaid (v11's ES2022+ syntax), so the browser was replaced by mermaid.js running inside QuickJS-ng against a hand-written DOM/SVG shim, with resvg for rasterization. With no subprocess left to wait on, the API became synchronous. Three backends appeared: `js`, plus `merman` and `mermaid-rs-renderer` via the optional [`mmdr`](https://github.com/mohammadraziei/mmdr) package.
+- **0.7.x, renamed to mermaidx**: same engine, new name. The old name `mmdc` collided with the official Mermaid CLI's own binary name. **If you have `mmdc` pinned anywhere (`requirements.txt`, a Dockerfile, CI config), switch it to `mermaidx`.**
+- **Later 0.7.x**: the engines moved to `mermaidx/engines/` and gained an optional real-V8 path (`backend="v8"`) next to the default QuickJS-ng one.
+- **novasvg release**: resvg retired. novasvg is now the sole rasterizer and the text-measurement engine. Because it paints `<foreignObject>` directly, mermaid.js's default HTML labels are used again (`htmlLabels: true`).
+- **0.10.0**: JPEG, BMP and TGA output; output is checked structurally against `mmdc`. See the [changelog](CHANGELOG.md) for breaking changes (font embedding removed, `raster="resvg"` now raises `ValueError`).
+
+</details>
 
 ## Acknowledgments
 
-* [Mermaid](https://github.com/mermaid-js/mermaid) — the actual diagramming library this project renders. `mermaidx` wouldn't exist without it; all it does is run the real thing somewhere a browser can't go.
-* [mmdr](https://github.com/mohammadraziei/mmdr) — a native-Rust Mermaid renderer by the same author, usable as an additional backend here.
-* [termaid](https://pypi.org/project/termaid/) — powers ASCII/Unicode terminal output.
-
----
+- [Mermaid](https://github.com/mermaid-js/mermaid): the diagramming library this project renders. `mermaidx` just runs the real thing somewhere a browser can't go.
+- [novasvg](https://github.com/mohammadraziei/novasvg): SVG rasterization, image encoding and text measurement.
+- [mmdr](https://github.com/mohammadraziei/mmdr): a native-Rust Mermaid renderer by the same author, usable as an extra backend.
+- [termaid](https://pypi.org/project/termaid/): powers ASCII/Unicode terminal output.
 
 ## Contributing
 
-1. Fork and create a feature branch
-2. Add tests for new functionality
-3. Run `pytest tests/` — all must pass
-4. Open a pull request
-
----
+1. Fork and create a feature branch.
+2. Add tests for new functionality.
+3. Run `pytest tests/`. Everything must pass.
+4. Open a pull request.
 
 ## License
 
-MIT — see [LICENSE](LICENSE) for details.
+MIT. See [LICENSE](LICENSE).
 
-If `mermaidx` saves you from booting a headless Chrome instance a hundred times in CI, consider leaving a ⭐ on the repo — it genuinely helps others find the project.
+---
+
+<div align="center">
+
+If `mermaidx` saves you from booting headless Chrome a hundred times in CI, a ⭐ helps other people find it.
+
+</div>
