@@ -37,18 +37,17 @@ The two groups are not measuring the same thing. Compare mermaidx backends with 
 
 ## Run it yourself
 
-Everything goes through the `Makefile` in the repository root, and CI runs the same targets.
+Everything goes through the `Makefile` in the repository root, and CI runs the same thing. Each target installs what it needs first.
 
 ```bash
-make install-python install-mmdc    # mermaidx with every backend, and mermaid-cli
-make benchmark                      # writes docs/static/benchmarks/results.json and the PNGs
-make serve                          # browse the site with live reload
+make benchmark      # writes docs/static/benchmarks/results.json and the PNGs
+make serve          # browse the site with live reload
 ```
 
-Skip `make install-mmdc` if you do not have Node.js: the benchmark then runs without `mmdc`. To change how it runs, pass arguments to `benchmarks/run.py`, for example:
+The first run downloads mermaid-cli and its Chromium (about 170 MB). If you only want the mermaidx backends, use `make benchmark WITH_MMDC=0`. To change how it runs, pass arguments to `benchmarks/run.py`, for example:
 
 ```bash
 make benchmark BENCH_ARGS="--only 31_venn --repeats 10"
 ```
 
-`make help` lists every target.
+`make help` lists every target, and `docs/README.md` in the repository explains the whole setup.

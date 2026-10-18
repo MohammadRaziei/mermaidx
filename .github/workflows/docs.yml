@@ -1,10 +1,9 @@
 name: Docs and benchmarks
 
-# Everything runs through the Makefile, so the same commands work locally:
-#   make install-python install-mmdc install-docs
-#   make all
-# That renders tests/samples with mermaid-cli and every mermaidx backend, renders the
-# landing-page examples, builds the Docusaurus site and (here) publishes it to GitHub Pages.
+# Everything runs through the Makefile, and `make all` installs what it needs, so the same
+# command works locally. It renders tests/samples with mermaid-cli and every mermaidx backend,
+# renders the landing-page examples and builds the Docusaurus site; this workflow then
+# publishes the result to GitHub Pages. See docs/README.md.
 # One-time setup: Settings -> Pages -> Source: "GitHub Actions".
 
 on:
@@ -45,7 +44,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          cache: pip
 
       - uses: actions/setup-node@v4
         with:
@@ -53,10 +51,7 @@ jobs:
           cache: npm
           cache-dependency-path: docs/package-lock.json
 
-      - name: Install dependencies
-        run: make install-python install-mmdc install-docs
-
-      - name: Benchmark, render the examples and build the site
+      - name: Benchmark and build the site
         run: make all
         env:
           NO_SANDBOX: "1"
