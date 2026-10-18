@@ -10,5 +10,6 @@ module.exports = {
     'architecture',
     'known-issues',
     'changelog',
+    'story',
   ],
 };

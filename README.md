@@ -356,12 +356,13 @@ pytest tests/ -v
 <details>
 <summary>How the project got here (mmdc → mermaidx)</summary>
 
-- **mmdc, powered by [phasma](https://github.com/mohammadraziei/phasma)**: the original version. It bundled a small (around 20 MB) headless browser, PhantomJS, and exposed an `async` Python API because rendering meant talking to a subprocess.
-- **0.6.x**: a full rewrite. PhantomJS could not parse modern Mermaid (v11's ES2022+ syntax), so the browser was replaced by mermaid.js running inside QuickJS-ng against a hand-written DOM/SVG shim, with resvg for rasterization. With no subprocess left to wait on, the API became synchronous. Three backends appeared: `js`, plus `merman` and `mermaid-rs-renderer` via the optional [`mmdr`](https://github.com/mohammadraziei/mmdr) package.
-- **0.7.x, renamed to mermaidx**: same engine, new name. The old name `mmdc` collided with the official Mermaid CLI's own binary name. **If you have `mmdc` pinned anywhere (`requirements.txt`, a Dockerfile, CI config), switch it to `mermaidx`.**
-- **Later 0.7.x**: the engines moved to `mermaidx/engines/` and gained an optional real-V8 path (`backend="v8"`) next to the default QuickJS-ng one.
-- **novasvg release**: resvg retired. novasvg is now the sole rasterizer and the text-measurement engine. Because it paints `<foreignObject>` directly, mermaid.js's default HTML labels are used again (`htmlLabels: true`).
-- **0.10.0**: JPEG, BMP and TGA output; output is checked structurally against `mmdc`. See the [changelog](CHANGELOG.md) for breaking changes (font embedding removed, `raster="resvg"` now raises `ValueError`).
+- **0.1.0 to 0.5.0, `mmdc` on [phasma](https://github.com/mohammadraziei/phasma)** (2025-12-26 to 2026-06-28): the original version, named after the `mmdc` command of mermaid-cli. It rendered through PhantomJS driven by phasma (a 25.0 MB wheel at phasma 0.7.1, measured with `pip-size`) and was stuck on mermaid.js 7.1.2, because recent Mermaid needs ES6 and PhantomJS does not have it ([#5](https://github.com/MohammadRaziei/mermaidx/issues/5)).
+- **0.6.0 (2026-07-08), a full rewrite**: PhantomJS was removed. mermaid.js now runs inside QuickJS-ng against a hand-written DOM/SVG shim, with resvg for rasterization, and the `Diagram` class and `render()` appeared. 0.6.2 added `backend=`: `js` (renamed `quickjs` in 0.9.0), plus `merman` and `mermaid-rs-renderer` through the optional [`mmdr`](https://github.com/mohammadraziei/mmdr) package.
+- **0.7.0 and 0.8.0 (2026-07-10), renamed to mermaidx**: 0.7.0 is the last release under the `mmdc` name, with a deprecation notice; 0.8.0 is the first `mermaidx`. The old name was easy to confuse with the tool this project replaces. **If you have `mmdc` pinned anywhere (`requirements.txt`, a Dockerfile, CI config), switch it to `mermaidx`.**
+- **0.9.0 (2026-07-18)**: an optional real-V8 engine (`backend="v8"`, installed today with `mermaidx[v8engine]`) next to the default QuickJS-ng one. Through the 0.9.x series the SVG was patched after rendering so that resvg could draw HTML labels.
+- **0.10.0 (2026-10-17)**: novasvg became the only rasterizer and the only text and label measurer, so resvg, the post-render patching and font embedding were removed. Because novasvg paints `<foreignObject>` directly, mermaid.js's default HTML labels are used again (`htmlLabels: true`). JPEG, BMP and TGA output was added, and output is checked structurally against reference SVGs. See the [changelog](CHANGELOG.md) for breaking changes (font embedding removed, `raster="resvg"` now raises `ValueError`).
+
+The longer version, in my own words: [The story of mermaidx](https://mohammadraziei.github.io/mermaidx/docs/story).
 
 </details>
 
