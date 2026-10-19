@@ -43,6 +43,14 @@ from mermaidx.engines._common import MermaidRenderError, TextMeasurer, collect_s
 _WORKER_THREAD_STACK_BYTES = 32 * 1024 * 1024
 _JS_STACK_LIMIT_BYTES = 24 * 1024 * 1024
 
+# QuickJS-ng keeps a long concatenation as a rope (JS_TAG_STRING_ROPE) until something reads it, and the
+# quickjs Python binding converts only flat strings: a rope reaching Python -- a callback argument or an
+# eval() result -- raises "TypeError: Unknown quickjs tag: -6" (or SystemError inside a callback). Which
+# concatenations stay ropes depends on length and on whether the text needs 16-bit storage, so a
+# diagram whose labels hold any character above U+00FF (an em dash, a bullet, CJK) is the usual way to
+# meet one. slice(0) copies the string into a flat one; any non-string passes through untouched.
+_FLATTEN_JS = "globalThis.__flat = (v) => (typeof v === 'string' ? v.slice(0) : v);"
+
 
 class Engine:
     """
@@ -129,12 +137,14 @@ class Engine:
             lambda h, s, f, w, st: json.dumps(self._measurer.foreign_object(h, s, f, w, st)),
         )
 
+        # Every string crossing into Python goes through __flat first: see _FLATTEN_JS.
         ctx.eval(
-            "globalThis.__log = (s) => __log_raw(s);\n"
-            "globalThis.__measureText = (t,s,f,w,st) => __measureText_raw(t,s,f,w,st);\n"
-            "globalThis.__measureTextFull = (t,s,f,w,st) => JSON.parse(__measureTextFull_raw(t,s,f,w,st));\n"
-            "globalThis.__measureGlyphs = (t,s,f,w,st) => JSON.parse(__measureGlyphs_raw(t,s,f,w,st));\n"
-            "globalThis.__measureForeignObject = (h,s,f,w,st) => JSON.parse(__measureForeignObject_raw(h,s,f,w,st));\n"
+            _FLATTEN_JS + "\n"
+            "globalThis.__log = (s) => __log_raw(__flat(s));\n"
+            "globalThis.__measureText = (t,s,f,w,st) => __measureText_raw(__flat(t),__flat(s),__flat(f),__flat(w),__flat(st));\n"
+            "globalThis.__measureTextFull = (t,s,f,w,st) => JSON.parse(__measureTextFull_raw(__flat(t),__flat(s),__flat(f),__flat(w),__flat(st)));\n"
+            "globalThis.__measureGlyphs = (t,s,f,w,st) => JSON.parse(__measureGlyphs_raw(__flat(t),__flat(s),__flat(f),__flat(w),__flat(st)));\n"
+            "globalThis.__measureForeignObject = (h,s,f,w,st) => JSON.parse(__measureForeignObject_raw(__flat(h),__flat(s),__flat(f),__flat(w),__flat(st)));\n"
         )
         for script in context_scripts():
             ctx.eval(script)
@@ -155,7 +165,7 @@ class Engine:
         ctx.eval(render_script(code, theme, config, css))
         run_event_loop(ctx.eval, self._run_job)
 
-        return collect_svg(ctx.eval)
+        return collect_svg(lambda js: ctx.eval(f"__flat({js})"))
 
     # -- public, thread-safe entry point ---------------------------------------
 

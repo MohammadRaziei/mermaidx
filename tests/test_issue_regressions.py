@@ -348,3 +348,38 @@ def test_issue_31_journey_task_labels_not_missing():
         region = rgba[int(y) + 2:int(y + h) - 2, int(x) + 2:int(x + w) - 2]
         dark = ((region[:, :, 3] > 0) & (region[:, :, :3].sum(axis=2) < 300)).sum()
         assert dark > 10, f"box at ({x},{y}) {w}x{h} has no painted label text"
+
+
+@pytest.mark.parametrize(
+    "code",
+    [
+        pytest.param("flowchart LR\n    A[item — reason] --> B[next]", id="em-dash"),
+        pytest.param('flowchart LR\n    A["• bullet"] --> B[age ≥ 65]', id="bullet-geq"),
+        pytest.param("flowchart LR\n    A[① first] --> B[臨床試験]", id="circled-cjk"),
+        pytest.param("sequenceDiagram\n    A->>B: hello — there", id="sequence"),
+    ],
+)
+def test_labels_above_latin1_render(code):
+    """A label holding any character above U+00FF used to fail with
+    "TypeError: Unknown quickjs tag: -6": the finished svg reached Python as a
+    QuickJS-ng rope string, which the quickjs binding cannot convert."""
+    svg = mermaidx.render(code).svg()
+    assert svg.lstrip().startswith("<svg")
+
+
+def test_long_label_above_latin1_renders():
+    """The same rope reaching a text-measurement callback as an argument failed
+    with SystemError instead -- a long label is what keeps it a rope there."""
+    label = " ".join(["étude — ≥65 • 臨床試験"] * 40)
+    svg = mermaidx.render(f'flowchart LR\n    A["{label}"] --> B[x]').svg()
+    assert "臨床試験" in svg
+
+
+def test_binding_still_rejects_ropes():
+    """Pins the binding behaviour the __flat wrappers exist for. If this starts
+    failing, quickjs converts ropes itself and __flat can go."""
+    ctx = quickjs.Context()
+    ctx.eval("var r = ''; for (var i = 0; i < 2000; i++) r = r + '<t>— ' + i + '</t>'; 0")
+    with pytest.raises(TypeError, match="Unknown quickjs tag"):
+        ctx.eval("r")
+    assert len(ctx.eval("r.slice(0)")) == len(ctx.eval("JSON.stringify(r)")) - 2
