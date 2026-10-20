@@ -23,9 +23,8 @@ The clock covers the work from Mermaid text to PNG bytes (to a PNG file for `mmd
 - **mermaidx** is called as a library, so the time excludes starting Python. It is the median of several back-to-back runs after a warm-up render. The `quickjs` and `v8` backends build a fresh engine context for every diagram, the way `mmdc` opens a new page for each one, and they prepare the next context in the background while idle. Back-to-back renders leave no idle time, so this benchmark includes that cost. The time of the very first render in a process is reported separately as start-up.
 - **mmdc** is a command-line program, so each run includes starting Node.js and Chrome. This is how it is used in a build script, and it is the cost mermaidx is designed to avoid. It is the median of fewer runs, because each one is slow.
 
-:::caution
-The two groups are not measuring the same thing. Compare mermaidx backends with each other directly. Compare mermaidx with `mmdc` as "per diagram in a script", not as "pure layout speed".
-:::
+> [!caution]
+> The two groups are not measuring the same thing. Compare mermaidx backends with each other directly. Compare mermaidx with `mmdc` as "per diagram in a script", not as "pure layout speed".
 
 ## Reading the results
 
