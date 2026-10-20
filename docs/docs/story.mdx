@@ -96,7 +96,7 @@ If you have never looked at what your dependencies weigh, I recommend trying it.
 
 I called the project `mmdc`, because I had designed it as the equivalent of the `mmdc` command of mermaid-cli, and I built it on phasma.
 
-The first commit in the repository, on 2025-12-25, has the message `In the name of GOD`. The first converter with a PhantomJS driver followed the same day. On 2025-12-26 I shipped 0.1.0 and 0.2.0, both in one day: I removed cairosvg from the core dependencies and then put it back. 0.3.0 came on 12-28, with PDF and PNG output and a release workflow.
+The first commit in the repository, on 2025-12-25, has the message `In the name of GOD`. The first converter with a PhantomJS driver followed the same day, and 0.1.0 went out on 2025-12-26.
 
 On 2026-01-06 the [Docusaurus](https://docusaurus.io) site appeared, with a hot pink theme (that is literally what the commit says), and 0.4.0 on 01-07 added a logo. On 01-09 the first pull request from someone else showed up ([#1](https://github.com/MohammadRaziei/mermaidx/pull/1)); it was merged on 01-20, and 0.4.1 followed on 01-21.
 
@@ -124,13 +124,13 @@ For the text I measured fonts in Python and passed the numbers to QuickJS. (By 0
 
 In effect I was simulating a browser, because Mermaid really does need one. It just did not need a complete browser. It only had to hand me an SVG.
 
-That was 0.6.0, on 2026-07-08: PhantomJS gone, mermaid.js running in QuickJS-ng against my shim, [resvg](https://github.com/linebender/resvg) painting the pixels, and the `Diagram` class and the `render()` function arriving together. 0.6.1 added ASCII output the same day.
+That was 0.6.0, on 2026-07-08: PhantomJS gone, mermaid.js running in QuickJS-ng against my shim, [resvg](https://github.com/linebender/resvg) painting the pixels, and the `Diagram` class and the `render()` function arriving together.
 
 ## 7. A new name
 
 While building the shim, I realised `mmdc` was a bad name. It would be confused with the tool it was trying to replace.
 
-On 2026-07-10, 0.7.0 went out as the last release under that name, with a deprecation notice. 0.8.0 followed the same day, as the first `mermaidx`. 0.8.1 and 0.8.2 came two days later, with Jupyter support, sample diagrams with regression tests, and a pile of polyfills for the shim.
+On 2026-07-10, 0.7.0 went out as the last release under that name, with a deprecation notice. 0.8.0 followed the same day, as the first `mermaidx`. 0.8.1 and 0.8.2 came two days later, with sample diagrams and regression tests, and a pile of polyfills for the shim.
 
 ## 8. The pixels
 
@@ -214,13 +214,13 @@ And whatever you end up installing next, ask pip-size first.
 | --- | --- | --- |
 | 2025-12-25 | | First commit. |
 | 2025-12-26 | 0.1.0, 0.2.0 | First release as `mmdc`, on PhantomJS through phasma. |
-| 2025-12-28 | 0.3.0 | PDF and PNG output, release workflow. |
+| 2025-12-28 | 0.3.0 | PDF and PNG output. |
 | 2026-01-07 | 0.4.0 | Documentation site and logo. |
 | 2026-06-28 | 0.5.0 | The first release after a break of about five months. |
 | 2026-07-08 | 0.6.0 | PhantomJS gone; mermaid.js in QuickJS-ng with a DOM shim; resvg for pixels. |
 | 2026-07-09 | 0.6.2 | `backend=` and the Rust backends. |
 | 2026-07-10 | 0.7.0, 0.8.0 | Last `mmdc` release, then the rename to `mermaidx`. |
-| 2026-07-12 | 0.8.1, 0.8.2 | Jupyter support, sample tests, more shim polyfills. |
+| 2026-07-12 | 0.8.1, 0.8.2 | Sample tests, more shim polyfills. |
 | 2026-07-18 | 0.9.0 | Optional V8 engine. |
 | 2026-07-24 | 0.9.4 | Bundled mermaid.js updated to 11.16.0. |
 | 2026-08-31 | 0.9.5 | `v8engine` extra, journey and timeline fixes. |
