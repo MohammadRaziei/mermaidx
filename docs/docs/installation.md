@@ -36,6 +36,5 @@ print(mermaidx.backends())
 
 mermaidx was called `mmdc` until version 0.7.0. The old package is no longer updated. Uninstall it and install `mermaidx` instead; the module name changed from `mmdc` to `mermaidx` too.
 
-:::note
-The upgrade to 0.10.0 has breaking changes: font embedding was removed, and `raster="resvg"` now raises a `ValueError`. See the [changelog](./changelog.md).
-:::
+> [!note]
+> The upgrade to 0.10.0 has breaking changes: font embedding was removed, and `raster="resvg"` now raises a `ValueError`. See the [changelog](./CHANGELOG.md).
