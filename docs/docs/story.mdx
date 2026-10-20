@@ -1,34 +1,38 @@
 ---
 title: The story of mermaidx
 sidebar_position: 10
-description: How mermaidx came to be - a browser I could not install, packages that were born and retired along the way, and a C++ renderer.
+description: A browser that would not install, a dead browser that worked, packages born and retired along the way, and a renderer in C++ - how mermaidx came to be.
 ---
 
-This is the long version of how mermaidx came to be. It is a story of trial and error, with a lot of error in it, and of the packages that were born and then retired along the way. phasma was the first of them.
+**5.5 MB.** That is what `mermaidx` weighs today, with every dependency included. It turns Mermaid diagrams into SVG, PNG and more, from plain Python, with no Node, no Chromium and no system packages.
 
-I tell it in my own words. Where there is a date or a version number, it comes from the [changelog](./changelog.md) or from the git history. Where there is an issue, it is linked. Where it is just me remembering, it is just me remembering. (And yes, I am going to sneak my other projects in. You will notice.)
+Getting there took about ten months, a pile of experiments, and more mistakes than I can count. Along the way a few packages were born, and some of them retired. The first one to go was phasma.
 
-## 1. A server with no screen
+This is the story in my own words. Dates and versions come from the [changelog](./changelog.md) and the git history, and the issues are linked.
 
-The story starts with [mermaid-cli](https://github.com/mermaid-js/mermaid-cli), the official command line tool for [Mermaid](https://mermaid.js.org). It needs the Node ecosystem, and on top of that it downloads and installs a complete Chromium.
+## A browser that would not install
 
-I could not use it. The machine I wanted to run it on was a server with no graphical interface, installing a browser there was hard, and I never managed it.
+It started with [mermaid-cli](https://github.com/mermaid-js/mermaid-cli), the official command line tool for [Mermaid](https://mermaid.js.org). It needs the Node ecosystem. And on top of that, it downloads and installs a complete Chromium. A complete Chromium!
 
-I also hated the principle of it. Why should a Python project have to step out of the Python ecosystem, and pick up system dependencies, just to draw a box and an arrow? So I went looking for a headless browser, and that is how I met PhantomJS.
+I wanted to run it on a server with no graphical interface. Installing a browser there was hard, and I never managed it. So mermaid-cli was out.
 
-## 2. A dead browser
+And that was not the only thing bothering me. I hated it on principle. Why should I step out of the Python ecosystem, and pick up system dependencies, just to draw a box and an arrow? Why?
 
-[PhantomJS](https://github.com/ariya/phantomjs) had expired. It no longer supported the newer ES6 features. But it ran the mermaid.js I had, version 7.1.2, without any fuss, so I took it.
+So I went hunting for a headless browser, and that is how I met PhantomJS.
 
-One problem was still not solved: with PhantomJS, the user would have to download and install it separately. That is a system dependency again, wearing a different hat.
+## A dead browser that worked
 
-So I did what you do, and went to PyPI. There I found [phantomjs-binary](https://pypi.org/project/phantomjs-binary/). It put the binaries for all three platforms inside the package. In one word: it was not done properly.
+[PhantomJS](https://github.com/ariya/phantomjs) had expired. It no longer supported the new ES6 features. But the mermaid.js I had in hand, version 7.1.2, ran on it without any trouble!
 
-## 3. phasma is born, and so is pip-size
+Still, one problem was left: the user had to download and install PhantomJS separately. A system dependency, again.
 
-So I wrote [phasma](https://github.com/mohammadraziei/phasma). It packaged PhantomJS per operating system, which is exactly what the other package did not do, behind an API that feels like [Playwright's](https://playwright.dev/python/). It was also lighter than Playwright's own wheel, even though Playwright had not installed a browser yet.
+I went to PyPI and found [phantomjs-binary](https://pypi.org/project/phantomjs-binary/). It put the binaries for all three platforms inside the package. In one word: it was not done properly.
 
-Here I have to confess something: I am obsessive about install size. It started with Docker image sizes and it spread to my other projects (pygixml, liburlparser, libspeech, libstb, novasvg, httpp, and more). At some point I needed to answer "how big is this package, with everything it drags in?" without downloading it, so I wrote another package, [pip-size](https://github.com/mohammadraziei/pip-size), just for that. Writing a tool to measure your own obsession is probably a bad sign. But look what it says. The dead browser first:
+## phasma is born
+
+So I wrote [phasma](https://github.com/mohammadraziei/phasma). It packaged PhantomJS per operating system, behind an API that feels like [Playwright's](https://playwright.dev/python/). It was even lighter than Playwright's own wheel, and Playwright had not installed a browser yet!
+
+Here comes a confession: I am obsessed with install size. It started with Docker image sizes and spread to my other projects (pygixml, liburlparser, libspeech, libstb, novasvg, httpp, and more). I wanted to ask "how big is this package, with everything it drags in?" without downloading it. So I wrote yet another package, [pip-size](https://github.com/mohammadraziei/pip-size), just for that. Writing a tool to measure your own obsession is probably a bad sign. But look at what it says. The dead browser first:
 
 ```text
 ➜ mohammad@Mohammad  ~  uvx pip-size phantomjs-binary
@@ -70,7 +74,7 @@ And Playwright, before it has downloaded a single browser:
   └── greenlet==3.5.6  606.8 KB
 ```
 
-And, as a spoiler for the rest of this story, mermaidx today:
+And, as a spoiler for the rest of the story, mermaidx today:
 
 ```text
 ➜ mohammad@Mohammad  ~  uvx pip-size mermaidx
@@ -88,96 +92,82 @@ And, as a spoiler for the rest of this story, mermaidx today:
   └── termaid==0.9.1  166.5 KB
 ```
 
-58.4 MB, 25.0 MB, 46.7 MB, and finally 5.5 MB. That last number is the whole point of the next seven chapters.
+58.4 MB. 25.0 MB. 46.7 MB. And then, 5.5 MB. Hold on to that last number; the rest of the story is how we got there.
 
-If you have never looked at what your dependencies weigh, I recommend trying it. It runs with [uv](https://docs.astral.sh/uv/) as `uvx pip-size PACKAGE`, with any package name, and it measures without downloading. Those are Linux x86-64 numbers; yours may differ.
+If you have never looked at what your dependencies weigh, try it. With [uv](https://docs.astral.sh/uv/) it is `uvx pip-size PACKAGE`, any package name, no download. These are Linux x86-64 numbers; yours may differ.
 
-## 4. In the name of GOD
+## mmdc
 
-I called the project `mmdc`, because I had designed it as the equivalent of the `mmdc` command of mermaid-cli, and I built it on phasma.
+I called the project `mmdc`, because I had designed it as the equivalent of the `mmdc` command of mermaid-cli, and I built it on phasma. 0.1.0 went out on 2025-12-26, and by 0.5.0, on 2026-06-28, it was still running PhantomJS through phasma.
 
-The first commit in the repository, on 2025-12-25, has the message `In the name of GOD`. The first converter with a PhantomJS driver followed the same day, and 0.1.0 went out on 2025-12-26.
+## The wall
 
-On 2026-01-06 the [Docusaurus](https://docusaurus.io) site appeared, with a hot pink theme (that is literally what the commit says), and 0.4.0 on 01-07 added a logo. On 01-09 the first pull request from someone else showed up ([#1](https://github.com/MohammadRaziei/mermaidx/pull/1)); it was merged on 01-20, and 0.4.1 followed on 01-21.
+Then, on 2026-04-03, [issue #5](https://github.com/MohammadRaziei/mermaidx/issues/5) made me realise something: my Mermaid version was outdated.
 
-## 5. The wall
+I fought it. I polyfilled. I bundled JavaScript libraries such as a Promise implementation. I tried everything I could think of to fill the ES6 gap in PhantomJS. And I could not do it. It was not going to work.
 
-Then it got quiet, but people kept opening issues: [#2](https://github.com/MohammadRaziei/mermaidx/issues/2) on 01-13, [#3](https://github.com/MohammadRaziei/mermaidx/issues/3) on 03-20, [#4](https://github.com/MohammadRaziei/mermaidx/issues/4) on 03-22. Even in the quiet months strangers sent fixes, like the encoding fix in [#7](https://github.com/MohammadRaziei/mermaidx/pull/7) on 04-12.
-
-On 2026-04-03, [issue #5](https://github.com/MohammadRaziei/mermaidx/issues/5) told me what I already half knew: my Mermaid was outdated.
-
-I tried to save it. I polyfilled, and I bundled JavaScript libraries such as a Promise implementation, anything to cover the missing ES6 support in PhantomJS. Nothing worked. As I wrote in that issue, recent Mermaid needs ES6, and PhantomJS cannot give it that. I still made one last push on the old foundation: async support in the CLI, an `--info` flag, and 0.5.0 on 2026-06-28, built on phasma 0.7.1.
-
-On 2026-07-04 I wrote the honest answer in issue #5: the version was stuck at 7.1.2. Three days later, on 2026-07-07, the commit message was:
+So I decided to solve the problem in a different way. phasma, my own package, had to go, even though it turned out useful for my other work. On 2026-07-07 the commit message was:
 
 ```text
 remove phasma and start using quickjs and resvg
 ```
 
-## 6. A browser made of lies
+## Just enough browser
 
-If PhantomJS could not run modern Mermaid, I needed another engine. I chose [QuickJS-ng](https://github.com/quickjs-ng/quickjs), because its wheel is light. I had to say goodbye to phasma, which at least turned out to be useful for my other work.
+The new engine was [QuickJS-ng](https://github.com/quickjs-ng/quickjs), because its wheel is light. But there was a catch: Mermaid needs a DOM.
 
-But Mermaid needs a DOM. [jsdom](https://github.com/jsdom/jsdom) and its relatives exist, and they are heavy too. As far as I could tell, their goal is to not throw errors, not to report exact font sizes. That does not help when the layout of a diagram depends on how wide a piece of text is. So I made another decision: no jsdom. I would write a simple `dom_shim.js` myself.
+Tools like [jsdom](https://github.com/jsdom/jsdom) exist, and they are heavy too. Worse, their goal is to not throw errors, not to tell you exactly how wide a piece of text is. That does not help me at all! So I gave up on that technology as well and wrote a simple `dom_shim.js` for us. The font measurements are computed in Python and passed to QuickJS. (By 0.8.3 the font code was a tiny TrueType reader of my own, working on a bundled [DejaVu Sans](https://dejavu-fonts.github.io/), and a comment in it says it avoids fontTools on purpose.)
 
-For the text I measured fonts in Python and passed the numbers to QuickJS. (By 0.8.3 the font code was a tiny TrueType reader of my own, working on a bundled [DejaVu Sans](https://dejavu-fonts.github.io/), and a comment in it says it avoids fontTools on purpose.)
+Do you see what I was doing? I was simulating a browser! Because we really did need one! Not a complete browser, though. Just enough of one to hand me an SVG.
 
-In effect I was simulating a browser, because Mermaid really does need one. It just did not need a complete browser. It only had to hand me an SVG.
+That was 0.6.0, on 2026-07-08: PhantomJS gone, mermaid.js running in QuickJS-ng against my shim, with [resvg](https://github.com/linebender/resvg) painting the pixels.
 
-That was 0.6.0, on 2026-07-08: PhantomJS gone, mermaid.js running in QuickJS-ng against my shim, [resvg](https://github.com/linebender/resvg) painting the pixels, and the `Diagram` class and the `render()` function arriving together.
+And right there I realised `mmdc` was a bad name. It would be confused with the tool it wanted to replace. On 2026-07-10, 0.7.0 went out as the last release under that name, and the same day 0.8.0 became the first `mermaidx`.
 
-## 7. A new name
+## The troubles begin
 
-While building the shim, I realised `mmdc` was a bad name. It would be confused with the tool it was trying to replace.
+New problem. An SVG was not enough! Users needed PNG, JPG and more.
 
-On 2026-07-10, 0.7.0 went out as the last release under that name, with a deprecation notice. 0.8.0 followed the same day, as the first `mermaidx`. 0.8.1 and 0.8.2 came two days later, with sample diagrams and regression tests, and a pile of polyfills for the shim.
+[resvg](https://github.com/linebender/resvg), through `resvg_py`, was the industry standard for this. But resvg and the other options were incomplete: they did not render `foreignObject`!!! That was the beginning of my troubles.
 
-## 8. The pixels
+The way out looked like this: patch the finished SVG. Take the HTML elements and turn them into SVG elements that an existing renderer, such as resvg (which is fast, by the way), can understand. It was the dirtiest part of the whole project. I kept it going all the way through 0.9.x, and I received a lot of issues about inconsistent output.
 
-An SVG was not enough. People wanted PNG, JPG and the rest. For that conversion, resvg, through the `resvg_py` bindings, was the industry standard. But resvg and the other options I tried were incomplete: they did not render `foreignObject`, which is where Mermaid puts its HTML labels. That was the start of my troubles.
+## Rust, and the birth of backends
 
-The way forward seemed to be this: take the finished SVG and patch it, turning HTML elements into SVG elements that an existing renderer such as resvg understands. It was the dirtiest part of the project. I kept doing it through the whole 0.9.x series, and I collected many issues about inconsistent output. The patches even got their own tests, like the one from 2026-07-26 for mindmap centering.
+In the middle of this search, I discovered that somebody had written [mermaid-rs-renderer](https://github.com/1jehuang/mermaid-rs-renderer) in Rust. Its speed is naturally excellent! I found nothing for it on PyPI. But I also saw the merman project, which came up in the issues of the other one.
 
-## 9. The Rust detour, and how backends were born
+So I decided to write a light binding that handles both as backends, [mmdr](https://github.com/mohammadraziei/mmdr), and to make it an optional dependency (which brings two backends). That is where the concept of a backend was born! 0.6.2 (2026-07-09) added the `backend=` argument.
 
-In my search I found [mermaid-rs-renderer](https://github.com/1jehuang/mermaid-rs-renderer), a Mermaid renderer written in Rust, which is fast, as you would expect. I found nothing for it on PyPI. I did find the merman project, which came up in the issues of the other one.
+Then I decided to bring in [V8](https://v8.dev) as an optional dependency too, for the people who care about JIT and its speed. It arrived with 0.9.0 on 2026-07-18. In total: four backends, and the default is the lightest and most plug-and-play one, `quickjs`. (Before 0.9.0, the QuickJS backend was called `js`.)
 
-So I wrote a light binding, [mmdr](https://github.com/mohammadraziei/mmdr), that handles both as backends, and made it an optional dependency, so it brings in two backends at once. 0.6.0 already carried it as an optional extra, and 0.6.2 (2026-07-09) added the `backend=` argument. That is where the idea of a backend was born.
+## Thank you, albert-github
 
-Then [V8](https://v8.dev) joined as one more optional dependency, for people who care about JIT speed. It arrived with 0.9.0 on 2026-07-18. Altogether that makes four backends: `quickjs`, `v8`, `merman` and `mermaid-rs-renderer`. The default is the lightest one that just works, `quickjs`. (Before 0.9.0, the QuickJS backend was called `js`.)
+A special thank you to [@albert-github](https://github.com/albert-github), who is active in the [Doxygen](https://www.doxygen.nl) project. He tested this project, opened issue after issue, and was very present in finding its faults. Much of what got fixed is because of him.
 
-## 10. The wave
+## Enough
 
-After 0.9.0, 0.9.1 to 0.9.4 shipped within six days. The shim kept learning what a real browser has that I never expected to need: `Intl`, `URL`, `CSS.supports`, `previousSibling`, `toJSON`. On 2026-07-22 I updated the bundled mermaid.js to 11.16.0, which shipped in 0.9.4 on 07-24.
+And then I came to a conclusion: this way of patching was far too dirty. I decided to write my own SVG renderer, in C++!
 
-Many of those issues came from [@albert-github](https://github.com/albert-github), who is active in the [Doxygen](https://www.doxygen.nl) project. He tested diagram after diagram and reported what broke. A special thanks to him: this project is better for how much he found.
+Why C++? Because it is fast and light, and it can be a practical replacement. With [nanobind](https://github.com/wjakob/nanobind) I could bind it to Python and use it.
 
-He was not alone. SailingGreg sent a pull request ([#9](https://github.com/MohammadRaziei/mermaidx/pull/9)) and wrote careful reports in [#8](https://github.com/MohammadRaziei/mermaidx/issues/8) and [#12](https://github.com/MohammadRaziei/mermaidx/issues/12). In [#17](https://github.com/MohammadRaziei/mermaidx/issues/17), chrislee35 traced a text-placement problem down to the details of `getBBox`.
+The project and its name, [novasvg](https://mohammadraziei.github.io/novasvg/), had actually started before mermaidx, but it was on hold. I picked it up, solved its problems, and kept going. In its [own benchmark](https://mohammadraziei.github.io/novasvg/benchmarks), which I wrote (conflict of interest declared), it was the most accurate of the options I compared, and the speed was great too. The same page shows how the SVGs that mermaid.js produces look in different tools, and why there was no other choice.
 
-## 11. A month of silence, and a decision
+novasvg first shows up in mermaidx's history on 2026-09-18, and by 09-28 the migration from resvg was done.
 
-After the wave, the repository went quiet. The only commit in August is on the 31st: it renamed the V8 extra to `mermaidx[v8engine]` and shipped 0.9.5.
+## Undoing everything
 
-Then I came to a conclusion: this way of patching SVGs is too dirty. I would write my own SVG renderer, in C++. Why C++? It is fast and light, and with [nanobind](https://github.com/wjakob/nanobind) it can be bound to Python and used as a practical replacement.
+Then I went back to mermaidx and reverted every one of those patches! My goal: make the SVG match the golden tests exactly.
 
-The project and its name, [novasvg](https://mohammadraziei.github.io/novasvg/), had in fact started before mermaidx, but it was on hold. I picked it up, solved its problems, and kept going. In its [own benchmark](https://mohammadraziei.github.io/novasvg/benchmarks), which I wrote (conflict of interest declared), it was the most accurate of the renderers I compared. The same page shows how the SVGs that mermaid.js produces look in different tools, and why I had no other choice.
+Those golden tests were meant to come from the original mermaid-cli. But, as I told you, I could not install it properly on my server, so I generated them with [mermaid.ink](https://mermaid.ink). And when I say "exactly", I do not mean identical bytes. The strict criterion is on the XML: the attributes and the children must be the same, no more and no less. Floating point numbers get a threshold.
 
-novasvg first shows up in mermaidx's history on 2026-09-18. A week later the commit message says it plainly, `replace resvg with novasvg`, and on 09-28 the migration was done. JPEG, BMP and TGA output came on 09-29.
+For that comparison I used [pygixml](https://mohammadraziei.github.io/pygixml/), a parser I wrote earlier for another project, partly because it keeps the CI test run short.
 
-## 12. Undoing everything
-
-Then I went back through mermaidx and undid all those patches. The new goal was an SVG that matches golden tests as closely as possible.
-
-I generated the golden SVGs with [mermaid.ink](https://mermaid.ink). The best answer would have been the original mermaid-cli, but as you know, I could not install it properly on my server. And "matches" does not mean identical bytes. The check is on the XML: the attributes and the children must be the same, no more and no less, and only floating point numbers get a threshold. I do the comparison with [pygixml](https://mohammadraziei.github.io/pygixml/), a parser I wrote for an earlier project, and I chose it partly to keep the CI test run short.
-
-The next two weeks were a long argument with Chrome. I made `getBBox` measure the ink of a text the way Chrome does (10-03), canonicalised CSS rules the way a browser's CSSOM does (10-07), and parsed SVG path numbers as 32-bit floats (10-11). On 10-14 I removed font embedding for good.
-
-## 13. The split
+## The split
 
 So in 0.10.0, on 2026-10-17, the work was split in two:
 
 - **mermaidx** pretends to be a browser and returns the SVG. It was developed with test-driven and error-driven methods.
-- **novasvg** turns that SVG into PNG, JPEG, BMP and TGA, and it is also the only thing that measures text and HTML labels.
+- **novasvg** turns that SVG into PNG and the other image formats.
 
 ```mermaid
 flowchart TB
@@ -188,46 +178,36 @@ flowchart TB
     NOVA -. "text measurements" .-> ENG
 ```
 
-Having written both sides gave me one more advantage. novasvg needs fonts and text layout anyway, so I could export its helper functions to Python and use them in mermaidx to estimate font sizes.
+And because I wrote both sides, there was one more win! novasvg needs fonts and text layout itself, so I could bind or export its helper functions to Python and use them in mermaidx, for estimating font sizes and so on.
 
-Along with that, 0.10.0 removed font embedding, resvg and the post-render SVG patching, and put Mermaid's default HTML labels back. The changelog lists the breaking changes. The reference set is 43 samples. On Linux, `quickjs` matches all of them and `v8` matches 42. The exception is `39_mindmap_shapes`, which differs because `Math.sin` gives results one ulp apart in the two engines; it also differs on `quickjs` under macOS. It is described in [Known issues](./known-issues.md).
+## The graveyard and the survivors
 
-That same day I wrote the changelog, deleted a Windows note from it because I could not verify it, and brought the documentation site back, this time with benchmarks generated by CI.
+Look at what this story left behind. phasma was born for a dead browser and retired when mermaidx moved to QuickJS, and it was not the only package born and retired along the way. pip-size was born from my size obsession. mmdr was born so that Rust renderers could be backends. novasvg came back to life. And pygixml, an older project, found a new job in the test suite.
 
-## 14. The graveyard and the survivors
+Every one of them came from a wall: a browser that would not install, a standard PhantomJS could not run, an element resvg would not paint. The through line never changed: stay inside Python, avoid heavy system dependencies. It took countless experiments, and countless failures, to get here.
 
-Look at what this story left behind. phasma was built for a dead browser and retired when mermaidx moved to QuickJS; it was not the only package born and retired in the process. pip-size was born from my obsession with size. mmdr was born so that Rust renderers could be backends. novasvg was revived, and pygixml, an older project, found a new job in the test suite.
-
-Every one of them came from a wall: a browser that would not install, a standard that PhantomJS could not run, an element resvg would not paint. The through line was always the same: stay inside Python, and avoid heavy system dependencies. It took many experiments, and many failures, to get there.
-
-The result fits in 5.5 MB, and you can try it:
+The result weighs 5.5 MB, and you can try it:
 
 ```text
 pip install mermaidx
 ```
 
-And whatever you end up installing next, ask pip-size first.
+And whatever you install next, ask pip-size first.
 
 ## Timeline
 
 | Date | Version | What happened |
 | --- | --- | --- |
-| 2025-12-25 | | First commit. |
-| 2025-12-26 | 0.1.0, 0.2.0 | First release as `mmdc`, on PhantomJS through phasma. |
-| 2025-12-28 | 0.3.0 | PDF and PNG output. |
-| 2026-01-07 | 0.4.0 | Documentation site and logo. |
-| 2026-06-28 | 0.5.0 | The first release after a break of about five months. |
+| 2025-12-26 | 0.1.0 | First release as `mmdc`, on PhantomJS through phasma. |
+| 2026-06-28 | 0.5.0 | Still PhantomJS through phasma. |
 | 2026-07-08 | 0.6.0 | PhantomJS gone; mermaid.js in QuickJS-ng with a DOM shim; resvg for pixels. |
 | 2026-07-09 | 0.6.2 | `backend=` and the Rust backends. |
 | 2026-07-10 | 0.7.0, 0.8.0 | Last `mmdc` release, then the rename to `mermaidx`. |
-| 2026-07-12 | 0.8.1, 0.8.2 | Sample tests, more shim polyfills. |
 | 2026-07-18 | 0.9.0 | Optional V8 engine. |
-| 2026-07-24 | 0.9.4 | Bundled mermaid.js updated to 11.16.0. |
-| 2026-08-31 | 0.9.5 | `v8engine` extra, journey and timeline fixes. |
-| 2026-10-17 | 0.10.0 | novasvg as the only rasterizer, JPEG/BMP/TGA, browser-faithful output. |
+| 2026-10-17 | 0.10.0 | novasvg takes over rasterizing; mermaidx returns the SVG. |
 
 ## Links
 
-- In this repository: the [changelog](./changelog.md), [Known issues](./known-issues.md), and [issue #5](https://github.com/MohammadRaziei/mermaidx/issues/5), where the wall was first named.
+- In this repository: the [changelog](./changelog.md) and [issue #5](https://github.com/MohammadRaziei/mermaidx/issues/5), where the wall was first named.
 - The tools in the story: [Mermaid](https://mermaid.js.org), [mermaid-cli](https://github.com/mermaid-js/mermaid-cli), [PhantomJS](https://github.com/ariya/phantomjs), [Playwright for Python](https://playwright.dev/python/), [QuickJS-ng](https://github.com/quickjs-ng/quickjs), [V8](https://v8.dev), [resvg](https://github.com/linebender/resvg), [mermaid.ink](https://mermaid.ink).
 - My own packages in the story: [phasma](https://github.com/mohammadraziei/phasma), [pip-size](https://github.com/mohammadraziei/pip-size), [mmdr](https://github.com/mohammadraziei/mmdr), [novasvg](https://mohammadraziei.github.io/novasvg/) and its [benchmarks](https://mohammadraziei.github.io/novasvg/benchmarks), [pygixml](https://mohammadraziei.github.io/pygixml/).
