@@ -88,12 +88,14 @@ def test_character_above_the_bmp_renders():
     assert "🚀" in svg
 
 
-def test_parse_error_text_is_a_mermaid_error():
+def test_parse_error_text_is_mermaids_own_error():
     """The error text crosses into Python too (__renderError). A long message holding characters above U+00FF
-    used to be a rope there, so the caller got a binding TypeError instead of mermaid's own parse error."""
+    used to be a rope there, so the caller got a binding TypeError instead of mermaid's own parse error.
+    Diagram.svg() reports it as a RuntimeError chained from the engine's MermaidRenderError."""
     label = " ".join([f"{WORD} — ≥65 • étude"] * 40)
-    with pytest.raises(MermaidRenderError):
+    with pytest.raises(RuntimeError, match="Parse error") as excinfo:
         mermaidx.render(f"flowchart LR\n    A[{label} --> B").svg()
+    assert isinstance(excinfo.value.__cause__, MermaidRenderError)
 
 
 class TestFlatHelper:
