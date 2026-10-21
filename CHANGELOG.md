@@ -5,6 +5,33 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 follows [Semantic Versioning](https://semver.org/) (while below 1.0, a minor bump may carry breaking changes).
 
+## [0.10.1] - 2026-10-21
+
+A patch release for a regression in 0.10.0: on the default `quickjs` backend, a diagram whose text held a
+character above U+00FF failed to render.
+
+### Fixed
+
+- **`TypeError: Unknown quickjs tag: -6` on the `quickjs` backend** for any label, title or message holding
+  a character above U+00FF (an em dash, a bullet, `≥`, a circled digit, Persian, CJK, an emoji) (#39, fix by
+  @kamalkraj in #40). QuickJS-ng keeps a long concatenation as a rope string, which the `quickjs` Python
+  binding cannot convert. Every string that crosses into Python (the rendered SVG, the error text and the
+  arguments of the text-measurement callbacks) is now copied into a flat one first. A long label of that kind
+  used to fail earlier, inside a measurement callback. The `v8` engine is unchanged.
+- The link to the changelog on the installation page of the docs had the wrong letter case, which broke
+  the docs build.
+
+### Changed
+
+- Spelling is now US-English throughout the code comments, the docs and the error messages (#42). The one
+  visible effect: the error for an invalid background color now starts with `Unrecognized background color`.
+
+### Added
+
+- `tests/test_unicode_labels.py` covers #39 for ten diagram types, for SVG, PNG and PDF output, for the
+  error path and for the flattening helper itself. The `v8` cases are skipped when `mini-racer` is not
+  installed.
+
 ## [0.10.0] - 2026-10-17
 
 The theme of this release is **browser-faithful output**: the DOM/SVG shim now reproduces what Chrome
@@ -306,6 +333,7 @@ First release, under the name `mmdc`.
 - CLI entry point with verbose logging.
 - Integration tests, cross-platform CI, and a GitHub Actions workflow to build and release wheels.
 
+[0.10.1]: https://github.com/mohammadraziei/mermaidx/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/mohammadraziei/mermaidx/compare/v0.9.5...v0.10.0
 [0.9.5]: https://github.com/mohammadraziei/mermaidx/compare/v0.9.4...v0.9.5
 [0.9.4]: https://github.com/mohammadraziei/mermaidx/compare/v0.9.3...v0.9.4
