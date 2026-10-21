@@ -58,7 +58,7 @@ def _parse_background(background: Optional[str]) -> int:
         return _novasvg.Color.from_name(text.lower()).to_int()
     except ValueError as exc:
         raise ValueError(
-            f"Unrecognised background color {background!r} (use '#rgb', '#rrggbb', '#rrggbbaa' "
+            f"Unrecognized background color {background!r} (use '#rgb', '#rrggbb', '#rrggbbaa' "
             f"or a basic color name like 'white'): {exc}"
         ) from None
 

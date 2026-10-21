@@ -267,16 +267,16 @@ def test_sample_labels_inside_their_own_shape(name):
     assert not offenders, f"{name}: label positioned outside its own node shape: {offenders}"
 
 
-# Diagrams whose labels are deliberately not centred on the node's bounding box (read off the mmdc
+# Diagrams whose labels are deliberately not centered on the node's bounding box (read off the mmdc
 # reference SVG):
-_NOT_CENTRED_BY_DESIGN = {
+_NOT_CENTERED_BY_DESIGN = {
     "26_kanban": "card labels carry `text-align:left !important` and a left offset (translate(-82.5, ...))",
-    "23_block": "a block-arrow's label is centred on the arrow body; the bbox also holds its pointed head",
+    "23_block": "a block-arrow's label is centered on the arrow body; the bbox also holds its pointed head",
 }
 
 
 @pytest.mark.parametrize(
-    "name", [n for n in SAMPLE_NAMES if n not in KNOWN_UNSUPPORTED and n not in _NOT_CENTRED_BY_DESIGN]
+    "name", [n for n in SAMPLE_NAMES if n not in KNOWN_UNSUPPORTED and n not in _NOT_CENTERED_BY_DESIGN]
 )
 def test_sample_label_pixels_centered_in_shape(name):
     """Pixel-level check that a label's ink is actually centered within its

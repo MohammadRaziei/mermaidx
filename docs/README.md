@@ -64,7 +64,7 @@ docs/
   src/pages/index.js          landing page
   src/pages/benchmarks.js     benchmark gallery
   src/components/             Showcase (rotating examples) and BenchCharts (chart.js)
-  src/css/custom.css          colours and fonts, light and dark
+  src/css/custom.css          colors and fonts, light and dark
   scripts/make_showcase.py    renders the landing-page examples with mermaidx
   scripts/sync.js             copies architecture.md and CHANGELOG.md in
   static/img/                 logo and favicon

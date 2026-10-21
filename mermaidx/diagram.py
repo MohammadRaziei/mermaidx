@@ -437,7 +437,7 @@ class DiagramBase:
                     any termaid option for "ascii".
 
         Raises:
-            ValueError: if the format can't be determined, or is unrecognised.
+            ValueError: if the format can't be determined, or is unrecognized.
         """
         path = Path(output)
         fmt = format or self._EXTENSION_FORMATS.get(path.suffix.lower())

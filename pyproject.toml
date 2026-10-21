@@ -159,7 +159,7 @@ ignore = [
   "S105", "S106", "S107",
   # Ignore complexity
   "C901", "PLR0911", "PLR0912", "PLR0913", "PLR0915",
-  # Ignore some unsecure rules:
+  # Ignore some insecure rules:
   "S301",
   # Ignore relative imports
   "TID252"

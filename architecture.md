@@ -309,7 +309,7 @@ flowchart TD
 Two spots in `dom_shim.js` exist specifically so HTML labels size correctly with no real CSS engine underneath:
 
 - **`getBoundingClientRect()`** serializes the element's `innerHTML` and asks `__measureForeignObject` for `{width, height, line_count, line_height}`. QuickJS answers via a synchronous callback into `novasvg.fonts.measure_foreign_object()` (the exact line-counting / `line-height` logic novasvg's painter uses). V8 can't call back synchronously, so `v8_engine.py` ships a line-for-line JS mirror of that algorithm instead — the same pattern as its advance/kerning tables. Multi-line (`<br>`) labels grow their boxes correctly because of this.
-- **`__computeBBox()`** has an explicit `foreignObject` case returning its own `width`/`height` attributes. Without it, the generic "union of children" fallback asks HTML children for an SVG bbox they don't have, under-reports the diagram's extent, and mermaid sizes the final `viewBox` too tight (content touching/clipped at the canvas edge, e.g. state diagrams with two-way labelled edges).
+- **`__computeBBox()`** has an explicit `foreignObject` case returning its own `width`/`height` attributes. Without it, the generic "union of children" fallback asks HTML children for an SVG bbox they don't have, under-reports the diagram's extent, and mermaid sizes the final `viewBox` too tight (content touching/clipped at the canvas edge, e.g. state diagrams with two-way labeled edges).
 
 ## 9. Design principles, stated explicitly
 

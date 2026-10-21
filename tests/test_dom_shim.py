@@ -344,7 +344,7 @@ def test_group_bbox_maps_children_through_the_whole_transform_list():
     assert (box["x"], box["y"], box["width"], box["height"]) == (-20, 0, 20, 10)
     box = _group_bbox("translate(100 0) scale(2 3)")
     assert (box["x"], box["y"], box["width"], box["height"]) == (100, 0, 20, 60)
-    # rotation about a centre: 90deg around (5,10) keeps the 10x20 box's centre and swaps its sides
+    # rotation about a center: 90deg around (5,10) keeps the 10x20 box's center and swaps its sides
     box = _group_bbox("rotate(90, 5, 10)")
     assert (round(box["x"], 6), round(box["y"], 6), round(box["width"], 6), round(box["height"], 6)) == (-5, 5, 20, 10)
 
@@ -988,7 +988,7 @@ _TWO_LINES = '<tspan x="0" dy="0">Blurry</tspan><tspan x="0" dy="16.8">Photo</ts
 
 @pytest.mark.parametrize("anchor, x, width", [
     ("start", 0, 48),
-    ("middle", -24, 48),     # each line is centred on its own advance, not the two together
+    ("middle", -24, 48),     # each line is centered on its own advance, not the two together
     ("end", -48, 48),
 ])
 def test_tspans_with_an_absolute_x_are_separate_lines(anchor, x, width):
@@ -1080,13 +1080,13 @@ def test_a_run_that_collapses_to_nothing_still_swallows_the_next_space():
 
 
 def test_an_absolute_y_alone_is_a_new_chunk_with_its_own_anchor():
-    # "ab" is centred on x=0 (-8..8); "cd" starts a chunk at x=16 and is centred there on its own advance (8..24)
+    # "ab" is centered on x=0 (-8..8); "cd" starts a chunk at x=16 and is centered there on its own advance (8..24)
     box = _text_box('<tspan>ab</tspan><tspan y="60">cd</tspan>', 'x="0" y="20" style="text-anchor: middle"')
     assert box[0] == pytest.approx(-8) and box[2] == pytest.approx(32)
 
 
 def test_dx_is_added_in_float32():
-    # x = f32(37.91749794) + f32(0.42109141), kept in float32, then the chunk's own advance (16) is centred
+    # x = f32(37.91749794) + f32(0.42109141), kept in float32, then the chunk's own advance (16) is centered
     box = _text_box('<tspan dx="0.42109141">ab</tspan>', 'x="37.91749794" y="20" style="text-anchor: middle"')
     assert box[0] == 30.338592529296875
 

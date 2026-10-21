@@ -234,7 +234,7 @@ def test_render_unknown_backend_without_mmdr_behaves_correctly():
         assert d.svg().startswith("<svg") or d.svg().strip().startswith("<?xml")
 
 
-def test_mmdr_backend_gets_pdf_support_it_doesnt_natively_have():
+def test_mmdr_backend_gets_pdf_support_it_does_not_natively_have():
     """The whole point of DiagramBase: mmdr's own Diagram.pdf() raises
     NotImplementedError, but ours reuses our novasvg + PDF writer on top of
     mmdr's svg() -- so PDF export works for mmdr backends too."""

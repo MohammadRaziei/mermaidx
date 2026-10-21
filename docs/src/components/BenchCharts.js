@@ -21,7 +21,7 @@ function readTheme() {
   };
 }
 
-// Builds a chart from buildConfig(theme) and rebuilds it when the colour mode or the inputs change.
+// Builds a chart from buildConfig(theme) and rebuilds it when the color mode or the inputs change.
 function useChart(buildConfig, deps) {
   const canvas = useRef(null);
   const { colorMode } = useColorMode();

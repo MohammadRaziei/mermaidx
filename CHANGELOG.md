@@ -20,7 +20,7 @@ It also moves rasterization to novasvg only and adds JPEG, BMP and TGA output.
 - **CLI:** `-o` accepts the new extensions, and `--quality N` sets the JPEG quality (1-100, default 90).
   JPEG has no transparency, so the background defaults to white for it.
 - **`mermaidx/assets/path_bbox.js`:** a port of Blink's float32 SVG number parser and tight path bounding
-  box (Chrome/Skia behaviour), shared by the DOM shim. Used with `Math.fround` when converting units and
+  box (Chrome/Skia behavior), shared by the DOM shim. Used with `Math.fround` when converting units and
   accumulating positions.
 - **Shared engine code** in `mermaidx/engines/_common.py`, so the `quickjs` and `v8` engines no longer
   duplicate setup logic.

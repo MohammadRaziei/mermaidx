@@ -615,7 +615,7 @@ class Node {
   cloneNode(deep) {
     // Blink keeps a property written through el.style as pending state and only turns it into the
     // `style` attribute when the attribute list is read -- cloning is such a read -- so the clone's
-    // `style` comes before any attribute set on it afterwards (mermaid's coloured marker copies).
+    // `style` comes before any attribute set on it afterwards (mermaid's colored marker copies).
     if (this.nodeType === 1) __materializeStyle(this);
     const c = Object.create(Object.getPrototypeOf(this));
     Object.assign(c, this, { childNodes: [], parentNode: null, _attrs: {...(this._attrs||{})}, _attrNs: {...(this._attrNs||{})} });

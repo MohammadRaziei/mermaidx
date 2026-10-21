@@ -64,8 +64,8 @@ class Leaf:
         self.value = value
 
 
-# Keep every node and every character: no whitespace dropping, no attribute whitespace normalisation (the
-# defaults of an XML parser), only entity decoding and end-of-line normalisation, which XML itself requires.
+# Keep every node and every character: no whitespace dropping, no attribute whitespace normalization (the
+# defaults of an XML parser), only entity decoding and end-of-line normalization, which XML itself requires.
 _PARSE = (pygixml.ParseFlags.ESCAPES | pygixml.ParseFlags.EOL | pygixml.ParseFlags.CDATA
           | pygixml.ParseFlags.COMMENTS | pygixml.ParseFlags.PI | pygixml.ParseFlags.WS_PCDATA)
 _KINDS = {"pcdata": "text", "cdata": "cdata", "comment": "comment", "pi": "pi"}

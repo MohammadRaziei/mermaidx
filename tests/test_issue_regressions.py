@@ -317,7 +317,7 @@ def test_issue_31_journey_task_labels_not_missing():
     section Checkout
       Choose delivery slot: 5: Customer
       Pay for order: 3: Customer
-    section Fulfilment
+    section Fulfillment
       Pick items in store: 4: Store staff
       Deliver groceries: 5: Driver
       Unpack at home: 7: Customer
@@ -330,7 +330,7 @@ def test_issue_31_journey_task_labels_not_missing():
     for label in (
         "Browse and select", "Search for items", "Compare prices", "Add to basket",
         "Checkout", "Choose delivery slot", "Pay for order",
-        "Fulfilment", "Pick items in store", "Deliver groceries", "Unpack at home",
+        "Fulfillment", "Pick items in store", "Deliver groceries", "Unpack at home",
     ):
         assert f">{label}<" in svg, f"missing task/section label: {label}"
 
@@ -376,7 +376,7 @@ def test_long_label_above_latin1_renders():
 
 
 def test_binding_still_rejects_ropes():
-    """Pins the binding behaviour the __flat wrappers exist for. If this starts
+    """Pins the binding behavior the __flat wrappers exist for. If this starts
     failing, quickjs converts ropes itself and __flat can go."""
     ctx = quickjs.Context()
     ctx.eval("var r = ''; for (var i = 0; i < 2000; i++) r = r + '<t>— ' + i + '</t>'; 0")

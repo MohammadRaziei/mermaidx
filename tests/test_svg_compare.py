@@ -142,7 +142,7 @@ def test_every_kind_of_node_counts(a, b):
 
 
 def test_whitespace_inside_an_attribute_value_is_kept():
-    # an XML parser normalises a newline in an attribute to a space unless told not to
+    # an XML parser normalizes a newline in an attribute to a space unless told not to
     a = sc.parse(_svg('<path d="M0 0\nL1 1"/>'))
     b = sc.parse(_svg('<path d="M0 0 L1 1"/>'))
     assert sc.compare(a, b)
