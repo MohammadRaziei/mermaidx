@@ -92,7 +92,7 @@ import threading
 from functools import lru_cache
 from typing import Optional
 
-from mermaidx.engines._common import MermaidRenderError, TextMeasurer, collect_svg, context_scripts, render_script, run_event_loop
+from mermaidx.engines._common import LIBRARIES, MermaidRenderError, TextMeasurer, collect_svg, context_scripts, render_script, run_event_loop
 from mermaidx.font_metrics import get_font
 
 _DEFAULT_RENDER_TIMEOUT_MS = 8_000
@@ -226,15 +226,16 @@ def _measure_text_js() -> str:
 """
 
 
-def _build_context():
-    """Boots one V8 isolate with mermaid.js loaded and ready to render.
+def _build_context(library: str = "mermaid"):
+    """Boots one V8 isolate with the JS library loaded and ready to render.
     Only ever called *inside* the child process (see _child_main)."""
     from py_mini_racer import MiniRacer
 
     ctx = MiniRacer()
     ctx.eval("globalThis.__log = (s) => {};")
-    ctx.eval(_measure_text_js())
-    for script in context_scripts():
+    if library == "mermaid":  # pele measures text itself, in pure JS
+        ctx.eval(_measure_text_js())
+    for script in context_scripts(library):
         ctx.eval(script)
     return ctx
 
@@ -247,7 +248,7 @@ _KNOWN_LIMIT = 50_000
 
 
 def _render(ctx, code: str, theme: str, config: Optional[dict], css: Optional[str],
-            known: dict, measure, build_context) -> str:
+            known: dict, measure, build_context, library: str = "mermaid") -> str:
     """Renders until the page has asked for no <foreignObject> size it was not given exactly. `ctx` is the fresh
     context for the first pass, `build_context()` makes the one for each pass after it, `known` maps what the page
     asked (its own key for it) to novasvg's answer, and `measure(*what_was_asked)` asks novasvg."""
@@ -255,9 +256,10 @@ def _render(ctx, code: str, theme: str, config: Optional[dict], css: Optional[st
         known.clear()
     for _ in range(_MAX_PASSES):
         ctx.eval(f"globalThis.__foKnown = {json.dumps(known)};")
-        ctx.eval(render_script(code, theme, config, css))
+        ctx.eval(render_script(code, theme, config, css, library))
         run_event_loop(ctx.eval)
-        asked = json.loads(ctx.eval("JSON.stringify(globalThis.__foMissing)"))
+        # Only mermaid.js lays out <foreignObject> labels; pele is done after its one synchronous call.
+        asked = json.loads(ctx.eval("JSON.stringify(globalThis.__foMissing)")) if library == "mermaid" else {}
         if not asked:
             return collect_svg(ctx.eval)
         # Whatever the page did with rough sizes (even fail) is not its answer: measure and go again.
@@ -267,7 +269,7 @@ def _render(ctx, code: str, theme: str, config: Optional[dict], css: Optional[st
     raise MermaidRenderError(f"the sizes of the <foreignObject> labels did not settle in {_MAX_PASSES} passes")
 
 
-def _child_main(conn) -> None:
+def _child_main(conn, library: str = "mermaid") -> None:
     """
     Entry point of the child process (see Engine -- one child == one V8
     isolate). Boots V8 once, then serves render requests from the parent
@@ -279,7 +281,7 @@ def _child_main(conn) -> None:
     known: dict = {}
     measurer = TextMeasurer()
     try:
-        ctx = _build_context()
+        ctx = _build_context(library)
         conn.send(("ready", None))
     except Exception as exc:  # noqa: BLE001 -- report *any* boot failure to the parent
         conn.send(("boot_error", f"{type(exc).__name__}: {exc}"))
@@ -295,7 +297,8 @@ def _child_main(conn) -> None:
 
         code, theme, config, css = msg
         try:
-            svg = _render(ctx, code, theme, config, css, known, measurer.foreign_object, _build_context)
+            svg = _render(ctx, code, theme, config, css, known, measurer.foreign_object,
+                          lambda: _build_context(library), library)
             conn.send(("ok", svg))
         except MermaidRenderError as exc:
             conn.send(("render_error", str(exc)))
@@ -305,7 +308,7 @@ def _child_main(conn) -> None:
         # mermaid-cli opens a new page per diagram: the next render gets a context of its own.
         # Built right after replying, so it is ready while the caller is busy with the result.
         try:
-            ctx = _build_context()
+            ctx = _build_context(library)
         except Exception as exc:  # noqa: BLE001
             conn.send(("boot_error", f"{type(exc).__name__}: {exc}"))
             return
@@ -320,7 +323,10 @@ class Engine:
     has.
     """
 
-    def __init__(self, render_timeout_ms: int = _DEFAULT_RENDER_TIMEOUT_MS) -> None:
+    def __init__(self, render_timeout_ms: int = _DEFAULT_RENDER_TIMEOUT_MS, library: str = "mermaid") -> None:
+        if library not in LIBRARIES:
+            raise ValueError(f"Unknown JS library {library!r}; expected one of {LIBRARIES}.")
+        self._library = library
         self._process: Optional[mp.process.BaseProcess] = None
         self._parent_conn = None
         self._render_timeout_ms = render_timeout_ms
@@ -335,7 +341,7 @@ class Engine:
 
     def _spawn(self) -> None:
         parent_conn, child_conn = _MP_CONTEXT.Pipe()
-        process = _MP_CONTEXT.Process(target=_child_main, args=(child_conn,), daemon=True)
+        process = _MP_CONTEXT.Process(target=_child_main, args=(child_conn, self._library), daemon=True)
         process.start()
         child_conn.close()  # only the child needs its end
 
@@ -408,7 +414,7 @@ class Engine:
                 "(this diagram's JS never stopped scheduling work -- see "
                 "engines/v8_engine.py's module docstring for why). A fresh V8 "
                 "engine has been started for subsequent renders; no memory was "
-                "leaked by this one. Use backend=\"quickjs\" for this diagram."
+                "leaked by this one. Use engine=\"quickjs\" for this diagram."
             )
 
         try:

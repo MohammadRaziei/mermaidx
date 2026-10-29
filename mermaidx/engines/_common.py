@@ -9,6 +9,7 @@ is defined here, so a change to it cannot reach one engine and miss the other.
 from __future__ import annotations
 
 import json
+import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Callable, Optional
@@ -22,17 +23,44 @@ _ASSETS_DIR = Path(__file__).parent.parent / "assets"
 RENDER_ID = "my-svg"
 BACKGROUND = "transparent"
 
+# The JS libraries an engine can run (the `js:<library>` backends, see mermaidx.backends).
+LIBRARIES = ("mermaid", "pele")
+
 
 class MermaidRenderError(RuntimeError):
     """Raised when mermaid.js itself reports a parse/render error."""
 
 
-@lru_cache(maxsize=1)
-def context_scripts() -> tuple[str, ...]:
+_ESM_EXPORT = re.compile(r"export\s*\{([^}]*)\}\s*;?\s*$")
+
+
+def esm_to_global(source: str, name: str) -> str:
+    """Turns an ES module that ends in one `export{a as b,...};` (a bundler's output, like pele.js from jsdelivr)
+    into a classic script that defines `globalThis[name]` -- the engines evaluate scripts, not modules. The module
+    body goes in a function, so its top-level `var`s do not leak into the page's global scope."""
+    m = _ESM_EXPORT.search(source)
+    if m is None:
+        raise ValueError(f"{name}: expected the module to end in `export{{...}};`")
+    pairs = []
+    for item in m.group(1).split(","):
+        local, _, exported = item.strip().partition(" as ")
+        pairs.append(f"{(exported or local).strip()}:{local.strip()}")
+    return f"globalThis.{name}=(function(){{{source[:m.start()]}\nreturn {{{','.join(pairs)}}};}})();"
+
+
+@lru_cache(maxsize=None)
+def context_scripts(library: str = "mermaid") -> tuple[str, ...]:
     """The JS every fresh context evaluates, in order, after the engine has installed its own `__log` and
-    `__measure*` hooks: path geometry, the DOM shim (which calls both), mermaid.js, the `mermaid` global, and
-    the page script of mermaid-cli (`__renderLikeMmdc`)."""
+    `__measure*` hooks.
+
+    mermaid: path geometry, the DOM shim (which calls both), mermaid.js, the `mermaid` global, and the page
+    script of mermaid-cli (`__renderLikeMmdc`).
+    pele: just pele.js (an ES module, made a global here) -- it is synchronous and needs no DOM."""
     read = lambda name: (_ASSETS_DIR / name).read_text(encoding="utf-8")  # noqa: E731
+    if library == "pele":
+        return (esm_to_global(read("pele.js"), "pele"),)
+    if library != "mermaid":
+        raise ValueError(f"Unknown JS library {library!r}; expected one of {LIBRARIES}.")
     return (
         PATH_BBOX_JS,
         read("dom_shim.js"),
@@ -61,10 +89,32 @@ def mermaid_config(theme: Optional[str], config: Optional[dict]) -> dict:
     return cfg
 
 
-def render_script(code: str, theme: Optional[str], config: Optional[dict], css: Optional[str]) -> str:
+def pele_render_script(code: str, config: Optional[dict]) -> str:
+    """The pele counterpart of render_script(): pele.render() is synchronous, so the result (or the error) is
+    set when the script returns. `.slice(0)` flattens the string for the QuickJS binding (see _FLATTEN_JS in
+    quickjs_engine.py: a long concatenation reaches it as a rope otherwise)."""
+    options = {"config": config} if config else {}
+    return (
+        "globalThis.__renderResult = null;\n"
+        "globalThis.__renderError = null;\n"
+        "try {\n"
+        f"  globalThis.__renderResult = pele.render({json.dumps(code)}, {json.dumps(options)}).svg.slice(0);\n"
+        "} catch (e) {\n"
+        "  globalThis.__renderError = (e && e.name ? e.name + ': ' + e.message : String(e));\n"
+        "}\n"
+    )
+
+
+def render_script(code: str, theme: Optional[str], config: Optional[dict], css: Optional[str],
+                  library: str = "mermaid") -> str:
     """One script that starts a render in a fresh context: a clean document, mermaid.initialize(), the caller's
     CSS if any, then `__renderLikeMmdc`. It leaves `__renderResult` (the svg) or `__renderError` set once the
-    returned promise settles. Every value goes in as a JSON literal, so any text is passed through unchanged."""
+    returned promise settles. Every value goes in as a JSON literal, so any text is passed through unchanged.
+
+    For library="pele" the script is pele_render_script() (theme and css are applied by the caller, in Python:
+    pele is themed by CSS variables, not by a theme name)."""
+    if library == "pele":
+        return pele_render_script(code, config)
     css_block = ""
     if css:
         css_block = (

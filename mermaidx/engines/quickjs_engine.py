@@ -33,7 +33,7 @@ from typing import Optional
 
 import quickjs
 
-from mermaidx.engines._common import MermaidRenderError, TextMeasurer, collect_svg, context_scripts, render_script, run_event_loop  # noqa: F401 (re-exported: the engines are interchangeable by their import line)
+from mermaidx.engines._common import LIBRARIES, MermaidRenderError, TextMeasurer, collect_svg, context_scripts, render_script, run_event_loop  # noqa: F401 (re-exported: the engines are interchangeable by their import line)
 
 
 # A browser gives a page's JS a stack deep enough for mermaid.js's recursion (dagre walks a long chain of
@@ -54,12 +54,16 @@ _FLATTEN_JS = "globalThis.__flat = (v) => (typeof v === 'string' ? v.slice(0) : 
 
 class Engine:
     """
-    One Engine = one QuickJS context with mermaid.js loaded, pinned to one
-    dedicated worker thread. Reused across many renders (loading mermaid.js
-    itself, ~6MB of source, is the expensive part -- do it once).
+    One Engine = one QuickJS context with a JS library loaded (`library`:
+    "mermaid" -- the default -- or "pele"), pinned to one dedicated worker
+    thread. Reused across many renders (loading mermaid.js itself, ~6MB of
+    source, is the expensive part -- do it once).
     """
 
-    def __init__(self) -> None:
+    def __init__(self, library: str = "mermaid") -> None:
+        if library not in LIBRARIES:
+            raise ValueError(f"Unknown JS library {library!r}; expected one of {LIBRARIES}.")
+        self._library = library
         self._executor: Optional[ThreadPoolExecutor] = None
         self._ctx: Optional[quickjs.Context] = None
         self._measurer: Optional[TextMeasurer] = None
@@ -146,7 +150,7 @@ class Engine:
             "globalThis.__measureGlyphs = (t,s,f,w,st) => JSON.parse(__measureGlyphs_raw(__flat(t),__flat(s),__flat(f),__flat(w),__flat(st)));\n"
             "globalThis.__measureForeignObject = (h,s,f,w,st) => JSON.parse(__measureForeignObject_raw(__flat(h),__flat(s),__flat(f),__flat(w),__flat(st)));\n"
         )
-        for script in context_scripts():
+        for script in context_scripts(self._library):
             ctx.eval(script)
         return ctx
 
@@ -162,7 +166,7 @@ class Engine:
         ctx = self._ctx
         self._ctx_used = True
         self._render_count += 1
-        ctx.eval(render_script(code, theme, config, css))
+        ctx.eval(render_script(code, theme, config, css, self._library))
         run_event_loop(ctx.eval, self._run_job)
 
         return collect_svg(lambda js: ctx.eval(f"__flat({js})"))
