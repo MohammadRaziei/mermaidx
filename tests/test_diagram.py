@@ -9,21 +9,21 @@ import mermaidx
 FLOWCHART = "flowchart LR\n    A[Start] --> B{OK?}\n    B -->|Yes| C[Done]"
 
 
-def test_backends_includes_quickjs():
-    # 'quickjs' is always available regardless of whether mmdr happens to be
-    # installed in this environment.
-    assert "quickjs" in mermaidx.backends()
+def test_backends_includes_the_js_backends():
+    # 'js:mermaid' and 'js:pele' are always available regardless of whether
+    # mmdr happens to be installed in this environment.
+    assert mermaidx.backends()[:2] == ["js:mermaid", "js:pele"]
 
 
-def test_backends_v8_reflects_py_mini_racer_availability(monkeypatch):
+def test_available_engines_v8_reflects_py_mini_racer_availability(monkeypatch):
     """https://github.com/MohammadRaziei/mermaidx/issues/28
 
-    backends() used to check `import mermaidx.engines.v8_engine` for v8
-    availability, but that module always imports fine -- it deliberately
-    defers `from py_mini_racer import MiniRacer` to inside
-    _build_context(), since that's meant to run in a multiprocessing
-    child process. So 'v8' showed up in backends() even when mini-racer
-    was never installed. The check has to import py_mini_racer itself.
+    The availability of v8 used to be checked with `import mermaidx.engines.v8_engine`,
+    but that module always imports fine -- it deliberately defers
+    `from py_mini_racer import MiniRacer` to inside _build_context(), since
+    that's meant to run in a multiprocessing child process. So 'v8' showed up
+    even when mini-racer was never installed. The check has to import
+    py_mini_racer itself.
     """
     import builtins
     import sys
@@ -37,11 +37,18 @@ def test_backends_v8_reflects_py_mini_racer_availability(monkeypatch):
 
     monkeypatch.delitem(sys.modules, "py_mini_racer", raising=False)
     monkeypatch.setattr(builtins, "__import__", fake_import_missing)
-    assert "v8" not in mermaidx.backends()
+    assert mermaidx.available_engines() == ["quickjs"]
 
     monkeypatch.setattr(builtins, "__import__", real_import)
     monkeypatch.setitem(sys.modules, "py_mini_racer", type(sys)("py_mini_racer"))
-    assert "v8" in mermaidx.backends()
+    assert mermaidx.available_engines() == ["quickjs", "v8"]
+
+
+def test_engine_v8_without_mini_racer_raises_import_error_with_install_hint(monkeypatch):
+    monkeypatch.setattr("mermaidx.diagram.available_engines", lambda: ["quickjs"])
+    d = mermaidx.render(FLOWCHART, engine="v8")  # lazy: nothing is started yet
+    with pytest.raises(ImportError, match=r"mermaidx\[v8engine\]"):
+        d.svg()
 
 
 def test_render_does_not_compute_anything_yet():
@@ -203,13 +210,13 @@ def test_show_is_backend_agnostic():
     """show()/_repr_svg_() live entirely on DiagramBase and just display
     self.svg() -- they don't care which backend produced it."""
     pytest.importorskip("IPython")
-    d = mermaidx.render(FLOWCHART, backend="quickjs")
+    d = mermaidx.render(FLOWCHART, backend="js:mermaid")
     d.show()  # exercises the same DiagramBase.show() a DiagramRust instance would use
 
 
 def test_repr():
     d = mermaidx.render(FLOWCHART)
-    assert "backend='quickjs'" in repr(d)
+    assert "backend='js:mermaid'" in repr(d)
 
 
 def test_render_invalid_mermaid_raises_on_svg_not_on_render():
@@ -228,9 +235,9 @@ def test_render_unknown_backend_without_mmdr_behaves_correctly():
         import mmdr  # noqa: F401
     except ImportError:
         with pytest.raises(ImportError, match=r"mermaidx\[rust\]"):
-            mermaidx.render(FLOWCHART, backend="merman")
+            mermaidx.render(FLOWCHART, backend="rust:merman")
     else:
-        d = mermaidx.render(FLOWCHART, backend="merman")
+        d = mermaidx.render(FLOWCHART, backend="rust:merman")
         assert d.svg().startswith("<svg") or d.svg().strip().startswith("<?xml")
 
 
@@ -239,19 +246,85 @@ def test_mmdr_backend_gets_pdf_support_it_does_not_natively_have():
     NotImplementedError, but ours reuses our novasvg + PDF writer on top of
     mmdr's svg() -- so PDF export works for mmdr backends too."""
     pytest.importorskip("mmdr")
-    d = mermaidx.render(FLOWCHART, backend="merman")
+    d = mermaidx.render(FLOWCHART, backend="rust:merman")
     assert d.pdf()[:5] == b"%PDF-"
 
 
 def test_render_unknown_backend_name_raises_value_error():
     pytest.importorskip("mmdr")
     with pytest.raises(ValueError):
-        mermaidx.render(FLOWCHART, backend="not-a-real-backend")
+        mermaidx.render(FLOWCHART, backend="rust:not-a-real-backend")
+    with pytest.raises(ValueError, match="js:mermaid"):
+        mermaidx.render(FLOWCHART, backend="js:not-a-real-library")
 
 
-def test_render_quickjs_backend_explicit():
-    d = mermaidx.render(FLOWCHART, backend="quickjs")
+@pytest.mark.parametrize("old, new", [("quickjs", "js:mermaid"), ("v8", "engine='v8'"), ("merman", "rust:merman")])
+def test_the_bare_backend_names_of_earlier_versions_are_rejected_with_the_new_name(old, new):
+    with pytest.raises(ValueError, match="<kind>:<name>") as exc:
+        mermaidx.render(FLOWCHART, backend=old)
+    assert new in str(exc.value)
+
+
+def test_render_js_mermaid_backend_explicit():
+    d = mermaidx.render(FLOWCHART, backend="js:mermaid")
     assert isinstance(d, mermaidx.Diagram)
+    assert (d.backend, d.engine) == ("js:mermaid", "quickjs")
+
+
+def test_engine_is_none_unless_set_and_means_quickjs_for_js_backends():
+    assert mermaidx.render(FLOWCHART).engine == "quickjs"
+    assert mermaidx.render(FLOWCHART, backend="js:pele").engine == "quickjs"
+    assert mermaidx.render(FLOWCHART, backend="js:pele", engine="v8").engine == "v8"
+
+
+def test_unknown_engine_raises_value_error():
+    with pytest.raises(ValueError, match="engine"):
+        mermaidx.render(FLOWCHART, engine="spidermonkey")
+
+
+def test_a_rust_backend_takes_no_engine():
+    with pytest.raises(ValueError, match="rust:"):
+        mermaidx.render(FLOWCHART, backend="rust:merman", engine="quickjs")
+
+
+# ── js:pele ───────────────────────────────────────────────────────────────
+
+def test_pele_renders_svg_and_png():
+    d = mermaidx.render(FLOWCHART, backend="js:pele")
+    assert isinstance(d, mermaidx.Diagram)
+    assert 'class="pele' in d.svg()
+    assert d.png()[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+def test_pele_png_is_painted_not_black():
+    """pele colours everything with nested CSS variables, which novasvg only resolves from 0.11.4 on; before
+    that every shape came out solid black."""
+    r, g, b, a = mermaidx.render("flowchart LR\n A[Start]", backend="js:pele").numpy()[10, 10]
+    assert not (r < 40 and g < 40 and b < 40 and a > 0)
+
+
+def test_pele_css_is_added_as_a_style_and_reaches_the_png():
+    plain = mermaidx.render(FLOWCHART, backend="js:pele")
+    dark = mermaidx.render(FLOWCHART, backend="js:pele", css="svg{--pele-surface:#202020}")
+    assert "<style>svg{--pele-surface:#202020}</style>" in dark.svg()
+    assert dark.png() != plain.png()
+
+
+def test_pele_has_no_mermaid_themes():
+    with pytest.raises(ValueError, match="css"):
+        mermaidx.render(FLOWCHART, backend="js:pele", theme="dark")
+    mermaidx.render(FLOWCHART, backend="js:pele", theme="default")  # the CLI's default: allowed
+
+
+def test_pele_invalid_source_raises_on_svg():
+    with pytest.raises(RuntimeError, match="Pele"):
+        mermaidx.render("this is not a valid diagram {{{", backend="js:pele").svg()
+
+
+@pytest.mark.skipif("v8" not in mermaidx.available_engines(), reason="needs the optional mini-racer package")
+def test_pele_runs_on_v8_too():
+    assert mermaidx.render(FLOWCHART, backend="js:pele", engine="v8").svg() == \
+        mermaidx.render(FLOWCHART, backend="js:pele").svg()
 
 
 def test_svg_to_png_standalone_utility():

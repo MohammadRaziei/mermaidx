@@ -65,8 +65,9 @@ Try it in [Google Colab](https://colab.research.google.com/github/mohammadraziei
 
 ## Choose a backend
 
-Pass `backend=` to use another engine. Each backend is described on the [backends](./backends.md) page.
+Pass `backend=` to use another renderer, and `engine=` to pick the JS engine it runs in. Each is described on the [backends](./backends.md) page.
 
 ```python
-mermaidx.render("flowchart LR; A-->B", backend="v8")
+mermaidx.render("flowchart LR; A-->B", backend="js:pele")
+mermaidx.render("flowchart LR; A-->B", engine="v8")
 ```

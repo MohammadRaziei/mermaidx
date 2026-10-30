@@ -15,7 +15,7 @@ import svg_compare as sc
 HERE = os.path.dirname(__file__)
 SAMPLES = sorted(os.path.splitext(os.path.basename(p))[0] for p in glob.glob(os.path.join(HERE, "samples", "*.mmd")))
 
-BACKENDS = ("quickjs", "v8")
+BACKENDS = ("quickjs", "v8")  # the engines (of js:mermaid)
 
 # (backend, sample) -> why it differs from mmdc. strict xfail: the day one of these starts to match, the test fails
 # and the entry has to go.
@@ -58,7 +58,7 @@ def test_svg_is_the_same_document_as_mmdc(backend, name):
         pytest.importorskip("py_mini_racer")
     src = open(os.path.join(HERE, "samples", name + ".mmd"), encoding="utf-8").read()
     ref = open(os.path.join(HERE, "samples", name + ".svg"), encoding="utf-8").read()
-    ours = mermaidx.render(src, config={"handDrawnSeed": 1}, backend=backend).svg()
+    ours = mermaidx.render(src, config={"handDrawnSeed": 1}, engine=backend).svg()
     diffs = sc.compare(sc.parse(sc.mask_random_ids(ours)), sc.parse(sc.mask_random_ids(ref)))
     assert not diffs, f"{len(diffs)} differences, first:\n" + "\n".join(diffs[:5])
 

@@ -41,7 +41,7 @@ d.save("diagram.png", scale=2.0)
 - **Many outputs.** SVG, PNG, JPG/JPEG, BMP, TGA, PDF, raw RGBA, NumPy arrays and terminal ASCII art.
 - **One process.** Synchronous, in-process rendering, plus `render_many()` for parallel batches.
 - **Jupyter-ready.** A diagram displays itself as the last expression of a cell.
-- **Pluggable backends.** QuickJS-ng (default), V8 (optional) or native Rust (optional).
+- **Pluggable backends.** mermaid.js (default), pele, or native Rust (optional), on QuickJS-ng (default) or V8 (optional).
 
 ## Installation
 
@@ -53,9 +53,9 @@ Extras are opt-in:
 
 | Command | Adds |
 | --- | --- |
-| `pip install mermaidx` | Base install. Default `backend="quickjs"`, zero system dependencies. |
-| `pip install mermaidx[v8engine]` | Real V8 (`mini-racer`) as `backend="v8"`. Faster thanks to JIT, runs in an isolated child process. |
-| `pip install mermaidx[rust]` | Native-Rust backends via [`mmdr`](https://github.com/mohammadraziei/mmdr): `merman` and `mermaid-rs-renderer`. |
+| `pip install mermaidx` | Base install. Default `backend="js:mermaid"` on `engine="quickjs"`, zero system dependencies. |
+| `pip install mermaidx[v8engine]` | Real V8 (`mini-racer`) as `engine="v8"`. Faster thanks to JIT, runs in an isolated child process. |
+| `pip install mermaidx[rust]` | Native-Rust backends via [`mmdr`](https://github.com/mohammadraziei/mmdr): `rust:merman` and `rust:mermaid-rs-renderer`. |
 | `pip install numpy` | Enables `.numpy()` export. |
 | `pip install mermaidx[all]` | Every extra above (`v8engine` + `rust` + `numpy`). |
 
@@ -158,45 +158,59 @@ Every other Mermaid-to-image tool reachable from Python either drives a browser 
 
 ## Backends
 
-All backends share one API. List what is installed at runtime:
+All backends share one API. A backend is named `<kind>:<name>`, and the `js:` backends also take an `engine`. List what is installed at runtime:
 
 ```python
 import mermaidx
 
 print(mermaidx.backends())
-# ['quickjs']                                    base install
-# ['quickjs', 'v8']                              with mermaidx[v8engine]
-# ['quickjs', 'merman', 'mermaid-rs-renderer']   with mermaidx[rust]
+# ['js:mermaid', 'js:pele']                                                 base install
+# ['js:mermaid', 'js:pele', 'rust:merman', 'rust:mermaid-rs-renderer']      with mermaidx[rust]
+
+print(mermaidx.available_engines())
+# ['quickjs']                                                               base install
+# ['quickjs', 'v8']                                                         with mermaidx[v8engine]
 ```
 
 | Backend | What runs | Notes |
 | --- | --- | --- |
-| `quickjs` *(default)* | The **original mermaid.js** in QuickJS-ng | Lightweight and always available, runs in-process. Safe for every diagram type, including `mindmap`. |
-| `v8` | The **original mermaid.js** in V8 (`mini-racer`) | Faster thanks to the JIT. Runs in an isolated child process so memory is fully reclaimed. |
-| `merman` | A **Rust reimplementation** (`mmdr`) | No JavaScript engine involved. Not mermaid.js. |
-| `mermaid-rs-renderer` | A **different Rust reimplementation** (`mmdr`) | Same idea as `merman`, with its own layout engine. |
+| `js:mermaid` *(default)* | The **original mermaid.js** | Same library, same diagram types, same options (`theme`, `config`, `css`). |
+| `js:pele` | [**pele**](https://pele.run), a small Mermaid renderer written in JavaScript | Its own layout, not mermaid.js. Themed with CSS variables (`css=`), so `theme` must stay unset. |
+| `rust:merman` | A **Rust reimplementation** (`mmdr`) | No JavaScript engine involved. Not mermaid.js. |
+| `rust:mermaid-rs-renderer` | A **different Rust reimplementation** (`mmdr`) | Same idea as `rust:merman`, with its own layout engine. |
+
+The `js:` backends run inside a JS engine, chosen with `engine=`. It is `None` unless you set it, which means `quickjs`:
+
+| Engine | What runs | Notes |
+| --- | --- | --- |
+| `quickjs` *(default)* | QuickJS-ng | Lightweight and always available, runs in-process. Safe for every diagram type, including `mindmap`. |
+| `v8` | V8 (`mini-racer`) | Faster thanks to the JIT. Runs in an isolated child process so memory is fully reclaimed. |
+
+A `rust:` backend has no JS engine, so passing `engine=` with one raises `ValueError`.
 
 ```mermaid
 flowchart TB
-    CALL["mermaidx.render(source, backend=...)"] --> PICK{"backend"}
+    CALL["mermaidx.render(source, backend=..., engine=...)"] --> PICK{"backend"}
 
-    subgraph JSB ["Diagram: real mermaid.js v11 + DOM/SVG shims"]
-        QJ["quickjs (default)<br/>QuickJS-ng, in-process<br/>text metrics via Python callback"]
-        V8["v8<br/>V8 via mini-racer, child process<br/>text metrics via JS-side tables"]
+    subgraph JSB ["Diagram: a js: backend inside a JS engine"]
+        MJ["js:mermaid (default)<br/>real mermaid.js v11 + DOM/SVG shims"]
+        PE["js:pele<br/>pele, synchronous, no DOM"]
+        ENG["engine=None means quickjs<br/>quickjs: QuickJS-ng, in-process<br/>v8: V8 via mini-racer, child process"]
+        MJ --> ENG
+        PE --> ENG
     end
 
     subgraph RSB ["DiagramRust: optional mmdr package"]
-        MM["merman<br/>native Rust"]
-        MR["mermaid-rs-renderer<br/>native Rust"]
+        MM["rust:merman<br/>native Rust"]
+        MR["rust:mermaid-rs-renderer<br/>native Rust"]
     end
 
-    PICK -->|"default"| QJ
-    PICK -->|"mermaidx[v8engine]"| V8
+    PICK -->|"default"| MJ
+    PICK -->|"js:pele"| PE
     PICK -->|"mermaidx[rust]"| MM
     PICK -->|"mermaidx[rust]"| MR
 
-    QJ --> SVG
-    V8 --> SVG
+    ENG --> SVG
     MM --> SVG
     MR --> SVG
 
@@ -205,10 +219,11 @@ flowchart TB
 
 The API is the same for every backend: `render()` always returns a `Diagram`, and `.svg()`, `.png()`, `.pdf()` and `.save()` work identically whichever one you pick. What is **not** the same is how the SVG gets made, so **speed and the rendered result can differ** between backends:
 
-- **`quickjs` and `v8` run the original mermaid.js.** Same library, same diagram types, same options (`theme`, `config`, `css`). Only the JavaScript engine differs: V8 is faster, QuickJS installs anywhere.
-- **`merman` and `mermaid-rs-renderer` are different implementations**, written in Rust rather than JavaScript. Their layout can differ from mermaid.js, they may not support every diagram type, and they take different options (`theme`, `node_spacing`, `rank_spacing`, `aspect_ratio` instead of `config` and `css`).
+- **`js:mermaid` is the original mermaid.js.** Only the JavaScript engine differs between `quickjs` and `v8`: V8 is faster, QuickJS installs anywhere. The engine never changes the result.
+- **`js:pele` is a different implementation**, in JavaScript. Its layout and styling differ from mermaid.js, so the output will not match it. It takes `config` and `css` but no `theme`: restyle it with its CSS variables, for example `css="svg{--pele-bg:#111;--pele-fg:#eee}"`.
+- **`rust:merman` and `rust:mermaid-rs-renderer` are different implementations**, written in Rust rather than JavaScript. Their layout can differ from mermaid.js, they may not support every diagram type, and they take different options (`theme`, `node_spacing`, `rank_spacing`, `aspect_ratio` instead of `config` and `css`).
 
-Whatever the backend, the SVG then goes through the same novasvg rasterizer, so the pixels are painted the same way. Only the SVG it receives differs.
+Whatever the backend, the SVG then goes through the same novasvg rasterizer, so the pixels are painted the same way. Only the SVG it receives differs. (pele paints with nested CSS variables, which novasvg resolves from 0.11.4 on.)
 
 ```python
 import mermaidx
@@ -216,30 +231,37 @@ import mermaidx
 source = "flowchart LR; A[Parse] --> B[Layout] --> C[Render]"
 
 # Original mermaid.js: same output, different JS engine
-mermaidx.render(source).png()                        # quickjs, the default
-mermaidx.render(source, backend="quickjs").png()     # the same, spelled out
-mermaidx.render(source, backend="v8").png()          # JIT, faster on big batches
+mermaidx.render(source).png()                          # js:mermaid on quickjs, the default
+mermaidx.render(source, backend="js:mermaid").png()    # the same, spelled out
+mermaidx.render(source, engine="v8").png()             # JIT, faster on big batches
+
+# pele: small, its own layout, any engine
+mermaidx.render(source, backend="js:pele").png()
+mermaidx.render(source, backend="js:pele", engine="v8").png()
 
 # Rust reimplementations: no JS engine, output may differ
-mermaidx.render(source, backend="merman").png()
-mermaidx.render(source, backend="mermaid-rs-renderer").png()
+mermaidx.render(source, backend="rust:merman").png()
+mermaidx.render(source, backend="rust:mermaid-rs-renderer").png()
 ```
 
 To see the differences yourself, render the same diagram with every backend you have installed:
 
 ```python
 for name in mermaidx.backends():
-    mermaidx.render(source, backend=name).save(f"diagram-{name}.png")
+    mermaidx.render(source, backend=name).save(f"diagram-{name.replace(':', '-')}.png")
 ```
 
-Options depend on the family:
+Options depend on the backend:
 
 ```python
-# mermaid.js backends: config and css
+# js:mermaid: theme, config and css
 mermaidx.render(source, theme="dark", config={"flowchart": {"curve": "basis"}})
 
+# js:pele: config and css (no theme)
+mermaidx.render(source, backend="js:pele", css="svg{--pele-surface:#202020}")
+
 # Rust backends: spacing and aspect ratio
-mermaidx.render(source, backend="merman", theme="dark", node_spacing=60, rank_spacing=80)
+mermaidx.render(source, backend="rust:merman", theme="dark", node_spacing=60, rank_spacing=80)
 ```
 
 ## Python API
@@ -317,7 +339,9 @@ mermaidx -i diagram.mermaid -o diagram.png -w 1200 # or --scale 2.0
 mermaidx -i diagram.mermaid -o diagram.svg --theme dark
 mermaidx -i diagram.mermaid -o diagram.pdf --pdf-format A4 --landscape --margin 1cm
 mermaidx -i diagram.mermaid -o diagram.svg --config config.json --css style.css
-mermaidx -i diagram.mermaid -o diagram.svg --backend merman   # needs mermaidx[rust]
+mermaidx -i diagram.mermaid -o diagram.svg --backend js:pele
+mermaidx -i diagram.mermaid -o diagram.svg --engine v8        # needs mermaidx[v8engine]
+mermaidx -i diagram.mermaid -o diagram.svg --backend rust:merman   # needs mermaidx[rust]
 
 mermaidx --list-backends
 mermaidx --info          # bundled Mermaid version
@@ -334,7 +358,7 @@ Everything Mermaid v11 itself supports, because the real library is bundled: flo
 
 - Python 3.9+
 - `quickjs-ng`, `novasvg`, `termaid` (installed automatically)
-- `mini-racer` (optional, for `backend="v8"`)
+- `mini-racer` (optional, for `engine="v8"`)
 
 ## Documentation
 
@@ -361,6 +385,7 @@ pytest tests/ -v
 - **0.7.0 and 0.8.0 (2026-07-10), renamed to mermaidx**: 0.7.0 is the last release under the `mmdc` name, with a deprecation notice; 0.8.0 is the first `mermaidx`. The old name was easy to confuse with the tool this project replaces. **If you have `mmdc` pinned anywhere (`requirements.txt`, a Dockerfile, CI config), switch it to `mermaidx`.**
 - **0.9.0 (2026-07-18)**: an optional real-V8 engine (`backend="v8"`, installed today with `mermaidx[v8engine]`) next to the default QuickJS-ng one. Through the 0.9.x series the SVG was patched after rendering so that resvg could draw HTML labels.
 - **0.10.0 (2026-10-17)**: novasvg became the only rasterizer and the only text and label measurer, so resvg, the post-render patching and font embedding were removed. Because novasvg paints `<foreignObject>` directly, mermaid.js's default HTML labels are used again (`htmlLabels: true`). JPEG, BMP and TGA output was added, and output is checked structurally against reference SVGs. See the [changelog](CHANGELOG.md) for breaking changes (font embedding removed, `raster="resvg"` now raises `ValueError`).
+- **0.11.0 (2026-10-30), breaking**: backends are named `<kind>:<name>` (`js:mermaid`, `rust:merman`), and the JS engine is a separate `engine=` parameter (`quickjs` by default, or `v8`). The pele renderer was added as `js:pele`. See the [changelog](CHANGELOG.md) for how to migrate.
 
 The longer version, in my own words: [The story of mermaidx](https://mohammadraziei.github.io/mermaidx/docs/story).
 

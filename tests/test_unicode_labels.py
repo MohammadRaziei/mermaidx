@@ -135,5 +135,5 @@ class TestFlatHelper:
 @pytest.mark.parametrize("kind", ["flowchart", "sequence"])
 def test_text_renders_the_same_on_v8(kind):
     """The v8 engine never had the rope problem; this keeps the two backends in step."""
-    svg = mermaidx.render(source(kind), backend="v8").svg()
+    svg = mermaidx.render(source(kind), engine="v8").svg()
     assert WORD in svg

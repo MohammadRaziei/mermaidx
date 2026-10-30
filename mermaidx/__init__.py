@@ -12,14 +12,17 @@ mermaidx — Mermaid diagram rendering, no browser, Node.js, or npm required.
     d.pdf()                                         # bytes -- fully supported
     d.save("out.svg") / d.save("out.png") / d.save("out.pdf")
 
-    mermaidx.backends()          # ['quickjs']  (+ 'v8'/mmdr's backends if installed)
+    mermaidx.render(src, backend="js:pele")     # backends: 'js:mermaid' (default), 'js:pele', 'rust:<name>'
+    mermaidx.render(src, engine="v8")          # JS engine for js: backends: 'quickjs' (default) or 'v8'
+    mermaidx.backends()          # ['js:mermaid', 'js:pele']  (+ 'rust:...' if mmdr is installed)
+    mermaidx.available_engines() # ['quickjs']  (+ 'v8' if mini-racer is installed)
     mermaidx.render_many(sources, workers=4)   # real parallelism (multiprocessing)
     mermaidx.render_ascii(source)              # terminal-friendly text (always available)
 """
 
 from .__about__ import __version__
 from .diagram import Diagram, DiagramBase, DiagramRust, render
-from .backends import backends
+from .backends import available_engines, backends
 from .raster import svg_to_png, svg_to_jpg, svg_to_image, svg_to_raw
 from .pool import render_many
 from .ascii import render_ascii
@@ -31,6 +34,7 @@ __all__ = [
     "DiagramBase",
     "DiagramRust",
     "backends",
+    "available_engines",
     "svg_to_png",
     "svg_to_jpg",
     "svg_to_image",

@@ -31,6 +31,6 @@ def test_both_engines_lay_out_baseline_dependent_text_alike():
     import mermaidx
 
     src = open(os.path.join(os.path.dirname(__file__), "samples", "30_treemap.mmd"), encoding="utf-8").read()
-    docs = {b: mermaidx.render(src, backend=b, config={"handDrawnSeed": 1}).svg() for b in ("quickjs", "v8")}
+    docs = {e: mermaidx.render(src, engine=e, config={"handDrawnSeed": 1}).svg() for e in ("quickjs", "v8")}
     assert "NaN" not in docs["v8"] and "NaN" not in docs["quickjs"]
     assert sc.compare(sc.parse(docs["quickjs"]), sc.parse(docs["v8"])) == []

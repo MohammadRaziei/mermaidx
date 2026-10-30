@@ -75,7 +75,7 @@ class _Script:
     def __init__(self, labels, fail_unless_exact=False):
         self.labels, self.fail_unless_exact, self.passes = labels, fail_unless_exact, 0
 
-    def __call__(self, code, theme, config, css):
+    def __call__(self, code, theme, config, css, library="mermaid"):
         self.passes += 1
         asks = ", ".join(f"__measureForeignObject({json.dumps(h.format(n=self.passes))}, 16, 's', '400', 'normal')" for h in self.labels)
         check = (

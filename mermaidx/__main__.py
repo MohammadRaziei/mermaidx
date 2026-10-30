@@ -13,7 +13,7 @@ Examples:
     cat diagram.mermaid | mermaidx -i -
     mermaidx --info
     mermaidx --list-backends
-    mermaidx -i diagram.mermaid --backend merman -o diagram.svg
+    mermaidx -i diagram.mermaid --backend rust:merman -o diagram.svg
 """
 
 import argparse
@@ -50,7 +50,7 @@ examples:
   cat diagram.mermaid | mermaidx -i -
   mermaidx --info
   mermaidx --list-backends
-  mermaidx -i diagram.mermaid --backend merman -o diagram.svg
+  mermaidx -i diagram.mermaid --backend rust:merman -o diagram.svg
         """,
     )
 
@@ -59,9 +59,12 @@ examples:
                         help="Print Mermaid library version and exit")
     parser.add_argument("--list-backends", action="store_true",
                         help="List available rendering backends and exit")
-    parser.add_argument("--backend", default=None, metavar="NAME",
-                        help="Rendering backend to use (default: quickjs). "
-                             "See --list-backends for what's available.")
+    parser.add_argument("--backend", default=None, metavar="KIND:NAME",
+                        help="Rendering backend to use, e.g. js:mermaid, js:pele or rust:merman "
+                             "(default: js:mermaid). See --list-backends for what's available.")
+    parser.add_argument("--engine", default=None, metavar="NAME",
+                        help="JS engine for a js: backend: quickjs or v8 (default: quickjs). "
+                             "Not valid with a rust: backend.")
     parser.add_argument("-i", "--input", metavar="FILE",
                         help="Input Mermaid file, or '-' to read from stdin")
     parser.add_argument("-o", "--output", default=None, metavar="FILE",
@@ -79,9 +82,9 @@ examples:
     parser.add_argument("-b", "--background", default=None, metavar="COLOR",
                         help="CSS background color (default: transparent)")
     parser.add_argument("-c", "--config", metavar="FILE",
-                        help="JSON config file for Mermaid (backend='quickjs'/'v8' only)")
+                        help="JSON config file for Mermaid (js: backends only)")
     parser.add_argument("--css", metavar="FILE",
-                        help="CSS file to inject into the diagram (backend='quickjs'/'v8' only)")
+                        help="CSS file to inject into the diagram (js: backends only)")
     parser.add_argument("--quality", type=int, default=None, metavar="N",
                         help="JPEG quality 1-100 (default: 90). JPEG output only. "
                              "JPEG has no transparency: -b/--background defaults to white for it.")
@@ -117,10 +120,13 @@ def _print_info() -> None:
 
 
 def _print_backends() -> None:
-    available = mermaidx.backends()
-    for name in available:
-        marker = " (default)" if name == "quickjs" else ""
+    for name in mermaidx.backends():
+        marker = " (default)" if name == "js:mermaid" else ""
         print(f"{name}{marker}")
+    print("engines (for js: backends):")
+    for name in mermaidx.available_engines():
+        marker = " (default)" if name == "quickjs" else ""
+        print(f"  {name}{marker}")
 
 
 def main() -> None:
@@ -142,15 +148,18 @@ def main() -> None:
     config = json.loads(Path(args.config).read_text(encoding="utf-8")) if args.config else None
     css = Path(args.css).read_text(encoding="utf-8") if args.css else None
 
-    backend = args.backend or "quickjs"
+    backend = args.backend or "js:mermaid"
     render_kwargs = {"theme": args.theme}
-    if backend in ("quickjs", "v8"):
+    if backend.startswith("js:"):
         render_kwargs.update(config=config, css=css)
     elif config or css:
         print(f"warning: --config/--css are ignored for backend={backend!r} "
-              "(only 'quickjs'/'v8' support them)", file=sys.stderr)
+              "(only the js: backends support them)", file=sys.stderr)
 
-    d = mermaidx.render(source, backend=args.backend, **render_kwargs)
+    try:
+        d = mermaidx.render(source, backend=args.backend, engine=args.engine, **render_kwargs)
+    except ValueError as exc:  # a bad --backend / --engine / --theme combination: say so, no traceback
+        parser.error(str(exc))
 
     if args.output is None:
         sys.stdout.buffer.write(d.svg().encode("utf-8"))

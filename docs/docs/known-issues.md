@@ -8,7 +8,7 @@ mermaidx is checked against the output of `mmdc` with a strict structural XML co
 
 ## `39_mindmap_shapes` differs on V8 and on macOS
 
-The sample differs from `mmdc` on the `v8` backend, and on `quickjs` under macOS. On Linux, `quickjs` matches `mmdc`.
+The sample differs from `mmdc` on the `v8` engine, and on `quickjs` under macOS. On Linux, `quickjs` matches `mmdc`.
 
 The cause is a difference of one unit in the last place (1 ulp) in `Math.sin` between engine and platform builds. The mindmap layout (cose-bilkent) repeats the calculation many times, so the difference grows until the diagram comes out differently.
 
@@ -16,7 +16,7 @@ This is recorded in the test suite as a strict expected failure, so the test fai
 
 ## Rust backends
 
-`merman` and `mermaid-rs-renderer` are independent implementations. They can lay out a diagram differently from mermaid.js, and may not support every diagram type. See the [benchmark gallery](/benchmarks) for the current state.
+`rust:merman` and `rust:mermaid-rs-renderer` are independent implementations. They can lay out a diagram differently from mermaid.js, and may not support every diagram type. See the [benchmark gallery](/benchmarks) for the current state.
 
 ## Report a problem
 

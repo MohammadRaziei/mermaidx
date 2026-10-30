@@ -4,10 +4,11 @@ mermaidx.diagram — the object returned by mermaidx.render().
     DiagramBase   -- all the shared machinery: caching, and default
                      implementations of every derived output (png/raw/
                      numpy/pdf/ascii/save), each computed from self.svg().
-    Diagram       -- backend='quickjs' (default) or 'v8': mermaid.js running
-                     inside QuickJS-ng or real V8.
-    DiagramRust   -- any backend from the optional `mmdr` package (e.g.
-                     'merman', 'mermaid-rs-renderer'): svg() delegates to
+    Diagram       -- the 'js:' backends ('js:mermaid' (default), 'js:pele'),
+                     running inside a JS engine: engine='quickjs' (default)
+                     or 'v8'.
+    DiagramRust   -- any 'rust:' backend from the optional `mmdr` package
+                     (e.g. 'rust:merman'): svg() delegates to
                      mmdr, but png/raw/numpy/pdf still go through *our*
                      novasvg + hand-written PDF writer -- so backends that
                      don't natively support e.g. PDF (mmdr's own
@@ -27,31 +28,32 @@ and everything else for free.
 from __future__ import annotations
 
 import atexit
+import re
 import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
 from mermaidx.ascii import render_ascii
 from mermaidx.engines.quickjs_engine import Engine as _QuickJSEngine
-from mermaidx.engines._common import MermaidRenderError
+from mermaidx.backends import (
+    JS_BACKENDS, available_engines, backends as _backends, parse_backend, resolve_engine,
+)
+from mermaidx.engines._common import LIBRARIES, MermaidRenderError
 from mermaidx.pdf_writer import png_to_pdf
 from mermaidx.png_decode import decode_png_rgba, decode_png
 from mermaidx.raster import render_png as _render_png_novasvg, render_image as _render_image_novasvg
 
-try:
-    from mermaidx.engines.v8_engine import Engine as _V8Engine
-    _V8_AVAILABLE = True
-except ImportError:
-    _V8_AVAILABLE = False
+from mermaidx.engines.v8_engine import Engine as _V8Engine  # mini-racer itself is only imported in its child process
 
 if TYPE_CHECKING:
     import numpy as np
 
-# One persistent, lazily-started engine per *name* ("quickjs" / "v8"), shared
-# by every render() call in the process -- loading mermaid.js (~6MB of
-# source) is the expensive part, so each engine only pays that cost once,
-# and both can coexist if a caller explicitly asks for each by name (e.g.
-# `backend="quickjs"` for one render, `backend="v8"` for another). Engine
+# One persistent, lazily-started engine per (engine name, JS library) --
+# ("quickjs" / "v8") x ("mermaid" / "pele") -- shared by every render() call
+# in the process. Loading mermaid.js (~6MB of source) is the expensive part,
+# so each pays that cost once, and they can coexist if a caller asks for
+# several (e.g. `engine="quickjs"` for one render, `engine="v8"` for another,
+# or `backend="js:pele"` for a third). Engine
 # instances are synchronous by design -- start()/render_svg() already block
 # internally on their own dedicated worker thread, so no asyncio is needed
 # here at all.
@@ -59,24 +61,24 @@ _engines: dict = {}
 _engines_lock = threading.Lock()
 
 
-def _get_engine_by_name(name: str):
+def _get_engine(name: str, library: str):
     """
-    Lazily creates and caches one engine instance per name ("quickjs" or
-    "v8"), so both can coexist in the same process without one evicting
-    the other.
+    Lazily creates and caches one engine instance per (engine name, library),
+    so they can coexist in the same process without one evicting another.
     """
-    if name not in _engines:
+    key = (name, library)
+    if key not in _engines:
         with _engines_lock:
-            if name not in _engines:  # re-check inside the lock
+            if key not in _engines:  # re-check inside the lock
                 if name == "quickjs":
-                    e = _QuickJSEngine()
+                    e = _QuickJSEngine(library)
                 elif name == "v8":
-                    if not _V8_AVAILABLE:
+                    if "v8" not in available_engines():
                         raise ImportError(
-                            "backend='v8' requires the optional 'mini-racer' package. "
-                            "Install it with:\n    pip install mermaidx[v8]"
+                            "engine='v8' requires the optional 'mini-racer' package. "
+                            "Install it with:\n    pip install mermaidx[v8engine]"
                         )
-                    e = _V8Engine()
+                    e = _V8Engine(library=library)
                 else:
                     raise ValueError(f"Unknown JS engine {name!r}; expected 'quickjs' or 'v8'.")
                 e.start()
@@ -85,8 +87,18 @@ def _get_engine_by_name(name: str):
                 # shutdown so it doesn't linger as an orphan if the process
                 # exits without closing it first.
                 atexit.register(e.close)
-                _engines[name] = e
-    return _engines[name]
+                _engines[key] = e
+    return _engines[key]
+
+
+_ROOT_SVG_TAG = re.compile(r"<svg\b[^>]*>")
+
+
+def _inject_style(svg: str, css: str) -> str:
+    """Puts `css` in a <style> right after the root <svg> tag (pele is themed by CSS variables, so e.g.
+    ``svg{--pele-bg:#111}`` restyles it; mermaid.js takes `css` natively instead)."""
+    m = _ROOT_SVG_TAG.search(svg)
+    return svg if m is None else f"{svg[:m.end()]}<style>{css}</style>{svg[m.end():]}"
 
 
 _MISSING = object()
@@ -517,25 +529,35 @@ class DiagramBase:
 
 
 class Diagram(DiagramBase):
-    """mermaid.js v11 running inside a JS engine, with novasvg (using a bundled
-    font shared with the layout step) for everything downstream of SVG. See
-    DiagramBase for the full method list.
+    """A 'js:' backend -- mermaid.js or pele -- running inside a JS engine, with
+    novasvg (using a bundled font shared with the layout step) for everything
+    downstream of SVG. See DiagramBase for the full method list.
 
-    `backend` picks *which* JS engine runs mermaid.js -- both run the exact
-    same mermaid.js:
+    `backend` picks *what* renders:
+
+      - 'js:mermaid' (default): mermaid.js v11, the reference implementation.
+      - 'js:pele': pele (https://pele.run), small and synchronous, with its
+        own layout. It is themed by CSS variables, not by mermaid theme
+        names: `theme` must be left unset/'default', `config` goes to pele,
+        and `css` (e.g. ``"svg{--pele-bg:#111;--pele-fg:#eee}"``) is added
+        to the SVG as a <style>.
+
+    `engine` picks *which* JS engine runs it -- every engine runs the exact
+    same JS. It is None unless you set it, which means 'quickjs':
 
       - 'quickjs' (default): QuickJS-ng. Always available (mermaidx's one
         hard dependency), handles every diagram type mermaidx supports.
       - 'v8': real V8 via the optional `mini-racer` package -- noticeably
         faster (a real JIT vs. QuickJS-ng's interpreter-only execution), at
-        the cost of an extra install (`pip install mermaidx[v8]`).
+        the cost of an extra install (`pip install mermaidx[v8engine]`).
 
     Example::
 
         import mermaidx
 
         d = mermaidx.render("flowchart LR; A-->B-->C")
-        d2 = mermaidx.render("flowchart LR; A-->B-->C", backend="v8")
+        d2 = mermaidx.render("flowchart LR; A-->B-->C", engine="v8")
+        d3 = mermaidx.render("flowchart LR; A-->B-->C", backend="js:pele")
 
         d.svg()                          # str -- computed on first call
         d.svg() is d.svg()               # True -- cached, not recomputed
@@ -554,7 +576,8 @@ class Diagram(DiagramBase):
     def __init__(
         self,
         source: str,
-        backend: str = "quickjs",
+        backend: str = "js:mermaid",
+        engine: Optional[str] = None,
         *,
         theme: Optional[str] = None,
         config: Optional[dict] = None,
@@ -562,26 +585,37 @@ class Diagram(DiagramBase):
         raster: str = "novasvg",
         **_ignored,
     ) -> None:
-        if backend not in ("quickjs", "v8"):
-            raise ValueError(f"Unknown backend {backend!r} for Diagram; expected 'quickjs' or 'v8'.")
+        kind, library = parse_backend(backend)
+        if kind != "js" or library not in LIBRARIES:
+            raise ValueError(f"Unknown backend {backend!r} for Diagram; expected one of {JS_BACKENDS}.")
+        if library == "pele" and theme not in (None, "default"):
+            raise ValueError(
+                f"js:pele has no mermaid themes (got theme={theme!r}); restyle it with css, "
+                "e.g. css='svg{--pele-bg:#111;--pele-fg:#eee}'."
+            )
+        engine = resolve_engine(kind, engine)
         super().__init__(source, raster=raster, theme=theme, config=config, css=css)
-        self.backend = backend
+        self.backend = f"js:{library}"
+        self.engine = engine
+        self._library = library
         self._raster = raster
         self._theme = theme
         self._config = config
         self._css = css
 
     def _svg(self) -> str:
-        engine = _get_engine_by_name(self.backend)  # raises ImportError first if backend="v8" but unavailable
+        engine = _get_engine(self.engine, self._library)  # raises ImportError first if engine="v8" but unavailable
+        pele = self._library == "pele"
         try:
-            return engine.render_svg(self._source, self._theme or "default", self._config, self._css)
+            svg = engine.render_svg(self._source, self._theme or "default", self._config, None if pele else self._css)
         except MermaidRenderError as e:
-            raise RuntimeError(f"Mermaid rendering failed: {e}") from e
+            raise RuntimeError(f"{'Pele' if pele else 'Mermaid'} rendering failed: {e}") from e
+        return _inject_style(svg, self._css) if pele and self._css else svg
 
 
 class DiagramRust(DiagramBase):
-    """Any backend provided by the optional `mmdr` package (e.g. 'merman',
-    'mermaid-rs-renderer' -- see mermaidx.backends()). Only _svg() is delegated
+    """Any backend provided by the optional `mmdr` package (e.g. 'rust:merman',
+    'rust:mermaid-rs-renderer' -- see mermaidx.backends()). Only _svg() is delegated
     to mmdr; png/raw/numpy/pdf all go through *our* novasvg + PDF writer
     instead of mmdr's own, which means outputs mmdr doesn't natively
     support (its own Diagram.pdf() currently raises NotImplementedError)
@@ -591,44 +625,58 @@ class DiagramRust(DiagramBase):
     """
 
     def __init__(self, source: str, backend: str, **opts) -> None:
+        kind, name = parse_backend(backend)
+        if kind != "rust":
+            raise ValueError(f"Unknown backend {backend!r} for DiagramRust; expected 'rust:<name>'.")
         super().__init__(source, **opts)
         self.backend = backend
+        self._mmdr_name = name  # mmdr's own name for it, without the 'rust:' prefix
 
     def _svg(self) -> str:
         import mmdr
-        return mmdr.render(self._source, backend=self.backend, **self._opts).svg()
+        return mmdr.render(self._source, backend=self._mmdr_name, **self._opts).svg()
 
 
-def render(source: str, backend: Optional[str] = None, **opts) -> "DiagramBase":
+def render(source: str, backend: Optional[str] = None, engine: Optional[str] = None, **opts) -> "DiagramBase":
     """
     Render a Mermaid diagram.
 
     Args:
         source:  Mermaid source text.
-        backend: ``'quickjs'`` (default -- mermaidx's one hard dependency,
-                 always available) or ``'v8'`` (faster, optional -- raises
-                 ``ImportError`` with an install hint if the ``mini-racer``
-                 package isn't present; can't render ``mindmap`` diagrams,
-                 see ``Diagram``'s docstring). If the optional ``mmdr``
-                 package is installed, also ``'merman'`` /
-                 ``'mermaid-rs-renderer'``.
+        backend: What renders it, as ``'<kind>:<name>'``: ``'js:mermaid'``
+                 (default -- mermaid.js, always available), ``'js:pele'``
+                 (pele), or -- if the optional ``mmdr`` package is installed
+                 -- ``'rust:merman'`` / ``'rust:mermaid-rs-renderer'``. See
+                 mermaidx.backends().
+        engine:  The JS engine for a ``'js:'`` backend: ``'quickjs'``
+                 (what ``None``, the default, means -- mermaidx's one hard
+                 dependency, always available) or ``'v8'`` (faster, optional
+                 -- raises ``ImportError`` with an install hint if the
+                 ``mini-racer`` package isn't present). A ``'rust:'``
+                 backend has no JS engine, so passing one is an error.
         **opts:  Forwarded to the chosen backend.
-                 'quickjs' / 'v8': theme, config, css
+                 'js:mermaid': theme, config, css
+                 'js:pele': config, css (no theme -- see ``Diagram``)
                  mmdr backends: theme, node_spacing, rank_spacing, aspect_ratio
                  all backends: raster='novasvg' -- the only (and default)
                  SVG->PNG rasterizer png()/raw()/numpy()/pdf() use. See
                  mermaidx.raster for why resvg was retired in its favor.
 
     Returns:
-        A DiagramBase subclass instance (Diagram for 'quickjs'/'v8',
+        A DiagramBase subclass instance (Diagram for 'js:' backends,
         DiagramRust for anything from mmdr). Every method
         (svg/png/raw/numpy/pdf/ascii) is lazy and cached, regardless of
         backend.
-    """
-    if backend in (None, "quickjs", "v8"):
-        return Diagram(source, backend=backend or "quickjs", **opts)
 
-    from .backends import backends
+    Raises:
+        ValueError: for a backend that is not ``'<kind>:<name>'`` -- the
+            bare names of earlier versions (``'quickjs'``, ``'v8'``,
+            ``'merman'``) were removed in 0.11; the message says what to use.
+    """
+    kind, name = parse_backend(backend)
+    engine = resolve_engine(kind, engine)
+    if kind == "js":
+        return Diagram(source, backend=f"js:{name}", engine=engine, **opts)
 
     try:
         import mmdr
@@ -638,6 +686,6 @@ def render(source: str, backend: Optional[str] = None, **opts) -> "DiagramBase":
             "Install it with:\n    pip install mermaidx[rust]"
         ) from exc
 
-    if backend not in mmdr.backends():
-        raise ValueError(f"Unknown backend {backend!r}. Available: {backends()!r}")
-    return DiagramRust(source, backend, **opts)
+    if name not in mmdr.backends():
+        raise ValueError(f"Unknown backend {backend!r}. Available: {_backends()!r}")
+    return DiagramRust(source, f"rust:{name}", **opts)

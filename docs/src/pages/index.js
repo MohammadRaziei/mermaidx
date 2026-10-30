@@ -42,11 +42,12 @@ export default function Home() {
           </p>
         </section>
         <section>
-          <h2>Four backends, one API</h2>
+          <h2>Several backends, one API</h2>
           <p>
-            <code>quickjs</code> is the default and has no dependencies. <code>v8</code> is faster for large batches.{' '}
-            <code>merman</code> and <code>mermaid-rs-renderer</code> are native Rust renderers. Switching is one
-            argument: <code>mermaidx.render(source, backend="v8")</code>. The{' '}
+            <code>js:mermaid</code> is the default and runs on <code>quickjs</code>, which has no dependencies; pass{' '}
+            <code>engine="v8"</code> for speed on large batches. <code>js:pele</code> is a small JavaScript
+            renderer, and <code>rust:merman</code> and <code>rust:mermaid-rs-renderer</code> are native Rust
+            renderers. Switching is one argument: <code>mermaidx.render(source, backend="js:pele")</code>. The{' '}
             <Link to="/docs/backends">backends page</Link> says when to choose each.
           </p>
         </section>

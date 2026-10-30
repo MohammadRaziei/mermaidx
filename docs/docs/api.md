@@ -10,15 +10,16 @@ import mermaidx
 
 ## Functions
 
-### `render(source, backend=None, **opts)`
+### `render(source, backend=None, engine=None, **opts)`
 
 Render a Mermaid diagram and return a `Diagram`.
 
 - `source`: the Mermaid text.
-- `backend`: `"quickjs"` (default), `"v8"`, `"merman"` or `"mermaid-rs-renderer"`. A backend whose package is missing raises `ImportError` with an install hint.
-- `theme`: `"default"`, `"forest"`, `"dark"` or `"neutral"`.
-- `config`: a dict of Mermaid configuration (`quickjs` and `v8`).
-- `css`: CSS text to inject (`quickjs` and `v8`).
+- `backend`: what renders the diagram, named `<kind>:<name>`: `"js:mermaid"` (default), `"js:pele"`, `"rust:merman"` or `"rust:mermaid-rs-renderer"`. A backend whose package is missing raises `ImportError` with an install hint. A bare name such as `"quickjs"` raises `ValueError` that says which name replaces it.
+- `engine`: the JS engine of a `js:` backend, `"quickjs"` or `"v8"`. `None` (the default) means `"quickjs"`. A `rust:` backend has no JS engine and raises `ValueError` if you pass one.
+- `theme`: `"default"`, `"forest"`, `"dark"` or `"neutral"`. `js:pele` has no themes: leave it unset, or `ValueError`.
+- `config`: a dict of configuration (the `js:` backends).
+- `css`: CSS text to inject (the `js:` backends). For `js:pele` it is added as a `<style>`, and is how you theme it, for example `svg{--pele-bg:#111}`.
 - `node_spacing`, `rank_spacing`, `aspect_ratio`: layout options of the Rust backends.
 - `raster`: the SVG rasterizer. Only `"novasvg"` is supported. `"resvg"` raises a `ValueError`.
 
@@ -32,7 +33,11 @@ Return the diagram as text with box-drawing characters, for terminals. It is alw
 
 ### `backends()`
 
-Return the names of the backends that can be used in this environment.
+Return the names of the backends that can be used in this environment, as `<kind>:<name>`.
+
+### `available_engines()`
+
+Return the JS engines that can be used: `["quickjs"]`, plus `"v8"` when `mini-racer` is installed.
 
 ### `svg_to_png`, `svg_to_jpg`, `svg_to_image`, `svg_to_raw`
 

@@ -5,6 +5,50 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 follows [Semantic Versioning](https://semver.org/) (while below 1.0, a minor bump may carry breaking changes).
 
+## [0.11.0] - 2026-10-30
+
+Two breaking changes to how a renderer is chosen, and a new renderer, pele.
+
+### Changed (breaking)
+
+- **Backends are named `<kind>:<name>`.** `backend="quickjs"` and `backend="v8"` are now
+  `backend="js:mermaid"` (the default); `backend="merman"` and `backend="mermaid-rs-renderer"` are now
+  `backend="rust:merman"` and `backend="rust:mermaid-rs-renderer"`. `mermaidx.backends()` returns the new
+  names. A bare name raises `ValueError` that says which name replaces it; it is not silently accepted.
+- **`quickjs` and `v8` are now values of a separate `engine` parameter** of `render()` and `Diagram`:
+  `engine="quickjs"` or `engine="v8"`. It is `None` unless you set it. For a `js:` backend `None` means
+  `"quickjs"`; a `rust:` backend has no JS engine and raises `ValueError` if you pass one. The CLI gets a
+  matching `--engine` option. `render_many()` forwards both.
+- `ImportError` for a missing `mini-racer` now names the right extra, `mermaidx[v8engine]`
+  (it said `mermaidx[v8]`, which does not exist), and is raised for `engine="v8"`.
+- The minimum `novasvg` is now 0.11.4 (see below).
+
+### Added
+
+- **`backend="js:pele"`**: [pele](https://pele.run) 1.12.0, a small synchronous Mermaid renderer written in
+  JavaScript, bundled as `mermaidx/assets/pele.js` and runnable on either engine. It has its own layout, so
+  its output differs from mermaid.js (all 43 diagrams in `tests/samples` render). It is themed with CSS variables instead of Mermaid
+  themes: `theme` must be unset (or `"default"`), `config` is passed to pele, and `css` is added to the SVG
+  as a `<style>` (for example `css="svg{--pele-bg:#111;--pele-fg:#eee}"`).
+- `mermaidx.available_engines()`, the counterpart of `backends()` for `engine=`.
+- The CLI reports a bad `--backend`, `--engine` or `--theme` combination as a usage error (exit code 2)
+  instead of a traceback, and `--list-backends` also lists the engines.
+
+### Migrating
+
+| 0.10 | 0.11 |
+| --- | --- |
+| `render(src)` / `backend="quickjs"` | `render(src)` / `backend="js:mermaid"` |
+| `backend="v8"` | `engine="v8"` |
+| `backend="merman"` | `backend="rust:merman"` |
+| `backend="mermaid-rs-renderer"` | `backend="rust:mermaid-rs-renderer"` |
+| `mermaidx --backend v8` | `mermaidx --engine v8` |
+
+### Fixed
+
+- pele paints with nested CSS variables (`var(--pele-bg, #fff)`), which novasvg before 0.11.4 does not
+  resolve, so every shape came out solid black. 0.11.4 does.
+
 ## [0.10.1] - 2026-10-21
 
 A patch release for a regression in 0.10.0: on the default `quickjs` backend, a diagram whose text held a

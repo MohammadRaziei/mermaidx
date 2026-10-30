@@ -16,8 +16,9 @@ The output format comes from the extension of `-o`: `.svg`, `.png`, `.jpg`, `.jp
 | --- | --- |
 | `-i`, `--input FILE` | Mermaid source file, or `-` for standard input |
 | `-o`, `--output FILE` | Output file. Omit it to write SVG to standard output |
-| `--backend NAME` | Rendering backend, `quickjs` by default |
-| `--list-backends` | List the available backends and exit |
+| `--backend KIND:NAME` | Rendering backend, such as `js:mermaid` (the default), `js:pele` or `rust:merman` |
+| `--engine NAME` | JS engine of a `js:` backend, `quickjs` (the default) or `v8` |
+| `--list-backends` | List the available backends and engines, and exit |
 | `-w`, `--width N` | Output width in pixels (PNG, and PDF when fitting) |
 | `-H`, `--height N` | Output height in pixels |
 | `--scale N` | Size multiplier, used when `-w` and `-H` are omitted |
@@ -41,5 +42,6 @@ JPEG has no transparency, so the background is white unless you pass `-b`.
 mermaidx -i flow.mmd -o flow.png --scale 2 -b white
 mermaidx -i flow.mmd -o flow.pdf --pdf-format A4 --margin 1cm
 mermaidx -i flow.mmd -o flow.jpg --quality 80
-mermaidx -i flow.mmd --backend v8 -o flow.svg
+mermaidx -i flow.mmd --engine v8 -o flow.svg
+mermaidx -i flow.mmd --backend js:pele -o flow.png
 ```

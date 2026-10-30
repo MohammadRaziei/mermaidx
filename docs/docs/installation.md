@@ -16,8 +16,8 @@ SVG, PNG, JPEG, PDF and ASCII output all work with the base install. Python 3.9 
 
 | Command | Adds |
 | --- | --- |
-| `pip install mermaidx[v8engine]` | The V8 engine (`mini-racer`) as `backend="v8"` |
-| `pip install mermaidx[rust]` | The Rust backends `merman` and `mermaid-rs-renderer`, through [`mmdr`](https://github.com/mohammadraziei/mmdr) |
+| `pip install mermaidx[v8engine]` | The V8 engine (`mini-racer`) as `engine="v8"` |
+| `pip install mermaidx[rust]` | The Rust backends `rust:merman` and `rust:mermaid-rs-renderer`, through [`mmdr`](https://github.com/mohammadraziei/mmdr) |
 | `pip install numpy` | `Diagram.numpy()` |
 | `pip install mermaidx[all]` | `v8engine`, `rust` and `numpy` together |
 
@@ -27,9 +27,12 @@ Check what is available at runtime:
 import mermaidx
 
 print(mermaidx.backends())
-# ['quickjs']                                      base install
-# ['quickjs', 'v8']                                with mermaidx[v8engine]
-# ['quickjs', 'merman', 'mermaid-rs-renderer']     with mermaidx[rust]
+# ['js:mermaid', 'js:pele']                                                  base install
+# ['js:mermaid', 'js:pele', 'rust:merman', 'rust:mermaid-rs-renderer']       with mermaidx[rust]
+
+print(mermaidx.available_engines())
+# ['quickjs']                                                                base install
+# ['quickjs', 'v8']                                                          with mermaidx[v8engine]
 ```
 
 ## Coming from `mmdc`

@@ -44,7 +44,7 @@ def render_many(
     Args:
         sources: List of Mermaid source strings.
         workers: Number of worker processes (default: min(len(sources), cpu_count())).
-        **opts:  Options forwarded to Diagram() for every source (theme, config, css).
+        **opts:  Options forwarded to Diagram() for every source (backend, engine, theme, config, css).
 
     Returns:
         A list of Diagram objects, one per source, in the same order.

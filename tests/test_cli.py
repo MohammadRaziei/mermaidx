@@ -319,13 +319,29 @@ def test_list_backends():
     r = run("--list-backends")
     assert r.returncode == 0
     lines = r.stdout.strip().splitlines()
-    assert any(line.startswith("quickjs") for line in lines)
-    assert any("(default)" in line for line in lines)
+    assert "js:mermaid (default)" in lines
+    assert "js:pele" in lines
+    assert "  quickjs (default)" in lines
 
 
-def test_backend_quickjs_explicit(tmp_path):
+def test_backend_js_mermaid_explicit(tmp_path):
     out = tmp_path / "out.svg"
-    r = run("-i", str(BASIC_MERMAID), "-o", str(out), "--backend", "quickjs")
+    r = run("-i", str(BASIC_MERMAID), "-o", str(out), "--backend", "js:mermaid", "--engine", "quickjs")
     assert r.returncode == 0
     assert out.read_bytes().lstrip().startswith(b"<svg")
+
+
+def test_backend_js_pele(tmp_path):
+    out = tmp_path / "out.png"
+    r = run("-i", str(BASIC_MERMAID), "-o", str(out), "--backend", "js:pele")
+    assert r.returncode == 0
+    assert out.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+@pytest.mark.parametrize("args", [("--backend", "quickjs"), ("--backend", "js:pele", "--theme", "dark"),
+                                  ("--engine", "spidermonkey")])
+def test_bad_backend_engine_theme_is_a_usage_error_not_a_traceback(args):
+    r = run("-i", str(BASIC_MERMAID), *args)
+    assert r.returncode == 2
+    assert "Traceback" not in r.stderr
     

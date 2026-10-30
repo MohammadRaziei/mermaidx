@@ -80,11 +80,29 @@ class BackendUnavailable(RuntimeError):
     """The backend is installed but cannot render on this machine."""
 
 
-def run_mermaidx_backend(backend, samples, out_dir, repeats, log):
+def mermaidx_renderers():
+    """The mermaidx renderers that can run here, as {name: render() keywords}.
+
+    The names are the ones the docs site knows (the ids `mermaidx-quickjs`, `mermaidx-v8`, ...), so they stay as
+    they were before backends became `<kind>:<name>` with a separate `engine`. js:pele is not benchmarked: the
+    site has no colour for it yet."""
+    import mermaidx
+
+    renderers = {"quickjs": {"backend": "js:mermaid", "engine": "quickjs"}}
+    if "v8" in mermaidx.available_engines():
+        renderers["v8"] = {"backend": "js:mermaid", "engine": "v8"}
+    for backend in mermaidx.backends():
+        kind, _, name = backend.partition(":")
+        if kind == "rust":
+            renderers[name] = {"backend": backend}
+    return renderers
+
+
+def run_mermaidx_backend(backend, render_kwargs, samples, out_dir, repeats, log):
     import mermaidx
 
     def render_png(source):
-        return mermaidx.render(source, backend=backend).png(background=BACKGROUND)
+        return mermaidx.render(source, **render_kwargs).png(background=BACKGROUND)
 
     try:
         t0 = time.perf_counter()
@@ -189,7 +207,7 @@ def main(argv=None):
     ap.add_argument("--mmdc-repeats", type=int, default=3, help="timed runs per sample for mmdc")
     ap.add_argument("--only", action="append", help="sample name (repeatable)")
     ap.add_argument("--skip-mmdc", action="store_true")
-    ap.add_argument("--backend", action="append", help="mermaidx backend (repeatable; default: all available)")
+    ap.add_argument("--backend", action="append", help="mermaidx renderer: quickjs, v8, merman or mermaid-rs-renderer (repeatable; default: all available)")
     ap.add_argument("--puppeteer-config", type=Path, help="JSON file passed to mmdc -p (e.g. --no-sandbox)")
     args = ap.parse_args(argv)
 
@@ -229,7 +247,7 @@ def main(argv=None):
         except Exception as exc:
             skip("mmdc", "mmdc", short_error(exc))
 
-    available = mermaidx.backends()
+    available = mermaidx_renderers()
     for backend in args.backend or available:
         if backend not in available:
             log(f"mermaidx {backend}")
@@ -238,7 +256,7 @@ def main(argv=None):
         rid = f"mermaidx-{backend}"
         log(rid)
         try:
-            startup, res = run_mermaidx_backend(backend, samples, args.out, args.repeats, log)
+            startup, res = run_mermaidx_backend(backend, available[backend], samples, args.out, args.repeats, log)
         except BackendUnavailable as exc:
             skip(rid, f"mermaidx {backend}", str(exc))
             continue
