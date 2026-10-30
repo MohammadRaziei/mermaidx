@@ -46,6 +46,13 @@ Two breaking changes to how a renderer is chosen, and a new renderer, pele.
 
 ### Fixed
 
+- **`render_many()` did not render in parallel** (#43, reported by @almeidamaxwell). The workers only built
+  the lazy `Diagram` objects and sent them back unrendered, so every SVG was then rendered one after another
+  in the caller's process, at the speed of a plain loop. The workers now render the SVG before returning it,
+  so the parse and layout work is spread over the processes. `.svg()` on the result returns at once; the
+  other formats are still made from that SVG when first asked for. A diagram that fails to render comes
+  back unrendered and raises on `.svg()`, as before. With `workers=1` the SVGs are likewise rendered
+  before `render_many()` returns.
 - pele paints with nested CSS variables (`var(--pele-bg, #fff)`), which novasvg before 0.11.4 does not
   resolve, so every shape came out solid black. 0.11.4 does.
 
