@@ -3,6 +3,8 @@ export const COLOR_VARS = {
   mmdc: '--mx-mmdc',
   'mermaidx-quickjs': '--mx-quickjs',
   'mermaidx-v8': '--mx-v8',
+  'mermaidx-pele-quickjs': '--mx-pele-quickjs',
+  'mermaidx-pele-v8': '--mx-pele-v8',
   'mermaidx-merman': '--mx-merman',
   'mermaidx-mermaid-rs-renderer': '--mx-rust',
 };

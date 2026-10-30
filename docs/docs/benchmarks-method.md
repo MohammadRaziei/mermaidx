@@ -13,6 +13,8 @@ The [benchmark gallery](/benchmarks) renders the same 43 Mermaid files with five
 | `mmdc` | The official [mermaid-cli](https://github.com/mermaid-js/mermaid-cli), started once per diagram. It drives headless Chrome |
 | `mermaidx quickjs` | `mermaidx.render(source, engine="quickjs")`, in one Python process |
 | `mermaidx v8` | The same with `engine="v8"` |
+| `mermaidx pele-quickjs` | `mermaidx.render(source, backend="js:pele", engine="quickjs")` |
+| `mermaidx pele-v8` | The same with `engine="v8"` |
 | `mermaidx merman` | The same with `backend="rust:merman"` |
 | `mermaidx mermaid-rs-renderer` | The same with `backend="rust:mermaid-rs-renderer"` |
 

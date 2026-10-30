@@ -83,14 +83,17 @@ class BackendUnavailable(RuntimeError):
 def mermaidx_renderers():
     """The mermaidx renderers that can run here, as {name: render() keywords}.
 
-    The names are the ones the docs site knows (the ids `mermaidx-quickjs`, `mermaidx-v8`, ...), so they stay as
-    they were before backends became `<kind>:<name>` with a separate `engine`. js:pele is not benchmarked: the
-    site has no colour for it yet."""
+    The names are the ones the docs site knows (the ids `mermaidx-quickjs`, `mermaidx-v8`, ...), so the js:mermaid
+    ones stay as they were before backends became `<kind>:<name>` with a separate `engine`. js:pele gets the same
+    two, as `pele-quickjs` and `pele-v8`."""
     import mermaidx
 
-    renderers = {"quickjs": {"backend": "js:mermaid", "engine": "quickjs"}}
-    if "v8" in mermaidx.available_engines():
-        renderers["v8"] = {"backend": "js:mermaid", "engine": "v8"}
+    engines = mermaidx.available_engines()
+    renderers = {}
+    for engine in engines:
+        renderers[engine] = {"backend": "js:mermaid", "engine": engine}
+    for engine in engines:
+        renderers[f"pele-{engine}"] = {"backend": "js:pele", "engine": engine}
     for backend in mermaidx.backends():
         kind, _, name = backend.partition(":")
         if kind == "rust":
@@ -207,7 +210,8 @@ def main(argv=None):
     ap.add_argument("--mmdc-repeats", type=int, default=3, help="timed runs per sample for mmdc")
     ap.add_argument("--only", action="append", help="sample name (repeatable)")
     ap.add_argument("--skip-mmdc", action="store_true")
-    ap.add_argument("--backend", action="append", help="mermaidx renderer: quickjs, v8, merman or mermaid-rs-renderer (repeatable; default: all available)")
+    ap.add_argument("--backend", action="append", help="mermaidx renderer: quickjs, v8, pele-quickjs, pele-v8, merman or mermaid-rs-renderer "
+                                      "(repeatable; default: all available)")
     ap.add_argument("--puppeteer-config", type=Path, help="JSON file passed to mmdc -p (e.g. --no-sandbox)")
     args = ap.parse_args(argv)
 
