@@ -80,6 +80,15 @@ class BackendUnavailable(RuntimeError):
     """The backend is installed but cannot render on this machine."""
 
 
+def renderer_label(name):
+    """What the page shows for a mermaidx renderer: `<backend> | <engine>` for js backends, the backend for rust."""
+    if name in ("quickjs", "v8"):
+        return f"js:mermaid | {name}"
+    if name.startswith("pele-"):
+        return f"js:pele | {name[len('pele-'):]}"
+    return f"rust:{name}"
+
+
 def mermaidx_renderers():
     """The mermaidx renderers that can run here, as {name: render() keywords}.
 
@@ -245,26 +254,26 @@ def main(argv=None):
         log("mmdc")
         try:
             startup, res = run_mmdc(samples, args.out, args.mmdc_repeats, args.puppeteer_config, log)
-            renderers.append({"id": "mmdc", "label": "mmdc", "kind": "browser", "startup_ms": round(startup, 1),
+            renderers.append({"id": "mmdc", "label": "@mermaid-js/mermaid-cli", "kind": "browser", "startup_ms": round(startup, 1),
                               "version": command_output(["mmdc", "--version"])})
             per_renderer["mmdc"] = res
         except Exception as exc:
-            skip("mmdc", "mmdc", short_error(exc))
+            skip("mmdc", "@mermaid-js/mermaid-cli", short_error(exc))
 
     available = mermaidx_renderers()
     for backend in args.backend or available:
         if backend not in available:
             log(f"mermaidx {backend}")
-            skip(f"mermaidx-{backend}", f"mermaidx {backend}", "backend not available in this environment")
+            skip(f"mermaidx-{backend}", renderer_label(backend), "backend not available in this environment")
             continue
         rid = f"mermaidx-{backend}"
         log(rid)
         try:
             startup, res = run_mermaidx_backend(backend, available[backend], samples, args.out, args.repeats, log)
         except BackendUnavailable as exc:
-            skip(rid, f"mermaidx {backend}", str(exc))
+            skip(rid, renderer_label(backend), str(exc))
             continue
-        renderers.append({"id": rid, "label": f"mermaidx {backend}", "kind": "library",
+        renderers.append({"id": rid, "label": renderer_label(backend), "kind": "library",
                           "startup_ms": round(startup, 1), "version": mermaidx.__version__})
         per_renderer[rid] = res
 

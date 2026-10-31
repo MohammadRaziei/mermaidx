@@ -28,9 +28,9 @@ export function fmtTick(v) {
   return v >= 1000 ? `${+(v / 1000).toFixed(1)} s` : `${+v.toFixed(1)} ms`;
 }
 
-// Two-line axis label: "mermaidx" over the backend name, or just "mmdc".
+// Axis label: the renderer's own label ("@mermaid-js/mermaid-cli", "js:mermaid | quickjs", "rust:merman").
 export function chartLabel(r) {
-  return r.id.startsWith('mermaidx-') ? ['mermaidx', r.id.slice('mermaidx-'.length)] : r.label;
+  return r.label;
 }
 
 // "23× faster", "1.4× slower" or "about the same", for a ratio of reference time / own time.

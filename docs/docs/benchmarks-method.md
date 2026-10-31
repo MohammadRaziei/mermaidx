@@ -10,13 +10,13 @@ The [benchmark gallery](/benchmarks) renders the same 43 Mermaid files with five
 
 | Renderer | How it is run |
 | --- | --- |
-| `mmdc` | The official [mermaid-cli](https://github.com/mermaid-js/mermaid-cli), started once per diagram. It drives headless Chrome |
-| `mermaidx quickjs` | `mermaidx.render(source, engine="quickjs")`, in one Python process |
-| `mermaidx v8` | The same with `engine="v8"` |
-| `mermaidx pele-quickjs` | `mermaidx.render(source, backend="js:pele", engine="quickjs")` |
-| `mermaidx pele-v8` | The same with `engine="v8"` |
-| `mermaidx merman` | The same with `backend="rust:merman"` |
-| `mermaidx mermaid-rs-renderer` | The same with `backend="rust:mermaid-rs-renderer"` |
+| `@mermaid-js/mermaid-cli` | The official [mermaid-cli](https://github.com/mermaid-js/mermaid-cli), started once per diagram. It drives headless Chrome |
+| `js:mermaid \| quickjs` | `mermaidx.render(source, engine="quickjs")`, in one Python process |
+| `js:mermaid \| v8` | The same with `engine="v8"` |
+| `js:pele \| quickjs` | `mermaidx.render(source, backend="js:pele", engine="quickjs")` |
+| `js:pele \| v8` | The same with `engine="v8"` |
+| `rust:merman` | The same with `backend="rust:merman"` |
+| `rust:mermaid-rs-renderer` | The same with `backend="rust:mermaid-rs-renderer"` |
 
 ## What is timed
 
