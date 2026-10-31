@@ -22,7 +22,7 @@ flowchart LR
     end
     subgraph qjs["QuickJS-ng context (one dedicated thread)"]
         SHIM["dom_shim.js\nfake DOM / CSSOM / Canvas2D"]
-        MMD["mermaid.js v11\n(unmodified, ~6MB)"]
+        MMD["mermaid.js v12\n(unmodified, ~5.5MB)"]
         SHIM -.->|"mermaid.js runs\nagainst the shim"| MMD
     end
     ENG <-->|"eval() / add_callable()"| qjs
@@ -204,6 +204,10 @@ None of these are exotic: they're all direct consequences of the same principle 
 
 ---
 
+### Speed: what the style cascade costs
+
+Finding the font of a text means walking up its ancestors and matching every rule of the diagram's `<style>` against each one, and a group's `getBBox()` does that for every text below it. Mermaid 12 writes a much larger stylesheet than 11 did, and the c4 sample took 157 s before this was cached. Three things keep it fast, none of which change a result: a selector's parse is kept (`__chainsOf`, `__parseCompound`), the stylesheet is read once per font lookup, and the CSS and font each element resolved to are remembered only while one `getBBox` / `getComputedTextLength` call runs (`__withCssMemo`), so a later call after the document changed starts from scratch. The same sample now renders in about 7 s.
+
 ## 5. Known gap: text sanitization (`sanitizeText`/DOMPurify) is a no-op
 
 mermaid.js runs essentially all label text through an internal `sanitizeText()` helper before it ever reaches layout or drawing. That helper is a thin wrapper around a bundled copy of **DOMPurify** (the real, unmodified npm package — same one used to strip unsafe HTML/XSS out of user-supplied labels in a real browser).
@@ -292,7 +296,7 @@ flowchart TD
 |---|---|
 | `mermaidx/engine.py` | Owns the QuickJS context (one per process, one dedicated thread). Wires up the Python↔JS callback bridge (`__measureText`, `__measureTextFull`, `__pathBBox`). Implements `_path_bbox`/`_arc_extrema` (real SVG path geometry). Drives the job-pump loop. Applies the small set of documented post-render CSS patches. |
 | `mermaidx/assets/dom_shim.js` | The fake DOM/CSSOM/Canvas2D. `Node`/`Element`/`Document`/`TextNode`/`CSSStyleDecl`/`ClassList`. The `getBBox()` dispatch (§4). The CSS selector engine (`__matches`/`__matchesCompound`). The Canvas 2D stub. Timer/event polyfills. |
-| `mermaidx/assets/mermaid.js` | mermaid.js v11, unmodified, bundled via esbuild. Never patched directly — every gap is compensated for in the shim or engine.py instead, so upgrading this file doesn't mean re-auditing hand-edits. |
+| `mermaidx/assets/mermaid.js` | mermaid.js v12 (12.2.0, `dist/mermaid.min.js`), unmodified, bundled via esbuild. Never patched directly — every gap is compensated for in the shim or engine.py instead, so upgrading this file doesn't mean re-auditing hand-edits. |
 | `mermaidx/font_metrics.py` | Thin wrapper over `novasvg.fonts` (vendored stb_truetype): real glyph advances, kerning, and `<foreignObject>` label sizes for the bundled DejaVu Sans. The *only* source of text-measurement truth, shared by the shim's `getBBox()`/`getBoundingClientRect()` and — since it's the same engine — novasvg's final paint. For V8 (no synchronous callbacks) it also exports the advance table and a sparse ASCII kerning table for a JS-side mirror. |
 | `mermaidx/raster.py` | SVG → PNG via novasvg, using that same font file. |
 | `mermaidx/pdf_writer.py` | PNG → PDF, hand-written (not novasvg). |

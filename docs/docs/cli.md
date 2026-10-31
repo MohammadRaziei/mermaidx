@@ -22,7 +22,7 @@ The output format comes from the extension of `-o`: `.svg`, `.png`, `.jpg`, `.jp
 | `-w`, `--width N` | Output width in pixels (PNG, and PDF when fitting) |
 | `-H`, `--height N` | Output height in pixels |
 | `--scale N` | Size multiplier, used when `-w` and `-H` are omitted |
-| `-t`, `--theme NAME` | `default`, `forest`, `dark` or `neutral` |
+| `-t`, `--theme NAME` | A Mermaid theme: `default`, `base`, `dark`, `forest`, `neutral`, `neo`, `neo-dark`, `redux`, `redux-dark`, `redux-color`, `redux-dark-color` or `null`. Omit it to let Mermaid pick a theme for each diagram type, like `mmdc` |
 | `-b`, `--background COLOR` | CSS background color, transparent by default |
 | `-c`, `--config FILE` | Mermaid JSON config (`quickjs` and `v8` only) |
 | `--css FILE` | CSS file to inject into the diagram (`quickjs` and `v8` only) |

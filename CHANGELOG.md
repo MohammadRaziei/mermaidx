@@ -5,9 +5,9 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 follows [Semantic Versioning](https://semver.org/) (while below 1.0, a minor bump may carry breaking changes).
 
-## [0.11.0] - 2026-10-30
+## [0.11.0] - 2026-11-01
 
-Two breaking changes to how a renderer is chosen, and a new renderer, pele.
+Two breaking changes to how a renderer is chosen, a new renderer (pele), and Mermaid 12.
 
 ### Changed (breaking)
 
@@ -22,10 +22,14 @@ Two breaking changes to how a renderer is chosen, and a new renderer, pele.
 - `ImportError` for a missing `mini-racer` now names the right extra, `mermaidx[v8engine]`
   (it said `mermaidx[v8]`, which does not exist), and is raised for `engine="v8"`.
 - The minimum `novasvg` is now 0.11.4 (see below).
-- The bundled mermaid.js is **v11.16.1** (it was v11.16.0), the newest release the DOM shim runs without
-  changes. v11.17.0 and later (and v12) break `24_c4_context`, `25_requirement` and `38_class_advanced` with
-  a `TypeError` in the shim, and v12 also draws other shapes and edges, so the reference SVGs in
-  `tests/samples` would have to be rendered again with mermaid-cli 12.
+- **The bundled mermaid.js is now v12.2.0** (the minified `dist/mermaid.min.js`; it was v11.16.0), the version
+  `mmdc` 12 (mermaid-cli 12.0.0) uses. Mermaid 12 draws some diagrams differently from 11 (new `neo` look,
+  other shapes and edge routing), so diagrams can look different after upgrading.
+- **No theme is sent unless you ask for one.** `theme=None` (the default, also `--theme` on the command line) now
+  leaves the choice to Mermaid, exactly as `mmdc` does, and Mermaid 12 gives each diagram type its own theme and
+  look. Before, `theme="default"` was always sent. Pass `theme="default"` to get the uniform look of the old
+  default. The CLI `--theme` now accepts every Mermaid 12 theme (`neo`, `neo-dark`, `redux`, `redux-dark`,
+  `redux-color`, `redux-dark-color`, `base`, `null` as well).
 
 ### Added
 
@@ -37,6 +41,37 @@ Two breaking changes to how a renderer is chosen, and a new renderer, pele.
 - `mermaidx.available_engines()`, the counterpart of `backends()` for `engine=`.
 - The CLI reports a bad `--backend`, `--engine` or `--theme` combination as a usage error (exit code 2)
   instead of a traceback, and `--list-backends` also lists the engines.
+
+### Fixed
+
+- **Rendering a c4 diagram took minutes** (157 s for `24_c4_context`, a few seconds for other diagrams) because
+  the DOM shim parsed every CSS selector again on each match and rebuilt the whole stylesheet text for each font
+  lookup. Selector parses are cached, the stylesheet is read once per lookup, and what each element resolved to is
+  remembered for the length of one `getBBox` / `getComputedTextLength` call. The c4 sample now takes about 7 s;
+  of the others, `37_erd_relations` went from 4.2 s to 2.6 s and `38_class_advanced` from 4.2 s to 3.2 s, and a
+  simple flowchart is unchanged (about 1.4 s). The output of the other 42 samples is byte-for-byte what it was
+  (apart from random ids), and the c4 sample differs from `mmdc` in the same 44 places as before.
+- The DOM shim now provides what Mermaid 12 asks of a browser: `CSSStyleSheet` rules with a live `style` object
+  (`setProperty`, `length`), `SVGElement.ownerSVGElement`, `SVGGeometryElement.getTotalLength()` (it sizes the dashes
+  of an edge; it was missing, so they came out as `0 0 -4 4`) and `nodeType` as a prototype accessor, which
+  DOMPurify needs to recognise a node. Without the last one DOMPurify dropped a whole diagram whose label contained
+  `<<...>>`, as the requirement diagram does.
+- The SVG path walker behind `getBBox()` now also reads a `Z` at the very end of a path (it was only read when
+  another character followed). The box does not change, but the new path length needs the closing segment.
+
+### Tests, CI and docs
+
+- The 43 reference SVGs in `tests/samples` are rendered again with mermaid-cli 12.0.0 (recipe in
+  `tests/samples/README.md`). The structural test allows one pixel on numbers. `24_c4_context`,
+  `37_erd_relations` and `38_class_advanced` are recorded as strict expected failures on both engines: Chrome
+  rounds a fractional font size before measuring, which can move a wrap or a size threshold (see Known issues).
+- The label-centre check in `tests/test_samples.py` skips `24_c4_context`, whose label group is placed by its
+  top-left corner in Mermaid 12 (`mmdc` does the same).
+- pytest runs with `pytest-timeout` (120 s, `thread` method, which also works while a JS engine is running native
+  code) and prints the 25 slowest tests (`--durations`). It is part of the `test` extra.
+- The benchmark names its renderers `@mermaid-js/mermaid-cli`, `js:mermaid | quickjs`, `js:pele | v8`,
+  `rust:merman` and so on.
+- The `Makefile` for the docs and the benchmark moved from the repository root to `docs/`; run `make` from there.
 
 ### Migrating
 

@@ -17,7 +17,7 @@ Render a Mermaid diagram and return a `Diagram`.
 - `source`: the Mermaid text.
 - `backend`: what renders the diagram, named `<kind>:<name>`: `"js:mermaid"` (default), `"js:pele"`, `"rust:merman"` or `"rust:mermaid-rs-renderer"`. A backend whose package is missing raises `ImportError` with an install hint. A bare name such as `"quickjs"` raises `ValueError` that says which name replaces it.
 - `engine`: the JS engine of a `js:` backend, `"quickjs"` or `"v8"`. `None` (the default) means `"quickjs"`. A `rust:` backend has no JS engine and raises `ValueError` if you pass one.
-- `theme`: `"default"`, `"forest"`, `"dark"` or `"neutral"`. `js:pele` has no themes: leave it unset, or `ValueError`.
+- `theme`: a Mermaid theme name: `"default"`, `"base"`, `"dark"`, `"forest"`, `"neutral"`, `"neo"`, `"neo-dark"`, `"redux"`, `"redux-dark"`, `"redux-color"`, `"redux-dark-color"` or `"null"`. `None` (the default) sends no theme, exactly as `mmdc` does, so Mermaid 12 gives each diagram type its own theme and look; pass `"default"` for the older, uniform look. `js:pele` has no themes: leave it unset, or `ValueError`.
 - `config`: a dict of configuration (the `js:` backends).
 - `css`: CSS text to inject (the `js:` backends). For `js:pele` it is added as a `<style>`, and is how you theme it, for example `svg{--pele-bg:#111}`.
 - `node_spacing`, `rank_spacing`, `aspect_ratio`: layout options of the Rust backends.

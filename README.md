@@ -32,12 +32,12 @@ d.save("diagram.svg")
 d.save("diagram.png", scale=2.0)
 ```
 
-`mermaidx` runs the **real Mermaid v11 JavaScript library** inside a small embedded JS engine instead of a headless Chrome. The result is the same SVG you would get from the official `mermaid-cli`, produced without spawning a browser, which makes it a good fit for CI pipelines, notebooks and serverless functions.
+`mermaidx` runs the **real Mermaid 12 JavaScript library** inside a small embedded JS engine instead of a headless Chrome. The result is the same SVG you would get from the official `mermaid-cli`, produced without spawning a browser, which makes it a good fit for CI pipelines, notebooks and serverless functions.
 
 ## Highlights
 
 - **Browserless.** No Chromium (~170 MB), no Puppeteer, no Node.js, no compiler. Prebuilt wheels only.
-- **The real Mermaid.** Not a reimplementation and not a subset: every diagram type Mermaid v11 supports.
+- **The real Mermaid.** Not a reimplementation and not a subset: every diagram type Mermaid 12 supports.
 - **Many outputs.** SVG, PNG, JPG/JPEG, BMP, TGA, PDF, raw RGBA, NumPy arrays and terminal ASCII art.
 - **One process.** Synchronous, in-process rendering, plus `render_many()` for parallel batches.
 - **Jupyter-ready.** A diagram displays itself as the last expression of a cell.
@@ -108,7 +108,7 @@ flowchart TB
 
     subgraph MX ["mermaidx: Mermaid to SVG"]
         direction LR
-        JS["JS engine<br/>QuickJS-ng, or V8 (optional)"] --> MJS["mermaid.js v11<br/>bundled, unmodified"]
+        JS["JS engine<br/>QuickJS-ng, or V8 (optional)"] --> MJS["mermaid.js v12<br/>bundled, unmodified"]
         SHIM["DOM and SVG shims<br/>stand-ins for browser APIs"] -.-> MJS
     end
 
@@ -193,7 +193,7 @@ flowchart TB
     CALL["mermaidx.render(source, backend=..., engine=...)"] --> PICK{"backend"}
 
     subgraph JSB ["Diagram: a js: backend inside a JS engine"]
-        MJ["js:mermaid (default)<br/>real mermaid.js v11 + DOM/SVG shims"]
+        MJ["js:mermaid (default)<br/>real mermaid.js v12 + DOM/SVG shims"]
         PE["js:pele<br/>pele, synchronous, no DOM"]
         ENG["engine=None means quickjs<br/>quickjs: QuickJS-ng, in-process<br/>v8: V8 via mini-racer, child process"]
         MJ --> ENG
@@ -219,7 +219,7 @@ flowchart TB
 
 The API is the same for every backend: `render()` always returns a `Diagram`, and `.svg()`, `.png()`, `.pdf()` and `.save()` work identically whichever one you pick. What is **not** the same is how the SVG gets made, so **speed and the rendered result can differ** between backends:
 
-- **`js:mermaid` is the original mermaid.js.** Only the JavaScript engine differs between `quickjs` and `v8`: V8 is faster, QuickJS installs anywhere. The engine never changes the result.
+- **`js:mermaid` is the original mermaid.js.** Only the JavaScript engine differs between `quickjs` and `v8`: V8 is faster, QuickJS installs anywhere. The engine never changes the result. Text is measured with the bundled DejaVu Sans, not with the fonts of a browser, so a diagram can differ from your own `mmdc` run by a fraction of a pixel in text width (see *Known issues* in the docs).
 - **`js:pele` is a different implementation**, in JavaScript. Its layout and styling differ from mermaid.js, so the output will not match it. It takes `config` and `css` but no `theme`: restyle it with its CSS variables, for example `css="svg{--pele-bg:#111;--pele-fg:#eee}"`.
 - **`rust:merman` and `rust:mermaid-rs-renderer` are different implementations**, written in Rust rather than JavaScript. Their layout can differ from mermaid.js, they may not support every diagram type, and they take different options (`theme`, `node_spacing`, `rank_spacing`, `aspect_ratio` instead of `config` and `css`).
 
@@ -293,7 +293,8 @@ d.save("out.pdf", pdf_format="A4", pdf_margin="1cm")
 **Themes, config and CSS**
 
 ```python
-mermaidx.render(source, theme="dark")   # "default" | "forest" | "dark" | "neutral"
+mermaidx.render(source, theme="dark")   # any Mermaid theme: "default", "forest", "dark", "neutral", "neo", "redux", ...
+mermaidx.render(source)                 # no theme: Mermaid 12 picks one per diagram type, like mmdc
 mermaidx.render(source, config={"flowchart": {"curve": "basis"}})
 mermaidx.render(source, css=".node rect { rx: 8; ry: 8; }")
 ```
@@ -352,7 +353,7 @@ Use `-q` to silence the "saved to…" message and `--quality N` for JPEG quality
 
 ## Supported diagrams
 
-Everything Mermaid v11 itself supports, because the real library is bundled: flowcharts, sequence, class, state, ER, Gantt, pie, git graphs, mindmaps, timelines, and more.
+Everything Mermaid 12 itself supports, because the real library is bundled: flowcharts, sequence, class, state, ER, Gantt, pie, git graphs, mindmaps, timelines, and more.
 
 ## Requirements
 
