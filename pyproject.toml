@@ -42,7 +42,7 @@ dependencies = [
 
 [project.optional-dependencies]
 test = [
-  "pytest-cov", "psutil", "pygixml"
+  "pytest-cov", "pytest-timeout", "psutil", "pygixml"
 ]
 rust = [ "mmdr" ]
 v8engine = [ "mini-racer" ]
@@ -67,6 +67,7 @@ packages = ["mermaidx"]
 dependencies = [
   "coverage[toml]>=6.5",
   "pytest",
+  "pytest-timeout",
 ]
 [tool.hatch.envs.default.scripts]
 test = "pytest {args:tests}"
@@ -114,8 +115,13 @@ skip-string-normalization = true
 
 [tool.pytest.ini_options]
 minversion = "6.0"
-addopts = ["-ra", "--showlocals", "--strict-markers", "--strict-config"]
+# --durations: the slowest tests and how long each took, printed at the end (works with -n, no plugin needed).
+addopts = ["-ra", "--showlocals", "--strict-markers", "--strict-config", "--durations=25", "--durations-min=2.0"]
 xfail_strict = true
+# pytest-timeout: a test that runs longer than this fails (and its stack is dumped) instead of hanging the job.
+# "thread" because the JS engines spend their time inside native code, where a SIGALRM handler can't run.
+timeout = 120
+timeout_method = "thread"
 filterwarnings = [
     # "error",
     "ignore:(ast.Str|Attribute s|ast.NameConstant|ast.Num) is deprecated:DeprecationWarning:_pytest",  # Python 3.12

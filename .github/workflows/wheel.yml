@@ -68,7 +68,7 @@ jobs:
 
       - name: Install wheel
         run: |
-          pip install pip pytest-cov pytest-xdist psutil pygixml
+          pip install pip pytest-cov pytest-xdist pytest-timeout psutil pygixml
           pip install -e ".[all]"
 
       - name: Run tests
