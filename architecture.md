@@ -208,36 +208,16 @@ None of these are exotic: they're all direct consequences of the same principle 
 
 Finding the font of a text means walking up its ancestors and matching every rule of the diagram's `<style>` against each one, and a group's `getBBox()` does that for every text below it. Mermaid 12 writes a much larger stylesheet than 11 did, and the c4 sample took 157 s before this was cached. Three things keep it fast, none of which change a result: a selector's parse is kept (`__chainsOf`, `__parseCompound`), the stylesheet is read once per font lookup, and the CSS and font each element resolved to are remembered only while one `getBBox` / `getComputedTextLength` call runs (`__withCssMemo`), so a later call after the document changed starts from scratch. The same sample now renders in about 7 s.
 
-## 5. Known gap: text sanitization (`sanitizeText`/DOMPurify) is a no-op
+## 5. Text sanitization (`sanitizeText` / DOMPurify) works; labels with `<img>` do not
 
-mermaid.js runs essentially all label text through an internal `sanitizeText()` helper before it ever reaches layout or drawing. That helper is a thin wrapper around a bundled copy of **DOMPurify** (the real, unmodified npm package — same one used to strip unsafe HTML/XSS out of user-supplied labels in a real browser).
+mermaid.js runs essentially all label text through an internal `sanitizeText()` helper before it reaches layout or drawing. That helper is a thin wrapper around a bundled copy of **DOMPurify** (the real, unmodified npm package: the same one that strips unsafe HTML out of user-supplied labels in a real browser). DOMPurify does no work at all unless it finds a "real enough" browser DOM, so `dom_shim.js` provides what its support probe and its parser need, and the real sanitizing then runs:
 
-DOMPurify refuses to do any real work unless it detects a "real enough" browser DOM. Its own support probe is, roughly:
+- `Node.prototype` accessors for `parentNode`, `childNodes` and `nodeType`. DOMPurify looks them up with `Object.getOwnPropertyDescriptor` on the prototype chain, and an own instance property does not satisfy that. Without the `nodeType` accessor its "is this a Node" test fails for every node, and its check for markup smuggled into text then removes the whole `<svg>`, which is what happened to a requirement diagram whose label contained `<<Requirement>>`.
+- `document.implementation.createHTMLDocument()` and `createDocument()`, `DOMParser`, `NodeFilter` and `NodeIterator`.
 
-```mermaid
-flowchart LR
-    A["DOMPurify init"] --> B{"document.implementation.\ncreateHTMLDocument exists?"}
-    B -- no --> NOOP(["isSupported = false\n→ sanitizeText() returns\ninput completely unprocessed"])
-    B -- yes --> C{"Element.prototype has a\n*real getter* named parentNode?\n(walks the prototype chain\nlooking for a get accessor,\nnot an own instance property)"}
-    C -- no --> NOOP
-    C -- yes --> D["... continues into _initDocument():\nDOMParser, or document.implementation.\ncreateDocument() + innerHTML,\nthen createNodeIterator() to walk\nand filter the parsed tree"]
-    D --> WORKS(["real sanitize + entity decode"])
-```
+Entity decoding and tag stripping now behave as in a browser. They were compared with `mmdc` 12 on the same labels: `&copy;`, `&#160;` and `&nbsp;` come out as `mmdc` has them, `<b>` and `<i>` are kept, `<script>` is removed, and an `onclick` attribute is removed. (An earlier version of this document described DOMPurify as a no-op, with `&nbsp;` decoded by hand when a text node was built. The decoding in `dom_shim.js` is still there; the sanitizer no longer depends on it.)
 
-`dom_shim.js` fails the very first check (no `document.implementation` at all), so DOMPurify silently returns whatever text it was given, completely unprocessed — no tag stripping, no entity decoding, nothing. This was traced concretely for [issue #23](https://github.com/MohammadRaziei/mermaidx/issues/23) (a `&nbsp;&nbsp;&nbsp;` block-arrow label rendering as the literal, visible text `&nbsp;&nbsp;&nbsp;` instead of blank padding) by round-tripping the exact string through the bundled DOMPurify instance directly and confirming it came back byte-for-byte identical.
-
-**Why this isn't (currently) fixed at the root.** Getting `isSupported` to actually reach `true` was tried, and required, in order: (1) converting `Node`'s `parentNode`/`childNodes` from own instance properties to real getter/setter pairs on the prototype (DOMPurify's probe specifically walks the prototype chain via `Object.getOwnPropertyDescriptor` — an own instance property doesn't satisfy it, only a real accessor does), (2) `document.implementation.createHTMLDocument()`, (3) `document.implementation.createDocument()` (a *different* method, only discovered once (2) exposed the next missing piece), (4) `NodeFilter` + `document.createNodeIterator()`. After all four, the full render pipeline **silently hung** (no error, no output, no rejected promise) on even a trivial `flowchart LR\nA-->B` — meaning at least one more undiscovered dependency exists somewhere past that point. This is consistent with DOMPurify's own project history: its maintainers spent years getting it to run under jsdom for exactly this reason (jsdom itself was missing `createNodeIterator` as late as 2018), and jsdom is a vastly more complete DOM implementation than this shim. Given the change touches `Node`'s core representation (used by literally every diagram type) and the failure mode discovered was a silent hang rather than a clean error, this was reverted rather than shipped half-working — see the design principle in §9 about verifying with a rendered PNG, not just "did it throw."
-
-**The pragmatic fix in place today:** rather than making DOMPurify work, `&nbsp;` specifically is decoded to a real U+00A0 character at `TextNode` construction (`dom_shim.js`) — the one place all visible text is ultimately created, regardless of which code path produced it. This fixes the one concretely-reported symptom without touching `mermaid.js` and without the blast radius of a `Node`-level rewrite.
-
-**What else likely lives in this same gap** (not yet reported, but the same root cause would produce them):
-
-- **Other named HTML entities in label text**, beyond `&nbsp;` — e.g. `&copy;`, `&trade;`, `&mdash;`, `&hellip;`, `&ensp;`/`&emsp;`/`&thinsp;` — would render as literal entity text instead of the real character, in *any* diagram type, the same way `&nbsp;` did. Only `&nbsp;` is currently patched.
-- **Markdown-formatted labels that lean on whitespace preservation.** mermaid's markdown-label path converts runs of spaces into `&nbsp;` internally so they survive as visible gaps; only diagrams/labels that happen to hit the same plain-`&nbsp;` shape are covered by the current fix. A label that produces some *other* entity for the same purpose wouldn't be.
-- **Numeric character references** (`&#160;`, `&#xA0;`, etc.) written directly in a label instead of the named form — the current fix only matches the literal string `&nbsp;`, not numeric equivalents.
-- **Disallowed tags/attributes intentionally embedded in a label** (e.g. a label containing a literal `<script>` or an `onclick=` attribute) would *not* be stripped the way real mermaid.js (via a working DOMPurify) would strip them. This isn't a live XSS risk for `mermaidx` itself — there's no browser executing the output, just a static SVG/PNG/PDF being produced — but it is a behavior difference worth knowing about if a diagram's rendered *text* ever needs to exactly match what a real browser would show for adversarial label content.
-
-If more of these turn up, that's the signal to revisit the full fix rather than patching each symptom individually — see the discussion that led to this section for the trade-off being made deliberately, not by default.
+**What does not work: a label with an `<img>`.** `mermaid.render()` fails with `produced no output (unknown error)`, where `mmdc` keeps the image. After building such a label mermaid waits until `img.complete` is true or the image fires `load` or `error`, and this shim has neither: an image is never loaded, so the render promise never settles. The likely fix is to give `img` a `complete` of `true`, or to fire `error` once, in the shim; that has not been tried. Nothing in the test suite renders an image label.
 
 ---
 

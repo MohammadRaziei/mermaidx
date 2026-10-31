@@ -28,6 +28,10 @@ The cause is a difference of one unit in the last place (1 ulp) in `Math.sin` be
 
 This is recorded in the test suite as a strict expected failure, so the test fails loudly the day it starts to pass. A deterministic `Math` layer is being considered, but it is not part of 0.11.0.
 
+## Labels with an `<img>` fail
+
+A label that contains an `<img>` tag makes the `js:mermaid` backend fail with `mermaid.render() produced no output (unknown error)`; `mmdc` renders the image. Mermaid waits for each image to finish loading, and mermaidx never loads images, so the wait never ends. Remove the `<img>` from the label, or draw the image another way. The other things tried in a label (entities, `<b>`, `<i>`) match `mmdc`, and `<script>` and event attributes such as `onclick` are removed, as in `mmdc`.
+
 ## Rust backends
 
 `rust:merman` and `rust:mermaid-rs-renderer` are independent implementations. They can lay out a diagram differently from mermaid.js, and may not support every diagram type. See the [benchmark gallery](/benchmarks) for the current state.
