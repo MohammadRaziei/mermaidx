@@ -224,7 +224,19 @@ def _shape_local_bbox(el, ns_strip):
     return None
 
 
-@pytest.mark.parametrize("name", [n for n in SAMPLE_NAMES if n not in KNOWN_UNSUPPORTED])
+# Samples whose label group is placed by its top-left corner, so its own translate is not its center and the
+# center check below does not apply (read off the mmdc reference SVG, which would fail it too).
+_LABEL_TRANSLATE_IS_TOP_LEFT = {
+    "24_c4_context": (
+        "mermaid >= 12 draws a c4 label as translate(-w/2, -h/2) with the name, type and description groups "
+        "translated back by +w/2 inside it (mmdc: SystemAA translate(-98.34, -43.94) in a 236.7 px wide shape)"
+    ),
+}
+
+
+@pytest.mark.parametrize(
+    "name", [n for n in SAMPLE_NAMES if n not in KNOWN_UNSUPPORTED and n not in _LABEL_TRANSLATE_IS_TOP_LEFT]
+)
 def test_sample_labels_inside_their_own_shape(name):
     """A node's label must sit within (a padded version of) that node's
     own shape -- not off to the side of it. Shapes with a manually
