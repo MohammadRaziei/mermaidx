@@ -786,8 +786,10 @@ class Element extends Node {
   }
   getComputedTextLength() {
     if (this.tagName !== "text" && this.tagName !== "tspan") return 0;
-    const font = __resolveFont(this);
-    return globalThis.__measureText(__svgTextForMeasure(this), font.size, font.family, font.weight, font.style);
+    return __withCssMemo(() => {
+      const font = __resolveFont(this);
+      return globalThis.__measureText(__svgTextForMeasure(this), font.size, font.family, font.weight, font.style);
+    });
   }
   getScreenCTM() { return { a:1,b:0,c:0,d:1,e:0,f:0, inverse(){return this;}, multiply(){return this;} }; }
   createSVGMatrix() { return this.getScreenCTM(); }
@@ -877,7 +879,28 @@ function __shapeLength(el, name) {
   return v < 0 && (name === "width" || name === "height" || name === "r" || name === "rx" || name === "ry") ? 0 : v;
 }
 
+// While one layout computation runs (a getBBox / getComputedTextLength / getBoundingClientRect call) nothing in the
+// document changes, yet a group's box resolves the font of every text below it, and each of those walks the same
+// ancestors against the same rules. Within such a call, remember what each element resolved to; the memo is dropped
+// when the call ends, so a later call (after the document changed) always starts from scratch.
+let __cssMemo = null;
+function __withCssMemo(fn) {
+  if (__cssMemo) return fn();
+  __cssMemo = { css: new Map(), font: new Map() };
+  try { return fn(); } finally { __cssMemo = null; }
+}
 function __resolveFont(el) {
+  const memo = __cssMemo;
+  if (memo) {
+    const hit = memo.font.get(el);
+    if (hit !== undefined) return { ...hit };
+    const font = __resolveFontUncached(el);
+    memo.font.set(el, font);
+    return { ...font };
+  }
+  return __resolveFontUncached(el);
+}
+function __resolveFontUncached(el) {
   // Walk up for inherited font properties. Nearer (more specific) values
   // must win over farther ancestors' -- e.g. the diagram title only carries
   // class="flowchartTitleText" (font-size: 18px via CSS), while some
@@ -887,15 +910,18 @@ function __resolveFont(el) {
   // overwritten by a later (farther) one. Within a single node, inline
   // style/attribute still outrank that node's own CSS class rule.
   let size, sizeNode, family, weight, style = "normal";
+  // The stylesheet cannot change while one element is resolved, so fetch its rules once rather than for every
+  // property of every ancestor (that rebuilt and compared the whole style text ~3x per level).
+  const rules = __getCssRules();
   let n = el;
   while (n && n.nodeType === 1) {
     let nSize, nFamily, nWeight;
 
-    const cssSize = __resolveCssProp(n, "font-size");
+    const cssSize = __resolveCssProp(n, "font-size", rules);
     if (cssSize) nSize = cssSize.trim();
-    const cssFamily = __resolveCssProp(n, "font-family");
+    const cssFamily = __resolveCssProp(n, "font-family", rules);
     if (cssFamily) nFamily = cssFamily.trim();
-    const cssWeight = __resolveCssProp(n, "font-weight");
+    const cssWeight = __resolveCssProp(n, "font-weight", rules);
     if (cssWeight) nWeight = cssWeight.trim();
 
     const inlSize = __inlineStyleProp(n, "font-size"); if (inlSize) nSize = inlSize;
@@ -964,11 +990,19 @@ function __getCssRules() {
 // Last matching rule wins -- an approximation of the cascade (source
 // order, no specificity weighing) that's good enough for mermaid's own
 // generated stylesheet, which doesn't lean on specificity tricks.
-function __resolveCssProp(el, prop) {
+function __resolveCssProp(el, prop, rules) {
+  const memo = __cssMemo;
+  let per;
+  if (memo) {
+    per = memo.css.get(el);
+    if (per === undefined) { per = Object.create(null); memo.css.set(el, per); }
+    if (prop in per) return per[prop];
+  }
   let value = null;
-  for (const rule of __getCssRules()) {
+  for (const rule of rules || __getCssRules()) {
     if (prop in rule.decls && __matches(el, rule.selectors)) value = rule.decls[prop];
   }
+  if (per) per[prop] = value;
   return value;
 }
 
@@ -1243,7 +1277,8 @@ function __isDisplayNone(el) {
   return (fromStyle !== null ? fromStyle : el.getAttribute("display")) === "none";
 }
 
-function __computeBBox(el) {
+function __computeBBox(el) { return __withCssMemo(() => __computeBBoxUncached(el)); }
+function __computeBBoxUncached(el) {
   if (__isDisplayNone(el)) return { x: 0, y: 0, width: 0, height: 0 };
   if (el.tagName === "text" || el.tagName === "tspan") {
     // The box is the union of every run's box. Each chunk is anchored on its own advance; a run's box is
@@ -1392,9 +1427,25 @@ function __splitTopLevel(text, isSeparator) {
   parts.push([text.slice(start), ""]);
   return parts;
 }
+// A selector's parse depends on its text alone, and the cascade asks the same few hundred selectors millions of
+// times (every font lookup walks every ancestor against every rule), so parse each one once.
+const __chainsCache = new Map();
+function __chainsOf(sel) {
+  let chains = __chainsCache.get(sel);
+  if (chains === undefined) {
+    chains = [];
+    for (const [part] of __splitTopLevel(sel.trim(), (c) => c === ",")) {
+      const chain = __parseComplex(part.trim());
+      if (chain.length > 0) chains.push(chain);
+    }
+    if (__chainsCache.size > 5000) __chainsCache.clear();
+    __chainsCache.set(sel, chains);
+  }
+  return chains;
+}
 function __matches(el, sel) {
-  for (const [part] of __splitTopLevel(sel.trim(), (c) => c === ",")) {
-    if (__matchesSimple(el, part.trim())) return true;
+  for (const chain of __chainsOf(sel)) {
+    if (__matchesChain(el, chain, chain.length - 1)) return true;
   }
   return false;
 }
@@ -1434,25 +1485,37 @@ function __matchesSimple(el, sel) {
   const chain = __parseComplex(sel);
   return chain.length > 0 && __matchesChain(el, chain, chain.length - 1);
 }
-function __matchesCompound(el, part) {
-  // :not(...) wraps its own compound selector (itself possibly a
-  // pseudo-class, as in mermaid's own "g:not(:first-child)") that the
-  // flat tokenizer below can't parse through parens -- pull each
-  // :not(...) clause out and evaluate it recursively first, then
-  // tokenize whatever's left as an ordinary compound selector.
+const __compoundCache = new Map();
+function __parseCompound(part) {
+  let c = __compoundCache.get(part);
+  if (c !== undefined) return c;
+  // :not(...) wraps its own compound selector (itself possibly a pseudo-class, as in mermaid's own
+  // "g:not(:first-child)") that the flat tokenizer below can't parse through parens -- pull each :not(...)
+  // clause out (they are evaluated recursively), then tokenize whatever's left as an ordinary compound selector.
   const notRe = /:not\(([^()]*)\)/g;
-  const notClauses = [];
+  const nots = [];
   let notMatch;
-  while ((notMatch = notRe.exec(part))) notClauses.push(notMatch[1]);
-  for (const inner of notClauses) {
-    if (__matchesCompound(el, inner)) return false;
-  }
+  while ((notMatch = notRe.exec(part))) nots.push(notMatch[1]);
   const rest = part.replace(notRe, "");
   const re = /(#[\w-]+|\.[\w-]+|\[[^\]]+\]|:[\w-]+|[\w-]+|\*)/g;
+  const tokens = [];
   let m;
   while ((m = re.exec(rest))) {
     const t = m[0];
     if (t === "*") continue;
+    tokens.push({ t, am: t[0] === "[" ? /\[([\w-]+)(?:([~^$*|]?=)"?([^"\]]*)"?)?\]/.exec(t) : null });
+  }
+  c = { nots, tokens };
+  if (__compoundCache.size > 5000) __compoundCache.clear();
+  __compoundCache.set(part, c);
+  return c;
+}
+function __matchesCompound(el, part) {
+  const { nots, tokens } = __parseCompound(part);
+  for (const inner of nots) {
+    if (__matchesCompound(el, inner)) return false;
+  }
+  for (const { t, am } of tokens) {
     if (t[0] === "#") { if (el.getAttribute("id") !== t.slice(1)) return false; }
     else if (t[0] === ".") { if (!el.classList.contains(t.slice(1))) return false; }
     else if (t[0] === ":") {
@@ -1469,7 +1532,6 @@ function __matchesCompound(el, part) {
       else { return false; }
     }
     else if (t[0] === "[") {
-      const am = /\[([\w-]+)(?:([~^$*|]?=)"?([^"\]]*)"?)?\]/.exec(t);
       if (am) {
         const val = el.getAttribute(am[1]);
         if (am[2] === undefined) { if (val === null) return false; }
