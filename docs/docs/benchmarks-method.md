@@ -38,9 +38,10 @@ The clock covers the work from Mermaid text to PNG bytes (to a PNG file for `mmd
 
 ## Run it yourself
 
-Everything goes through the `Makefile` in the repository root, and CI runs the same thing. Each target installs what it needs first.
+Everything goes through the `Makefile` in the `docs` directory, and CI runs the same thing. Each target installs what it needs first.
 
 ```bash
+cd docs
 make benchmark      # writes docs/static/benchmarks/results.json and the PNGs
 make serve          # browse the site with live reload
 ```

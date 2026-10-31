@@ -17,7 +17,6 @@ on:
       - "tests/samples/**"
       - "architecture.md"
       - "CHANGELOG.md"
-      - "Makefile"
       - ".github/workflows/docs.yml"
   pull_request:
     paths:
@@ -25,7 +24,6 @@ on:
       - "benchmarks/**"
       - "architecture.md"
       - "CHANGELOG.md"
-      - "Makefile"
 
 permissions:
   contents: read
@@ -53,6 +51,7 @@ jobs:
 
       - name: Benchmark and build the site
         run: make all
+        working-directory: docs
         env:
           NO_SANDBOX: "1"
 

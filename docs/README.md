@@ -1,7 +1,7 @@
 # mermaidx documentation
 
 The site at <https://mohammadraziei.github.io/mermaidx/>. It is a [Docusaurus](https://docusaurus.io) site, and
-**everything is run through the `Makefile` in the repository root**. You do not need to call `npm`, `node` or
+**everything is run through the `Makefile` in this directory (`docs/`)**. You do not need to call `npm`, `node` or
 `python` yourself: each target installs what it needs, once, and skips the install while its inputs are unchanged.
 
 ## What you need
@@ -16,11 +16,11 @@ On Windows, use WSL or Git Bash.
 
 ## Everyday use
 
-Run these from the repository root.
+Run these from the `docs` directory (`cd docs`).
 
 ```bash
 make serve        # docs with live reload at http://localhost:3000/mermaidx/
-make build        # static site into docs/build
+make build        # static site into build/
 make preview      # build, then serve it the way GitHub Pages will
 make benchmark    # render every sample with every renderer (slow, see below)
 make all          # benchmark, then build: exactly what CI runs
@@ -35,9 +35,9 @@ The first run of any target is slower because it installs dependencies. After th
 
 | What | Where | Re-installed when |
 | --- | --- | --- |
-| Python packages (mermaidx with every backend) | a virtualenv in `.cache/venv` | `pyproject.toml` changes |
+| Python packages (mermaidx with every backend) | a virtualenv in `docs/.cache/venv` | `pyproject.toml` changes |
 | Docusaurus and the site's npm packages | `docs/node_modules` | `docs/package.json` or `package-lock.json` changes |
-| mermaid-cli (`mmdc`), for the benchmark only | `.cache/mmdc` | never, unless you `make distclean` |
+| mermaid-cli (`mmdc`), for the benchmark only | `docs/.cache/mmdc` | never, unless you `make distclean` |
 
 Nothing is installed globally and the system Python is never touched.
 
@@ -57,9 +57,9 @@ not run the benchmark, so the benchmark page shows a notice until you run `make 
 ## Layout
 
 ```
-Makefile                      the only entry point
 benchmarks/run.py             renders every sample and records the time
 docs/
+  Makefile                    the only entry point (run `make` from here)
   docs/                       the documentation pages (Markdown)
   src/pages/index.js          landing page
   src/pages/benchmarks.js     benchmark gallery
