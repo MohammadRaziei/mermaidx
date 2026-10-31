@@ -607,7 +607,7 @@ class Diagram(DiagramBase):
         engine = _get_engine(self.engine, self._library)  # raises ImportError first if engine="v8" but unavailable
         pele = self._library == "pele"
         try:
-            svg = engine.render_svg(self._source, self._theme or "default", self._config, None if pele else self._css)
+            svg = engine.render_svg(self._source, self._theme, self._config, None if pele else self._css)
         except MermaidRenderError as e:
             raise RuntimeError(f"{'Pele' if pele else 'Mermaid'} rendering failed: {e}") from e
         return _inject_style(svg, self._css) if pele and self._css else svg

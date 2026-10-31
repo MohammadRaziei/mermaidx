@@ -382,7 +382,7 @@ class Engine:
 
     # -- public, thread-safe entry point ---------------------------------------
 
-    def render_svg(self, code: str, theme: str, config: Optional[dict], css: Optional[str]) -> str:
+    def render_svg(self, code: str, theme: Optional[str], config: Optional[dict], css: Optional[str]) -> str:
         """
         Sends the render to the child process and waits for a reply, with
         a timeout. A diagram whose JS never stops scheduling work (e.g.

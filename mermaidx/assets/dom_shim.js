@@ -37,11 +37,40 @@ globalThis.console = {
 // instead of plain string concatenation. Only the two methods mermaid
 // actually calls, plus the `.cssRules` / `.cssText` shape its own
 // `cssStyleSheetToString()` reads back out, are implemented here.
+// One CSSStyleRule. `cssText` is the canonical text of the rule as inserted until somebody touches `.style`
+// (mermaid >=12 builds rules with `rule.style.setProperty(...)` and filters on `rule.style.length`); from then on
+// the text is rebuilt from the live declarations, the way the CSSOM serializes a rule.
+function __makeRule(text) {
+  const canon = __cssCanonRule(text);
+  const m = /^\s*([^{}@][^{}]*)\{([^{}]*)\}\s*$/.exec(text);
+  if (!m) return { cssText: canon };
+  const selector = m[1].trim();
+  let style = null;
+  return {
+    selectorText: selector,
+    get style() {
+      if (!style) {
+        style = CSSStyleDecl(null);
+        for (const d of __cssSplitTop(m[2], ";")) {
+          const i = d.indexOf(":");
+          if (i < 0) continue;
+          style.setProperty(d.slice(0, i).trim(), d.slice(i + 1).trim());
+        }
+      }
+      return style;
+    },
+    get cssText() {
+      if (!style) return canon;
+      const body = style.__entries.filter(([, v]) => v !== null).map(([k, v]) => `${k}: ${v};`).join(" ");
+      return `${selector} { ${body}${body ? " " : ""}}`;
+    },
+  };
+}
 class CSSStyleSheet {
   constructor() { this.cssRules = []; }
   insertRule(ruleText, index) {
     const i = index === undefined ? this.cssRules.length : index;
-    this.cssRules.splice(i, 0, { cssText: __cssCanonRule(ruleText) });
+    this.cssRules.splice(i, 0, __makeRule(ruleText));
     return i;
   }
   replaceSync(text) {
@@ -53,7 +82,7 @@ class CSSStyleSheet {
       else if (ch === "}" && --depth === 0) { rules.push(cur.trim()); cur = ""; }
     }
     if (cur.trim()) rules.push(cur.trim());
-    this.cssRules = rules.map((r) => ({ cssText: __cssCanonRule(r) }));
+    this.cssRules = rules.map((r) => __makeRule(r));
   }
 }
 globalThis.CSSStyleSheet = CSSStyleSheet;
@@ -350,6 +379,7 @@ function CSSStyleDecl(el) {
     get(t, p) {
       if (p === "cssText") return Object.entries(t).filter(([, v]) => v !== null).map(([k,v])=>`${k}:${v}`).join(";");
       if (p === "__entries") return Object.entries(t);
+      if (p === "length") return Object.values(t).filter((v) => v !== null).length;
       if (p === "setProperty") return (k,v,priority) => __cssSet(t, k, __cssWithPriority(v, priority), fromAttr(k));
       if (p === "removeProperty") return (k) => __cssRemove(t, k, fromAttr(k));
       if (p === "getPropertyValue") return (k) => {
@@ -690,6 +720,16 @@ class Element extends Node {
   get outerHTML() { return __serialize(this, false); }
   // ---- SVG geometry: the important part ----
   getBBox() { return __f32rect(__computeBBox(this)); }
+  // SVGGeometryElement.getTotalLength(): the length of a <path>'s outline (mermaid >= 12 sizes the dashes of an
+  // edge with it); other elements have no length of their own here.
+  getTotalLength() {
+    if (this.tagName === "path") return globalThis.__pathLength(this.getAttribute("d") || "");
+    if (this.tagName === "line") {
+      const L = (name) => __shapeLength(this, name);
+      return Math.hypot(L("x2") - L("x1"), L("y2") - L("y1"));
+    }
+    return 0;
+  }
   getBoundingClientRect() { return __f32rect(this.__boundingClientRect()); }
   __boundingClientRect() {
     // HTML content (foreignObject labels): __measureForeignObject mirrors
@@ -1698,7 +1738,7 @@ class Document extends Node {
 // a node it decided to remove. This shim keeps parentNode/childNodes as own data properties
 // (the rest of the shim reads and writes them directly), so also expose them as prototype
 // accessors that defer to the own property.
-for (const prop of ["parentNode", "childNodes"]) {
+for (const prop of ["parentNode", "childNodes", "nodeType"]) {
   Object.defineProperty(Node.prototype, prop, {
     configurable: true,
     get() { const d = Object.getOwnPropertyDescriptor(this, prop); return d ? d.value : (prop === "childNodes" ? [] : null); },
@@ -1710,6 +1750,18 @@ Object.defineProperties(Node.prototype, {
 });
 Node.prototype.hasChildNodes = function () { return this.childNodes.length > 0; };
 Node.prototype.remove = function () { if (this.parentNode) this.parentNode.removeChild(this); };
+// SVGElement.ownerSVGElement: the nearest ancestor <svg> (null for the outermost <svg> itself and for anything
+// that is not an SVG element). mermaid >= 12 reads its id to name the filters it defines (drop-shadow-small ...).
+Object.defineProperty(Element.prototype, "ownerSVGElement", {
+  configurable: true,
+  get() {
+    if (this.namespaceURI !== "http://www.w3.org/2000/svg") return null;
+    for (let p = this.parentNode; p; p = p.parentNode) {
+      if (p.nodeType === 1 && p.tagName === "svg" && p.namespaceURI === "http://www.w3.org/2000/svg") return p;
+    }
+    return null;
+  },
+});
 Object.defineProperty(Element.prototype, "attributes", {
   configurable: true,
   get() {

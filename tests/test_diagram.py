@@ -46,6 +46,7 @@ def test_available_engines_v8_reflects_py_mini_racer_availability(monkeypatch):
 
 def test_engine_v8_without_mini_racer_raises_import_error_with_install_hint(monkeypatch):
     monkeypatch.setattr("mermaidx.diagram.available_engines", lambda: ["quickjs"])
+    monkeypatch.setattr("mermaidx.diagram._engines", {})  # no v8 engine cached by an earlier test
     d = mermaidx.render(FLOWCHART, engine="v8")  # lazy: nothing is started yet
     with pytest.raises(ImportError, match=r"mermaidx\[v8engine\]"):
         d.svg()

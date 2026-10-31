@@ -79,11 +79,14 @@ def mermaid_config(theme: Optional[str], config: Optional[dict]) -> dict:
     paints. Any key the caller passes wins over these defaults."""
     cfg = {
         "startOnLoad": False,
-        "theme": theme or "default",
         "flowchart": {"htmlLabels": True},
         "journey": {"textPlacement": "fo"},
         "timeline": {"textPlacement": "fo"},
     }
+    # Like mmdc, no "theme" key unless one was asked for: mermaid >= 12 then gives every diagram type its own
+    # default theme and look (e.g. flowcharts: redux-color / neo); an explicit "default" would force the old one.
+    if theme:
+        cfg["theme"] = theme
     if config:
         cfg.update(config)
     return cfg

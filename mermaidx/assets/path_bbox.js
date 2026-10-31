@@ -176,34 +176,11 @@ globalThis.__pathBBox = (function () {
 
   // ---- path building + SkPath::computeTightBounds -----------------------------------------------------
 
-  return function pathBBox(d) {
-    const empty = { x: 0, y: 0, width: 0, height: 0 };
-    if (!d) return empty;
-
-    let minX = NaN, minY = NaN, maxX = NaN, maxY = NaN;
-    const add = (x, y) => {
-      if (minX !== minX) { minX = maxX = x; minY = maxY = y; return; }
-      if (x < minX) minX = x; if (x > maxX) maxX = x;
-      if (y < minY) minY = y; if (y > maxY) maxY = y;
-    };
-
-    const lineTo = (x, y) => add(x, y);
-    const quadTo = (x0, y0, x1, y1, x2, y2) => {
-      for (const t of quadExtremaTs(x0, x1, x2)) add(evalQuad(x0, x1, x2, t), evalQuad(y0, y1, y2, t));
-      for (const t of quadExtremaTs(y0, y1, y2)) add(evalQuad(x0, x1, x2, t), evalQuad(y0, y1, y2, t));
-      add(x2, y2);
-    };
-    const conicTo = (x0, y0, x1, y1, x2, y2, w) => {
-      const tx = conicExtremumT(x0, x1, x2, w), ty = conicExtremumT(y0, y1, y2, w);
-      if (tx >= 0) add(evalConic(x0, x1, x2, w, tx), evalConic(y0, y1, y2, w, tx));
-      if (ty >= 0) add(evalConic(x0, x1, x2, w, ty), evalConic(y0, y1, y2, w, ty));
-      add(x2, y2);
-    };
-    const cubicTo = (x0, y0, x1, y1, x2, y2, x3, y3) => {
-      for (const t of cubicExtremaTs(x0, x1, x2, x3)) add(evalCubic(x0, x1, x2, x3, t), evalCubic(y0, y1, y2, y3, t));
-      for (const t of cubicExtremaTs(y0, y1, y2, y3)) add(evalCubic(x0, x1, x2, x3, t), evalCubic(y0, y1, y2, y3, t));
-      add(x3, y3);
-    };
+  // Walks `d` the way Blink builds its SkPath and reports every segment to `sink` (absolute coordinates):
+  //   move(x, y), line(x0, y0, x, y), quad(x0, y0, x1, y1, x2, y2), conic(x0, y0, x1, y1, x2, y2, w),
+  //   cubic(x0, y0, x1, y1, x2, y2, x3, y3), close(x0, y0, startX, startY).
+  function walkPath(d, sink) {
+    if (!d) return;
 
     let cx = 0, cy = 0, startX = 0, startY = 0;
     let cmd = null, prevType = null, lastCtrlX = 0, lastCtrlY = 0;
@@ -213,13 +190,16 @@ globalThis.__pathBBox = (function () {
 
     while (i < n) {
       const ch = d[i];
-      if (CMD_CHARS.indexOf(ch) !== -1) { cmd = ch; firstPairOfCmd = true; i += 1; continue; }
-      if (WS_RE.test(ch)) { i += 1; continue; }
-      if (cmd === null) { i += 1; continue; }
-      if (cmd === "Z" || cmd === "z") {
-        cx = startX; cy = startY; prevType = "Z"; cmd = null;
+      if (CMD_CHARS.indexOf(ch) !== -1) {
+        cmd = ch; firstPairOfCmd = true; i += 1;
+        if (ch === "Z" || ch === "z") { // closepath takes no arguments: close right away, even at the end of `d`
+          sink.close(cx, cy, startX, startY);
+          cx = startX; cy = startY; prevType = "Z"; cmd = null;
+        }
         continue;
       }
+      if (WS_RE.test(ch)) { i += 1; continue; }
+      if (cmd === null) { i += 1; continue; }
 
       const upper = cmd.toUpperCase();
       const isRel = cmd !== upper;
@@ -241,54 +221,114 @@ globalThis.__pathBBox = (function () {
 
       if (type === "M") {
         nx = absX(group[0]); ny = absY(group[1]);
-        add(nx, ny);
+        sink.move(nx, ny);
         startX = nx; startY = ny;
       } else if (type === "L") {
         nx = absX(group[0]); ny = absY(group[1]);
-        lineTo(nx, ny);
+        sink.line(cx, cy, nx, ny);
       } else if (type === "H") {
         nx = absX(group[0]); ny = cy;
-        lineTo(nx, ny);
+        sink.line(cx, cy, nx, ny);
       } else if (type === "V") {
         nx = cx; ny = absY(group[0]);
-        lineTo(nx, ny);
+        sink.line(cx, cy, nx, ny);
       } else if (type === "C") {
         const x1 = absX(group[0]), y1 = absY(group[1]), x2 = absX(group[2]), y2 = absY(group[3]);
         nx = absX(group[4]); ny = absY(group[5]);
-        cubicTo(cx, cy, x1, y1, x2, y2, nx, ny);
+        sink.cubic(cx, cy, x1, y1, x2, y2, nx, ny);
         lastCtrlX = x2; lastCtrlY = y2;
       } else if (type === "S") {
         const x2 = absX(group[0]), y2 = absY(group[1]);
         nx = absX(group[2]); ny = absY(group[3]);
         const smooth = prevType === "C" || prevType === "S";
         const x1 = smooth ? F(F(2 * cx) - lastCtrlX) : cx, y1 = smooth ? F(F(2 * cy) - lastCtrlY) : cy;
-        cubicTo(cx, cy, x1, y1, x2, y2, nx, ny);
+        sink.cubic(cx, cy, x1, y1, x2, y2, nx, ny);
         lastCtrlX = x2; lastCtrlY = y2;
       } else if (type === "Q") {
         const x1 = absX(group[0]), y1 = absY(group[1]);
         nx = absX(group[2]); ny = absY(group[3]);
-        quadTo(cx, cy, x1, y1, nx, ny);
+        sink.quad(cx, cy, x1, y1, nx, ny);
         lastCtrlX = x1; lastCtrlY = y1;
       } else if (type === "T") {
         nx = absX(group[0]); ny = absY(group[1]);
         const smooth = prevType === "Q" || prevType === "T";
         const x1 = smooth ? F(F(2 * cx) - lastCtrlX) : cx, y1 = smooth ? F(F(2 * cy) - lastCtrlY) : cy;
-        quadTo(cx, cy, x1, y1, nx, ny);
+        sink.quad(cx, cy, x1, y1, nx, ny);
         lastCtrlX = x1; lastCtrlY = y1;
       } else { // A
         nx = absX(group[5]); ny = absY(group[6]);
         let px = cx, py = cy;
         const drawn = arcTo(cx, cy, group[0], group[1], group[2], group[3] !== 0, group[4] !== 0, nx, ny,
-          (x1, y1, x2, y2, w) => { conicTo(px, py, x1, y1, x2, y2, w); px = x2; py = y2; });
-        if (!drawn) lineTo(nx, ny);
+          (x1, y1, x2, y2, w) => { sink.conic(px, py, x1, y1, x2, y2, w); px = x2; py = y2; });
+        if (!drawn) sink.line(cx, cy, nx, ny);
       }
 
       prevType = type;
       cx = nx; cy = ny;
       firstPairOfCmd = false;
     }
+  }
 
+  function pathBBox(d) {
+    const empty = { x: 0, y: 0, width: 0, height: 0 };
+    if (!d) return empty;
+    let minX = NaN, minY = NaN, maxX = NaN, maxY = NaN;
+    const add = (x, y) => {
+      if (minX !== minX) { minX = maxX = x; minY = maxY = y; return; }
+      if (x < minX) minX = x; if (x > maxX) maxX = x;
+      if (y < minY) minY = y; if (y > maxY) maxY = y;
+    };
+    walkPath(d, {
+      move: add,
+      line: (x0, y0, x, y) => add(x, y),
+      close: () => {},
+      quad: (x0, y0, x1, y1, x2, y2) => {
+        for (const t of quadExtremaTs(x0, x1, x2)) add(evalQuad(x0, x1, x2, t), evalQuad(y0, y1, y2, t));
+        for (const t of quadExtremaTs(y0, y1, y2)) add(evalQuad(x0, x1, x2, t), evalQuad(y0, y1, y2, t));
+        add(x2, y2);
+      },
+      conic: (x0, y0, x1, y1, x2, y2, w) => {
+        const tx = conicExtremumT(x0, x1, x2, w), ty = conicExtremumT(y0, y1, y2, w);
+        if (tx >= 0) add(evalConic(x0, x1, x2, w, tx), evalConic(y0, y1, y2, w, tx));
+        if (ty >= 0) add(evalConic(x0, x1, x2, w, ty), evalConic(y0, y1, y2, w, ty));
+        add(x2, y2);
+      },
+      cubic: (x0, y0, x1, y1, x2, y2, x3, y3) => {
+        for (const t of cubicExtremaTs(x0, x1, x2, x3)) add(evalCubic(x0, x1, x2, x3, t), evalCubic(y0, y1, y2, y3, t));
+        for (const t of cubicExtremaTs(y0, y1, y2, y3)) add(evalCubic(x0, x1, x2, x3, t), evalCubic(y0, y1, y2, y3, t));
+        add(x3, y3);
+      },
+    });
     if (minX !== minX) return empty;
     return { x: minX, y: minY, width: F(maxX - minX), height: F(maxY - minY) };
-  };
+  }
+
+  // getTotalLength() of an SVG <path>: Skia measures the contour length (SkContourMeasure) by flattening
+  // curves; flattening every segment into 128 chords here is far inside Chrome's own tolerance.
+  const SAMPLES = 128;
+  function pathLength(d) {
+    let total = 0;
+    const seg = (at) => {
+      let prev = at(0);
+      for (let k = 1; k <= SAMPLES; k++) {
+        const q = at(k / SAMPLES);
+        total += Math.hypot(q[0] - prev[0], q[1] - prev[1]);
+        prev = q;
+      }
+    };
+    walkPath(d, {
+      move: () => {},
+      line: (x0, y0, x, y) => { total += Math.hypot(x - x0, y - y0); },
+      close: (x, y, sx, sy) => { total += Math.hypot(sx - x, sy - y); },
+      quad: (x0, y0, x1, y1, x2, y2) => seg((t) => [evalQuad(x0, x1, x2, t), evalQuad(y0, y1, y2, t)]),
+      conic: (x0, y0, x1, y1, x2, y2, w) => seg((t) => [evalConic(x0, x1, x2, w, t), evalConic(y0, y1, y2, w, t)]),
+      cubic: (x0, y0, x1, y1, x2, y2, x3, y3) =>
+        seg((t) => [evalCubic(x0, x1, x2, x3, t), evalCubic(y0, y1, y2, y3, t)]),
+    });
+    return F(total);
+  }
+  globalThis.__pathLength = pathLength;
+
+  return pathBBox;
 })();
+

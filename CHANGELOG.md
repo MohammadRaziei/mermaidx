@@ -22,6 +22,10 @@ Two breaking changes to how a renderer is chosen, and a new renderer, pele.
 - `ImportError` for a missing `mini-racer` now names the right extra, `mermaidx[v8engine]`
   (it said `mermaidx[v8]`, which does not exist), and is raised for `engine="v8"`.
 - The minimum `novasvg` is now 0.11.4 (see below).
+- The bundled mermaid.js is **v11.16.1** (it was v11.16.0), the newest release the DOM shim runs without
+  changes. v11.17.0 and later (and v12) break `24_c4_context`, `25_requirement` and `38_class_advanced` with
+  a `TypeError` in the shim, and v12 also draws other shapes and edges, so the reference SVGs in
+  `tests/samples` would have to be rendered again with mermaid-cli 12.
 
 ### Added
 

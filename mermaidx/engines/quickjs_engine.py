@@ -173,7 +173,7 @@ class Engine:
 
     # -- public, thread-safe entry point ---------------------------------------
 
-    def render_svg(self, code: str, theme: str, config: Optional[dict], css: Optional[str]) -> str:
+    def render_svg(self, code: str, theme: Optional[str], config: Optional[dict], css: Optional[str]) -> str:
         if self._executor is None:
             raise RuntimeError("Engine is not started.")
         result = self._executor.submit(self._render_svg_sync, code, theme, config, css).result()
