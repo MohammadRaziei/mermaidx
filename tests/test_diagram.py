@@ -298,7 +298,7 @@ def test_pele_renders_svg_and_png():
 
 
 def test_pele_png_is_painted_not_black():
-    """pele colours everything with nested CSS variables, which novasvg only resolves from 0.11.4 on; before
+    """pele colors everything with nested CSS variables, which novasvg only resolves from 0.11.4 on; before
     that every shape came out solid black."""
     r, g, b, a = mermaidx.render("flowchart LR\n A[Start]", backend="js:pele").numpy()[10, 10]
     assert not (r < 40 and g < 40 and b < 40 and a > 0)

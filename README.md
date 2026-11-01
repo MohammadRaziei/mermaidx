@@ -112,7 +112,7 @@ flowchart TB
 
     subgraph MX ["mermaidx: Mermaid to SVG"]
         direction LR
-        JS["JS engine<br/>QuickJS-ng, or V8 (optional)"] --> MJS["mermaid.js v12<br/>bundled, unmodified"]
+        JS["JS engine<br/>QuickJS-ng, or V8 (optional)"] --> MJS["mermaid.js / pele.js<br/>bundled, unmodified"]
         SHIM["DOM and SVG shims<br/>stand-ins for browser APIs"] -.-> MJS
     end
 

@@ -32,7 +32,7 @@ WORD = "آزمون"
 TEMPLATES = {
     "flowchart": 'flowchart LR\n    A["{word} — ≥65"] --> B["① next • step"]',
     "sequence": "sequenceDiagram\n    A->>B: {word} — ≥65",
-    "journey": "journey\n    title {word} — plan\n    section ① Start\n      Enrol — screen: 5: Me",
+    "journey": "journey\n    title {word} — plan\n    section ① Start\n      Enroll — screen: 5: Me",
     "timeline": "timeline\n    title {word} — history\n    2024 : kickoff ≥65\n    2025 : launch • review",
     "gantt": (
         "gantt\n    title {word}\n    dateFormat YYYY-MM-DD\n"

@@ -54,7 +54,7 @@ Two breaking changes to how a renderer is chosen, a new renderer (pele), and Mer
 - The DOM shim now provides what Mermaid 12 asks of a browser: `CSSStyleSheet` rules with a live `style` object
   (`setProperty`, `length`), `SVGElement.ownerSVGElement`, `SVGGeometryElement.getTotalLength()` (it sizes the dashes
   of an edge; it was missing, so they came out as `0 0 -4 4`) and `nodeType` as a prototype accessor, which
-  DOMPurify needs to recognise a node. Without the last one DOMPurify dropped a whole diagram whose label contained
+  DOMPurify needs to recognize a node. Without the last one DOMPurify dropped a whole diagram whose label contained
   `<<...>>`, as the requirement diagram does.
 - The SVG path walker behind `getBBox()` now also reads a `Z` at the very end of a path (it was only read when
   another character followed). The box does not change, but the new path length needs the closing segment.
@@ -65,7 +65,7 @@ Two breaking changes to how a renderer is chosen, a new renderer (pele), and Mer
   `tests/samples/README.md`). The structural test allows one pixel on numbers. `24_c4_context`,
   `37_erd_relations` and `38_class_advanced` are recorded as strict expected failures on both engines: Chrome
   rounds a fractional font size before measuring, which can move a wrap or a size threshold (see Known issues).
-- The label-centre check in `tests/test_samples.py` skips `24_c4_context`, whose label group is placed by its
+- The label-center check in `tests/test_samples.py` skips `24_c4_context`, whose label group is placed by its
   top-left corner in Mermaid 12 (`mmdc` does the same).
 - pytest runs with `pytest-timeout` (120 s, `thread` method, which also works while a JS engine is running native
   code) and prints the 25 slowest tests (`--durations`). It is part of the `test` extra.
