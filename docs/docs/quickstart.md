@@ -65,7 +65,7 @@ Try it in [Google Colab](https://colab.research.google.com/github/mohammadraziei
 
 ## Choose a backend
 
-Pass `backend=` to use another renderer, and `engine=` to pick the JS engine it runs in. Each is described on the [backends](./backends.md) page.
+Pass `backend=` to use another renderer, and `engine=` to pick the JS engine it runs in. Each is described on the [backends](./backends.md) page. `js:pele` is far faster than the default `js:mermaid`, but it draws its own layout, so look at the [Benchmarks](/benchmarks) page before you switch.
 
 ```python
 mermaidx.render("flowchart LR; A-->B", backend="js:pele")

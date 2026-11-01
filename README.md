@@ -11,6 +11,10 @@ No browser. No Node.js. No system packages. Just `pip install mermaidx`.
 [![Python](https://img.shields.io/pypi/pyversions/mermaidx.svg)](https://pypi.org/project/mermaidx)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Tests](https://github.com/MohammadRaziei/mermaidx/actions/workflows/wheel.yml/badge.svg)](https://github.com/MohammadRaziei/mermaidx/actions/workflows/wheel.yml)
+<!-- Static badges: update the two versions with mermaidx/assets/mermaid.js (see its npm version) and mermaidx/assets/pele.js, and the count with mermaidx.backends() plus mermaidx[rust]. -->
+[![mermaid.js](https://img.shields.io/badge/mermaid.js-12.2.0-ff3670)](https://mermaid.js.org)
+[![pele.js](https://img.shields.io/badge/pele.js-1.12.0-8a63d2)](https://pele.run)
+[![Backends](https://img.shields.io/badge/backends-4-2ea44f)](#backends)
 [![GitHub stars](https://img.shields.io/github/stars/MohammadRaziei/mermaidx?style=social)](https://github.com/MohammadRaziei/mermaidx/stargazers)
 
 [Documentation](https://mohammadraziei.github.io/mermaidx) ·
@@ -41,7 +45,7 @@ d.save("diagram.png", scale=2.0)
 - **Many outputs.** SVG, PNG, JPG/JPEG, BMP, TGA, PDF, raw RGBA, NumPy arrays and terminal ASCII art.
 - **One process.** Synchronous, in-process rendering, plus `render_many()` for parallel batches.
 - **Jupyter-ready.** A diagram displays itself as the last expression of a cell.
-- **Pluggable backends.** mermaid.js (default), pele, or native Rust (optional), on QuickJS-ng (default) or V8 (optional).
+- **Pluggable backends.** mermaid.js (default), pele, or native Rust (optional), on QuickJS-ng (default) or V8 (optional). pele is far faster than mermaid.js but draws its own layout: see the [benchmarks](https://mohammadraziei.github.io/mermaidx/benchmarks) before you choose.
 
 ## Installation
 
@@ -220,7 +224,7 @@ flowchart TB
 The API is the same for every backend: `render()` always returns a `Diagram`, and `.svg()`, `.png()`, `.pdf()` and `.save()` work identically whichever one you pick. What is **not** the same is how the SVG gets made, so **speed and the rendered result can differ** between backends:
 
 - **`js:mermaid` is the original mermaid.js.** Only the JavaScript engine differs between `quickjs` and `v8`: V8 is faster, QuickJS installs anywhere. The engine never changes the result. Text is measured with the bundled DejaVu Sans, not with the fonts of a browser, so a diagram can differ from your own `mmdc` run by a fraction of a pixel in text width (see *Known issues* in the docs).
-- **`js:pele` is a different implementation**, in JavaScript. Its layout and styling differ from mermaid.js, so the output will not match it. It takes `config` and `css` but no `theme`: restyle it with its CSS variables, for example `css="svg{--pele-bg:#111;--pele-fg:#eee}"`.
+- **`js:pele` is a different implementation**, in JavaScript, and **much faster**: in our timings it renders a small diagram in a few milliseconds where `js:mermaid` takes about a second, over 100 times faster. The price is that its layout and styling differ from mermaid.js, so the output will not match it. The [**Benchmarks** page](https://mohammadraziei.github.io/mermaidx/benchmarks) shows the measured times and every sample rendered by every backend side by side; have a look before you pick one. It takes `config` and `css` but no `theme`: restyle it with its CSS variables, for example `css="svg{--pele-bg:#111;--pele-fg:#eee}"`.
 - **`rust:merman` and `rust:mermaid-rs-renderer` are different implementations**, written in Rust rather than JavaScript. Their layout can differ from mermaid.js, they may not support every diagram type, and they take different options (`theme`, `node_spacing`, `rank_spacing`, `aspect_ratio` instead of `config` and `css`).
 
 Whatever the backend, the SVG then goes through the same novasvg rasterizer, so the pixels are painted the same way. Only the SVG it receives differs. (pele paints with nested CSS variables, which novasvg resolves from 0.11.4 on.)

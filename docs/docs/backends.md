@@ -11,9 +11,11 @@ A backend is named `<kind>:<name>`.
 | Backend | What runs | Use it when |
 | --- | --- | --- |
 | `js:mermaid` (default) | The real mermaid.js | You want the reference output, or any diagram type |
-| `js:pele` | [pele](https://pele.run), a small Mermaid renderer in JavaScript | You want a lighter, differently styled diagram themed with CSS variables |
+| `js:pele` | [pele](https://pele.run), a small Mermaid renderer in JavaScript | You want speed (it is far faster than mermaid.js) and can accept its own layout and look, themed with CSS variables |
 | `rust:merman` | Native Rust, through `mmdr` | You want no JavaScript engine at all |
 | `rust:mermaid-rs-renderer` | Native Rust, an alternative renderer from `mmdr` | Same as above, with a different layout engine |
+
+mermaidx bundles mermaid.js 12.2.0 and pele 1.12.0.
 
 The `js:` backends run inside a JS engine, chosen with `engine=`. It is `None` unless you set it, and `None` means `quickjs`.
 
@@ -41,7 +43,7 @@ One diagram, `39_mindmap_shapes`, currently renders differently on V8. See [know
 
 ## js:pele
 
-pele is a separate renderer with its own layout, so its output differs from mermaid.js. It needs no DOM, runs on either engine, and is themed with CSS variables rather than Mermaid themes: leave `theme` unset, and pass `css`, for example `css="svg{--pele-bg:#111;--pele-fg:#eee}"`. `config` is passed to pele. PNG, JPEG and PDF output need `novasvg` 0.11.4 or newer, which mermaidx requires, because pele paints with nested CSS variables.
+pele is a separate renderer with its own layout, so its output differs from mermaid.js. It is also much faster: in our timings it renders a small diagram in a few milliseconds where `js:mermaid` takes about a second (over 100 times faster on the samples we timed). The [Benchmarks page](/benchmarks) has the measured times and every sample rendered by every backend, so you can see what the different layout looks like before you choose it. It needs no DOM, runs on either engine, and is themed with CSS variables rather than Mermaid themes: leave `theme` unset, and pass `css`, for example `css="svg{--pele-bg:#111;--pele-fg:#eee}"`. `config` is passed to pele. PNG, JPEG and PDF output need `novasvg` 0.11.4 or newer, which mermaidx requires, because pele paints with nested CSS variables.
 
 ## Rust backends
 
