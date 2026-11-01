@@ -15,7 +15,7 @@ A backend is named `<kind>:<name>`.
 | `rust:merman` | Native Rust, through `mmdr` | You want no JavaScript engine at all |
 | `rust:mermaid-rs-renderer` | Native Rust, an alternative renderer from `mmdr` | Same as above, with a different layout engine |
 
-mermaidx bundles mermaid.js 12.2.0 and pele 1.12.0.
+mermaidx bundles mermaid.js 12.2.0 and pele 1.13.0.
 
 The `js:` backends run inside a JS engine, chosen with `engine=`. It is `None` unless you set it, and `None` means `quickjs`.
 
