@@ -209,8 +209,8 @@ flowchart TB
         MR["rust:mermaid-rs-renderer<br/>native Rust"]
     end
 
-    PICK -->|"default"| MJ
-    PICK -->|"js:pele"| PE
+    PICK -->|"mermaidx"| MJ
+    PICK -->|"mermaidx"| PE
     PICK -->|"mermaidx[rust]"| MM
     PICK -->|"mermaidx[rust]"| MR
 

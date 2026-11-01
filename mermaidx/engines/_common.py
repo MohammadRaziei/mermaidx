@@ -35,7 +35,7 @@ _ESM_EXPORT = re.compile(r"export\s*\{([^}]*)\}\s*;?\s*$")
 
 
 def esm_to_global(source: str, name: str) -> str:
-    """Turns an ES module that ends in one `export{a as b,...};` (a bundler's output, like pele.js from jsdelivr)
+    """Turns an ES module that ends in one `export{a as b,...};` (a bundler's output, like pele.js from npm)
     into a classic script that defines `globalThis[name]` -- the engines evaluate scripts, not modules. The module
     body goes in a function, so its top-level `var`s do not leak into the page's global scope."""
     m = _ESM_EXPORT.search(source)

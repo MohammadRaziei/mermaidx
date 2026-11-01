@@ -33,7 +33,7 @@ Two breaking changes to how a renderer is chosen, a new renderer (pele), and Mer
 
 ### Added
 
-- **`backend="js:pele"`**: [pele](https://pele.run) 1.12.0, a small synchronous Mermaid renderer written in
+- **`backend="js:pele"`**: [pele](https://pele.run) 1.13.0, a small synchronous Mermaid renderer written in
   JavaScript, bundled as `mermaidx/assets/pele.js` and runnable on either engine. It has its own layout, so
   its output differs from mermaid.js (all 43 diagrams in `tests/samples` render). It is themed with CSS variables instead of Mermaid
   themes: `theme` must be unset (or `"default"`), `config` is passed to pele, and `css` is added to the SVG
