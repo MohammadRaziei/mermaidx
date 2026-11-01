@@ -41,7 +41,7 @@ d.save("diagram.png", scale=2.0)
 ## Highlights
 
 - **Browserless.** No Chromium (~170 MB), no Puppeteer, no Node.js, no compiler. Prebuilt wheels only.
-- **The real Mermaid.** Not a reimplementation and not a subset: every diagram type Mermaid 12 supports.
+- **The real Mermaid.** Not a reimplementation and not a subset: every diagram type of the Mermaid 12 core, with the ELK layout (`flowchart-elk`, `layout: elk`).
 - **Many outputs.** SVG, PNG, JPG/JPEG, BMP, TGA, PDF, raw RGBA, NumPy arrays and terminal ASCII art.
 - **One process.** Synchronous, in-process rendering, plus `render_many()` for parallel batches.
 - **Jupyter-ready.** A diagram displays itself as the last expression of a cell.
@@ -357,7 +357,9 @@ Use `-q` to silence the "saved to…" message and `--quality N` for JPEG quality
 
 ## Supported diagrams
 
-Everything Mermaid 12 itself supports, because the real library is bundled: flowcharts, sequence, class, state, ER, Gantt, pie, git graphs, mindmaps, timelines, and more.
+Everything Mermaid 12 itself supports, because the real library is bundled: flowcharts, sequence, class, state, ER, Gantt, pie, git graphs, mindmaps, timelines, and more. The ELK layout is included: use `flowchart-elk` or `layout: elk`.
+
+One diagram type is **not** supported: `zenuml`. It is not part of the Mermaid core but a separate package (`@mermaid-js/mermaid-zenuml`) that draws with Vue, and it is not bundled. See [known issues](https://mohammadraziei.github.io/mermaidx/docs/known-issues).
 
 ## Requirements
 

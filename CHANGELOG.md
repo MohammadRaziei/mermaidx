@@ -5,6 +5,22 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 follows [Semantic Versioning](https://semver.org/) (while below 1.0, a minor bump may carry breaking changes).
 
+## [Unreleased]
+
+### Added
+
+- **The ELK layout** (#33). `flowchart-elk`, `layout: elk` (in the frontmatter or in `config=`) and the other ELK
+  algorithms (`elk.stress`, `elk.force`, `elk.mrtree`, ...) fell back to dagre without a word, because mermaid.js
+  only knows ELK once `registerLayoutLoaders` has been called. `mermaidx/assets/layout_elk.js`
+  (`@mermaid-js/layout-elk` 1.0.1 with elkjs, 2.4 MB, about 690 KB compressed in the wheel) is now evaluated for a
+  diagram that asks for ELK, and only for that one, so no other diagram gets slower. It works on both engines.
+  The diagrams that ask for ELK are laid out differently than before (they were drawn by dagre).
+  `js:pele` has its own layout and ignores the request. Rebuild the file with `tools/build_layout_elk.sh`.
+
+### Docs
+
+- `zenuml` is documented as not supported (#20): known issues and README.
+
 ## [0.11.0] - 2026-11-01
 
 Two breaking changes to how a renderer is chosen, a new renderer (pele), and Mermaid 12.

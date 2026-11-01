@@ -108,6 +108,24 @@ def pele_render_script(code: str, config: Optional[dict]) -> str:
     )
 
 
+# A diagram asks for the ELK layout with `flowchart-elk`, `layout: elk` (frontmatter), `%%{init: {"layout": "elk"}}%%`,
+# or `config={"layout": "elk"}`; the other ELK algorithms are named `elk.stress`, `elk.force` and so on. All of them
+# contain the word `elk`. A false positive only costs the time to load the script, so the test stays this simple.
+_ELK_WORD = re.compile(r"\belk\b", re.IGNORECASE)
+
+
+def needs_elk(code: str, config: dict | None = None) -> bool:
+    """True if the diagram source or the config asks for the ELK layout (see the comment above)."""
+    return bool(_ELK_WORD.search(code) or (config and _ELK_WORD.search(json.dumps(config, default=str))))
+
+
+@lru_cache(maxsize=1)
+def _elk_script() -> str:
+    """assets/layout_elk.js (built by tools/build_layout_elk.sh): registers the ELK layout on the `mermaid` global.
+    It is 2.4 MB, so it is not part of every context, only of the render script of a diagram that needs it."""
+    return (_ASSETS_DIR / "layout_elk.js").read_text(encoding="utf-8")
+
+
 def render_script(code: str, theme: Optional[str], config: Optional[dict], css: Optional[str],
                   library: str = "mermaid") -> str:
     """One script that starts a render in a fresh context: a clean document, mermaid.initialize(), the caller's
@@ -115,7 +133,8 @@ def render_script(code: str, theme: Optional[str], config: Optional[dict], css: 
     returned promise settles. Every value goes in as a JSON literal, so any text is passed through unchanged.
 
     For library="pele" the script is pele_render_script() (theme and css are applied by the caller, in Python:
-    pele is themed by CSS variables, not by a theme name)."""
+    pele is themed by CSS variables, not by a theme name; it has no ELK layout and ignores a request for it).
+    For a diagram that needs the ELK layout (see needs_elk), the ELK script comes first."""
     if library == "pele":
         return pele_render_script(code, config)
     css_block = ""
@@ -128,7 +147,9 @@ def render_script(code: str, theme: Optional[str], config: Optional[dict], css: 
             "  document.head.appendChild(el);\n"
             "})();\n"
         )
+    elk = _elk_script() + "\n" if needs_elk(code, config) else ""
     return (
+        f"{elk}"
         "__resetDocument();\n"
         f"mermaid.initialize({json.dumps(mermaid_config(theme, config))});\n"
         f"{css_block}"

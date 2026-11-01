@@ -32,6 +32,12 @@ This is recorded in the test suite as a strict expected failure, so the test fai
 
 A label that contains an `<img>` tag makes the `js:mermaid` backend fail with `mermaid.render() produced no output (unknown error)`; `mmdc` renders the image. Mermaid waits for each image to finish loading, and mermaidx never loads images, so the wait never ends. Remove the `<img>` from the label, or draw the image another way. The other things tried in a label (entities, `<b>`, `<i>`) match `mmdc`, and `<script>` and event attributes such as `onclick` are removed, as in `mmdc`.
 
+## `zenuml` diagrams are not supported
+
+A `zenuml` diagram fails with `UnknownDiagramError: No diagram type detected matching given configuration`. In Mermaid, `zenuml` is not part of the core package: it is an external diagram, the separate package `@mermaid-js/mermaid-zenuml`, that a page has to import and register with `mermaid.registerExternalDiagrams`. It also draws with Vue, while every other diagram type uses d3. The bundled `mermaid.js` does not contain it, and neither does `pele`.
+
+Supporting it would mean bundling that package and checking that Vue runs against the small fake DOM; nobody has tried this yet, so it may not work even when bundled. If you want to help, see [#20](https://github.com/MohammadRaziei/mermaidx/issues/20).
+
 ## Rust backends
 
 `rust:merman` and `rust:mermaid-rs-renderer` are independent implementations. They can lay out a diagram differently from mermaid.js, and may not support every diagram type. See the [benchmark gallery](/benchmarks) for the current state.
