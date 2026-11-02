@@ -1,0 +1,16 @@
+zenuml
+    title Order Service
+    @Actor Client
+    @Database DB
+    OrderService
+    Client->OrderService.create(order) {
+      if (order.valid) {
+        DB.save(order)
+        return ok
+      } else {
+        return error
+      }
+      while (retry) {
+        OrderService->OrderService.again()
+      }
+    }

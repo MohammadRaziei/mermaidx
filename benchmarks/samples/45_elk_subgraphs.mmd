@@ -1,0 +1,38 @@
+---
+config:
+  layout: elk
+---
+flowchart LR
+  subgraph Clients
+    web[Web app]
+    mobile[Mobile app]
+    cli[CLI]
+  end
+  subgraph Edge
+    lb[Load balancer]
+    gw[API gateway]
+  end
+  subgraph Services
+    auth[Auth]
+    orders[Orders]
+    billing[Billing]
+    notify[Notifications]
+  end
+  subgraph Data
+    pg[(Postgres)]
+    cache[(Redis)]
+    queue[[Message queue]]
+  end
+  web --> lb
+  mobile --> lb
+  cli --> gw
+  lb --> gw
+  gw --> auth
+  gw --> orders
+  orders --> billing
+  orders --> queue
+  billing --> pg
+  orders --> pg
+  auth --> cache
+  queue --> notify
+  notify --> mobile

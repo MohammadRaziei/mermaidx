@@ -3,6 +3,7 @@ import Layout from '@theme/Layout';
 import Link from '@docusaurus/Link';
 import useBaseUrl from '@docusaurus/useBaseUrl';
 import BenchCharts from '../components/BenchCharts';
+import SupportMatrix, { FEATURES, ignoresElk } from '../components/SupportMatrix';
 import { colorOf, fmtMs } from '../components/bench-utils';
 import styles from './benchmarks.module.css';
 
@@ -24,6 +25,8 @@ function summarize(data) {
       const res = s.results[r.id];
       if (res && res.status === 'ok') {
         ok += 1;
+        // The times and the speed-up are for the core diagrams: ELK and ZenUML have their own row in the table below.
+        if (s.feature) continue;
         times.push(res.time_ms);
         const ref = s.results[reference.id];
         if (ref && ref.status === 'ok' && r.id !== reference.id) ratios.push(ref.time_ms / res.time_ms);
@@ -131,12 +134,18 @@ function Gallery({ data }) {
   const [filter, setFilter] = useState('all');
   const [open, setOpen] = useState(null);
 
+  const hasFeature = (name) => data.samples.some((s) => s.feature === name);
   const hasFailure = (s) => renderers.some((r) => !s.results[r.id] || s.results[r.id].status !== 'ok');
 
   const samples = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const passesFilter = (s) => filter === 'all' || (filter === 'complete' ? !hasFailure(s) : hasFailure(s));
-    let list = data.samples.filter((s) => (!q || `${s.id} ${s.type}`.toLowerCase().includes(q)) && passesFilter(s));
+    const passesFilter = (s) => {
+      if (filter === 'all') return true;
+      if (filter === 'complete') return !hasFailure(s);
+      if (filter === 'incomplete') return hasFailure(s);
+      return s.feature === filter; // 'elk' or 'zenuml'
+    };
+    let list = data.samples.filter((s) => (!q || `${s.id} ${s.type} ${s.feature || ''}`.toLowerCase().includes(q)) && passesFilter(s));
     const refTime = (s) => {
       const res = s.results[reference.id];
       return res && res.status === 'ok' ? res.time_ms : -1;
@@ -174,6 +183,8 @@ function Gallery({ data }) {
             <option value="all">All diagrams</option>
             <option value="complete">Drawn by every renderer</option>
             <option value="incomplete">Not supported by at least one renderer</option>
+            {hasFeature('elk') && <option value="elk">ELK layout only</option>}
+            {hasFeature('zenuml') && <option value="zenuml">ZenUML only</option>}
           </select>
         </label>
         <span className={styles.count} aria-live="polite">{samples.length} of {data.samples.length} diagrams</span>
@@ -195,7 +206,13 @@ function Gallery({ data }) {
                   <a className="hash-link" href={`#${s.id}`} aria-label={`Link to ${s.title}`} />
                 </h3>
                 <code>{s.type}</code>
+                {s.feature && FEATURES[s.feature] && <span className={styles.badge}>{FEATURES[s.feature].short}</span>}
               </div>
+              {s.feature === 'elk' && renderers.some((r) => ignoresElk(r.id) && s.results[r.id] && s.results[r.id].status === 'ok') && (
+                <p className={styles.rowNote}>
+                  js:pele has no ELK layout: its picture is drawn with its own layout, so it is not an ELK picture.
+                </p>
+              )}
               <div className={styles.cells} style={{ '--cols': renderers.length }}>
                 {renderers.map((r) => (
                   <Cell key={r.id} renderer={r} res={s.results[r.id]} sample={s} fastest={s.results[r.id] && s.results[r.id].time_ms === best} onOpen={setOpen} />
@@ -231,7 +248,8 @@ function Meta({ meta }) {
         </dd>
         <dt>Runs</dt>
         <dd>
-          Median of {meta.repeats} runs per diagram for mermaidx and {meta.mmdc_repeats} for mmdc. White background.
+          Median of {meta.repeats} runs per diagram for mermaidx and {meta.mmdc_repeats} for mmdc. White background. The
+          medians and speed-ups at the top are for the diagrams of core Mermaid; ELK and ZenUML are in their own rows.
         </dd>
       </dl>
       <p><a href={useBaseUrl('/benchmarks/results.json')}>Download the raw results (JSON)</a></p>
@@ -263,8 +281,9 @@ export default function Benchmarks() {
       <main className={styles.page}>
         <h1>Benchmarks</h1>
         <p className={styles.intro}>
-          The same {state.status === 'ok' ? state.data.samples.length : 43} Mermaid diagrams, rendered by the official mermaid-cli and by every
-          mermaidx backend. Compare the pictures, and the time each renderer needed to produce them.
+          The same {state.status === 'ok' ? state.data.samples.length : 49} Mermaid diagrams, rendered by the official mermaid-cli and by every
+          mermaidx backend, including the ELK layout and ZenUML, which mermaid.js does not draw by itself. Compare the pictures,
+          the time each renderer needed to produce them, and which diagrams a renderer cannot draw at all.
         </p>
         {state.status === 'loading' && <p>Loading results…</p>}
         {state.status === 'missing' && (
@@ -285,6 +304,7 @@ export default function Benchmarks() {
               </div>
             )}
             <BenchCharts data={state.data} rows={summarize(state.data)} log={log} onLogChange={setLog} />
+            <SupportMatrix data={state.data} />
             <Gallery data={state.data} />
             <Meta meta={state.data.meta} />
           </>

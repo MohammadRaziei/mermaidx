@@ -488,7 +488,7 @@ export default function BenchCharts({ data, rows, log, onLogChange }) {
         <figure className={styles.figure}>
           <figcaption>
             <strong>Median time per diagram</strong>
-            <span>Shorter is faster. Compared with {ref.label}.</span>
+            <span>Shorter is faster. Compared with {ref.label}. Core Mermaid diagrams only; ELK and ZenUML are in the table below.</span>
           </figcaption>
           <div className={styles.canvasWrap} style={{ height: 36 + rows.length * 48 }} role="img"
             aria-label={`Median time per diagram: ${rows.map((r) => `${r.label} ${fmtMs(r.median)}`).join(', ')}`}>

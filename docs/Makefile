@@ -103,7 +103,7 @@ $(SHOWCASE): $(PY_STAMP) scripts/make_showcase.py $(wildcard $(ROOT)/tests/sampl
 
 showcase: $(SHOWCASE) ## Render the landing-page examples with mermaidx
 
-benchmark: $(BENCH_DEPS) ## Render tests/samples with mmdc and every backend (always runs)
+benchmark: $(BENCH_DEPS) ## Render tests/samples and benchmarks/samples with mmdc and every backend (always runs)
 	PATH="$(BENCH_PATH)$$PATH" $(PYTHON) $(ROOT)/benchmarks/run.py --out $(BENCH_OUT) $(RUN_ARGS)
 
 # ---- the site ----------------------------------------------------------------------

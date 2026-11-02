@@ -16,6 +16,17 @@ follows [Semantic Versioning](https://semver.org/) (while below 1.0, a minor bum
   data into `results.json` (`footprint`, `scaling`, and `chars` and `labels` for the samples), and has the new options
   `--scaling-items` and `--scaling-repeats`. The page still works with a `results.json` made by an older script. How
   each one is measured is in "How the benchmarks work".
+- **ELK layout and ZenUML in the benchmark.** Six new diagrams in `benchmarks/samples` (three `layout: elk` flowcharts and
+  three ZenUML sequence diagrams) are rendered by every renderer, `benchmarks/run.py` reads that directory next to
+  `tests/samples` (`--samples` can be given more than once), and `results.json` marks each sample with `feature`
+  (`elk`, `zenuml` or `null`) and `reference` (whether it has a mermaid-cli `.svg`). They are not in `tests/samples`
+  because the tests there need a reference for every sample. The median time, the speed-up and the parallel measurement
+  use the core diagrams only.
+- **A table of what each renderer can draw** on the benchmark page, one row per diagram type, with the ELK layout and
+  ZenUML in a group of their own. A renderer that cannot draw a diagram shows "Not supported" there with its error, and
+  the list "Why a diagram was not drawn" gives every error message with the diagrams it happened on. `js:pele`, which has
+  no ELK layout and draws those flowcharts with its own, is marked "Own layout". The gallery has a badge on these
+  diagrams and the filters "ELK layout only" and "ZenUML only".
 
 ### Fixed
 

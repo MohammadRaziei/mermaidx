@@ -1,0 +1,18 @@
+zenuml
+    title Checkout
+    @Actor Client
+    @Database DB
+    Client->Server.checkout(cart) {
+      par {
+        Server->Stock.reserve(cart)
+        Server->Payment.charge(cart)
+      }
+      try {
+        DB.commit()
+      } catch {
+        Server->Client: failed
+      } finally {
+        Server.log()
+      }
+      return receipt
+    }

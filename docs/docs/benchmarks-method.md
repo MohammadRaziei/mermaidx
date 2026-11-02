@@ -4,7 +4,7 @@ sidebar_position: 6
 description: What the benchmark page measures, how, and how to read it.
 ---
 
-The [benchmark gallery](/benchmarks) renders the same 43 Mermaid files with five renderers and shows the resulting PNGs next to the time each one took. Everything on that page is produced by a CI job on every release, so nothing is typed in by hand.
+The [benchmark gallery](/benchmarks) renders the same Mermaid files with every renderer below and shows the resulting PNGs next to the time each one took. Everything on that page is produced by a CI job on every release, so nothing is typed in by hand.
 
 ## Renderers
 
@@ -17,6 +17,17 @@ The [benchmark gallery](/benchmarks) renders the same 43 Mermaid files with five
 | `js:pele \| v8` | The same with `engine="v8"` |
 | `rust:merman` | The same with `backend="rust:merman"` |
 | `rust:mermaid-rs-renderer` | The same with `backend="rust:mermaid-rs-renderer"` |
+
+## The diagrams
+
+The samples come from two directories:
+
+- `tests/samples` holds the diagrams of core Mermaid. Each one has a reference `.svg` made by mermaid-cli, which the tests compare with (and which the "words drawn" chart below uses).
+- `benchmarks/samples` holds diagrams that only the benchmark uses, so they have no reference. Today these are the **ELK layout** (`flowchart-elk`, and `layout: elk` in the front matter) and **ZenUML**. They cannot live in `tests/samples`, because the tests there need a mermaid-cli reference for every sample.
+
+To add a diagram to the benchmark, put a `.mmd` file in `benchmarks/samples`, named `NN_short_name.mmd` with the next free number.
+
+ELK and ZenUML are not part of core Mermaid, so the page keeps them apart. The median time and the speed-up at the top, and the parallel measurement, use the core diagrams only. ELK and ZenUML have their own rows in the table "What each renderer can draw". They also take longer, on purpose: mermaidx evaluates the ELK layout (2.4 MB of JavaScript) only for a diagram that asks for it, and draws ZenUML with the renderer of `@zenuml/core`.
 
 ## What is timed
 
@@ -35,6 +46,16 @@ The clock covers the work from Mermaid text to PNG bytes (to a PNG file for `mmd
 - The speed-up written next to each bar in the first chart is the median, over the samples both renderers handled, of `mmdc` time divided by that renderer's time.
 - Absolute times depend on the CI machine. The machine and every version are listed on the page, so treat the numbers as relative.
 - The images are not identical. Each renderer lays out and paints text its own way, which makes the gallery useful for spotting visual differences too.
+
+## What each renderer can draw
+
+A renderer is never dropped because it cannot draw a diagram. The script records the error, and the page shows it in three places:
+
+- the table **What each renderer can draw** has one row per diagram type, and a cell says whether the renderer drew all of them, some (`2 of 3`) or none (**Not supported**, with the error in the tooltip);
+- the list **Why a diagram was not drawn** gives, for each renderer, every error message and the diagrams it happened on;
+- the gallery shows **Not supported** where the picture would be, and the filter "ELK layout only" or "ZenUML only" shows just those diagrams.
+
+`js:pele` has no ELK layout and does not raise an error for it: it draws the flowchart with its own layout. The table calls this **Own layout**, because the picture is a drawing of the diagram, but not an ELK one. ZenUML is not known to `js:pele`, so it fails there. Other renderers are shown exactly as they behaved in that run. For `mmdc` that depends on the plugins of the mermaid-cli version that was installed.
 
 ## More measurements
 

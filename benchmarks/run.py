@@ -6,6 +6,11 @@ Writes, under --out:
     png/<sample>/<renderer>.png       the rendered image
     mmd/<sample>.mmd                  the Mermaid source, for the download button
 
+Samples come from tests/samples (each has a mermaid-cli reference .svg) and from benchmarks/samples (diagrams that
+only the benchmark uses, with no reference: ELK layout and ZenUML, which tests/samples cannot hold because its tests
+need a reference for every sample). A renderer that cannot draw a diagram is recorded as an error, not left out:
+the page shows it as "Not supported" with the message.
+
 The clock covers Mermaid text -> PNG. mermaidx is called as a library (warm,
 median of --repeats); mmdc is started once per run (median of --mmdc-repeats),
 so its time includes starting Node.js and Chrome. See docs/docs/benchmarks-method.md.
@@ -14,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import importlib
 import json
 import os
 import platform
@@ -30,6 +36,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 WARMUP_SOURCE = "flowchart LR\n    A --> B"
+SAMPLE_DIRS = (ROOT / "tests" / "samples", ROOT / "benchmarks" / "samples")
 BACKGROUND = "#ffffff"
 
 
@@ -49,6 +56,18 @@ def diagram_type(source: str) -> str:
         if line and not line.startswith("%%"):
             return re.split(r"[\s;:{(]", line, maxsplit=1)[0] or "unknown"
     return "unknown"
+
+
+def sample_feature(source: str):
+    """"elk" for a diagram that asks for the ELK layout, "zenuml" for ZenUML, None for the rest. These are the
+    two things mermaid.js does not do by itself, so the page lists them apart."""
+    if diagram_type(source) == "zenuml":
+        return "zenuml"
+    try:
+        needs_elk = importlib.import_module("mermaidx.engines._common").needs_elk
+    except (ImportError, AttributeError):  # an older mermaidx without ELK
+        return None
+    return "elk" if needs_elk(source) else None
 
 
 def short_error(exc: BaseException) -> str:
@@ -280,10 +299,11 @@ def mmdc_footprint():
 MIN_SAMPLES_FOR_SCALING = 3
 
 
-def measure_scaling(names, available, per_renderer, sources, *, items, repeats, log):
+def measure_scaling(names, available, per_renderer, sources, *, items, repeats, log, skip=()):
     """How much faster does render_many() get with more worker processes? Mermaid text -> SVG (that is what the
     workers do) for `items` diagrams, the ones in the middle of the renderer's own timings, so that one slow diagram
-    does not decide the result. Returns None when there is nothing to measure."""
+    does not decide the result. The samples in `skip` (ELK and ZenUML, which load more JavaScript) are left out.
+    Returns None when there is nothing to measure."""
     import mermaidx
 
     cores = os.cpu_count() or 1
@@ -291,7 +311,7 @@ def measure_scaling(names, available, per_renderer, sources, *, items, repeats, 
     series = []
     for name in names:
         results = per_renderer.get(f"mermaidx-{name}", {})
-        done = {stem: r for stem, r in results.items() if r and r.get("status") == "ok"}
+        done = {stem: r for stem, r in results.items() if r and r.get("status") == "ok" and stem not in skip}
         if len(done) < MIN_SAMPLES_FOR_SCALING:
             continue
         middle = sorted(done, key=lambda stem: done[stem]["time_ms"])
@@ -355,7 +375,8 @@ def ok_result(sample_id, renderer_id, data, runs, out_dir):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--samples", type=Path, default=ROOT / "tests" / "samples")
+    ap.add_argument("--samples", type=Path, action="append",
+                    help="directory of .mmd samples (repeatable; default: tests/samples and benchmarks/samples)")
     ap.add_argument("--out", type=Path, default=ROOT / "docs" / "static" / "benchmarks")
     ap.add_argument("--repeats", type=int, default=5, help="timed runs per sample for mermaidx")
     ap.add_argument("--mmdc-repeats", type=int, default=3, help="timed runs per sample for mmdc")
@@ -374,11 +395,15 @@ def main(argv=None):
     def log(msg):
         print(msg, flush=True)
 
-    samples = sorted(args.samples.glob("*.mmd"))
+    sample_dirs = args.samples or [d for d in SAMPLE_DIRS if d.is_dir()]
+    samples = sorted((s for d in sample_dirs for s in d.glob("*.mmd")), key=lambda s: s.stem)
+    names = [s.stem for s in samples]
+    if len(set(names)) != len(names):
+        sys.exit("two samples have the same name: " + ", ".join(sorted({n for n in names if names.count(n) > 1})))
     if args.only:
         samples = [s for s in samples if s.stem in set(args.only)]
     if not samples:
-        sys.exit(f"no .mmd samples found in {args.samples}")
+        sys.exit("no .mmd samples found in " + ", ".join(str(d) for d in sample_dirs))
 
     args.out.mkdir(parents=True, exist_ok=True)
     shutil.rmtree(args.out / "png", ignore_errors=True)
@@ -439,7 +464,8 @@ def main(argv=None):
         ids = ("mermaidx-quickjs", "mermaidx-pele-quickjs")
         names = [r["id"].removeprefix("mermaidx-") for r in renderers if r["id"] in ids]
         scaling = measure_scaling(names, available, per_renderer, sources,
-                                  items=args.scaling_items, repeats=args.scaling_repeats, log=log)
+                                  items=args.scaling_items, repeats=args.scaling_repeats, log=log,
+                                  skip={stem for stem, text in sources.items() if sample_feature(text)})
 
     def version(pkg):
         try:
@@ -471,6 +497,8 @@ def main(argv=None):
                 "title": re.sub(r"^\d+_", "", s.stem).replace("_", " "),
                 "type": diagram_type(sources[s.stem]),
                 "chars": len(sources[s.stem]),
+                "feature": sample_feature(sources[s.stem]),
+                "reference": s.with_suffix(".svg").is_file(),
                 "source": f"mmd/{s.name}",
                 "results": {r["id"]: per_renderer[r["id"]].get(s.stem) for r in renderers},
             }

@@ -109,6 +109,21 @@
   vertical-align: 0.12em;
 }
 
+.badge {
+  padding: 0.05rem 0.55rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--mx-muted);
+  border: 1px solid var(--mx-line);
+  border-radius: 999px;
+}
+
+.rowNote {
+  margin: -0.4rem 0 0.9rem;
+  font-size: 0.88rem;
+  color: var(--mx-muted);
+}
+
 .rowFoot {
   margin-top: 0.9rem;
 }
