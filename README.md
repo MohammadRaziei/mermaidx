@@ -359,7 +359,7 @@ Use `-q` to silence the "saved to…" message and `--quality N` for JPEG quality
 
 Everything Mermaid 12 itself supports, because the real library is bundled: flowcharts, sequence, class, state, ER, Gantt, pie, git graphs, mindmaps, timelines, and more. The ELK layout is included: use `flowchart-elk` or `layout: elk`.
 
-One diagram type is **not** supported: `zenuml`. It is not part of the Mermaid core but a separate package (`@mermaid-js/mermaid-zenuml`) that draws with Vue, and it is not bundled. See [known issues](https://mohammadraziei.github.io/mermaidx/docs/known-issues).
+One diagram type is **not** supported: `zenuml`. It is not part of the Mermaid core but a separate package (`@mermaid-js/mermaid-zenuml`) that draws HTML with React and needs a browser's layout engine, and it is not bundled. See [known issues](https://mohammadraziei.github.io/mermaidx/docs/known-issues).
 
 ## Requirements
 

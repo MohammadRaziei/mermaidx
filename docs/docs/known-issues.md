@@ -34,9 +34,11 @@ A label that contains an `<img>` tag makes the `js:mermaid` backend fail with `m
 
 ## `zenuml` diagrams are not supported
 
-A `zenuml` diagram fails with `UnknownDiagramError: No diagram type detected matching given configuration`. In Mermaid, `zenuml` is not part of the core package: it is an external diagram, the separate package `@mermaid-js/mermaid-zenuml`, that a page has to import and register with `mermaid.registerExternalDiagrams`. It also draws with Vue, while every other diagram type uses d3. The bundled `mermaid.js` does not contain it, and neither does `pele`.
+A `zenuml` diagram fails with `UnknownDiagramError: No diagram type detected matching given configuration`. In Mermaid, `zenuml` is not part of the core package: it is an external diagram, the separate package `@mermaid-js/mermaid-zenuml` (a thin wrapper around `@zenuml/core`) that a page has to import and register with `mermaid.registerExternalDiagrams`. The bundled `mermaid.js` does not contain it, and neither does `pele`.
 
-Supporting it would mean bundling that package and checking that Vue runs against the small fake DOM; nobody has tried this yet, so it may not work even when bundled. If you want to help, see [#20](https://github.com/MohammadRaziei/mermaidx/issues/20).
+Bundling it, as is done for the ELK layout, is the easy part. The hard part is how it draws. Every other diagram type builds SVG shapes. ZenUML renders an HTML page with React into a `foreignObject` and then asks the browser how big it came out (`window.getComputedStyle(container)`). That needs a real browser layout engine, which the small DOM shim of mermaidx does not have, and the result would be a diagram made of HTML that novasvg would have to paint (not tested).
+
+A first experiment (the plugin bundled with esbuild, 3.2 MB, or about 800 KB compressed) stopped on browser globals that the shim lacks: `location`, `localStorage`, and then the prototypes of some DOM classes. Those could be added, but the layout question would remain. If you want to help, see [#20](https://github.com/MohammadRaziei/mermaidx/issues/20).
 
 ## Rust backends
 
