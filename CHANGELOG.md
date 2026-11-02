@@ -5,7 +5,7 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 follows [Semantic Versioning](https://semver.org/) (while below 1.0, a minor bump may carry breaking changes).
 
-## [Unreleased]
+## [0.11.1] - 2026-11-02
 
 ### Added
 
@@ -443,6 +443,8 @@ First release, under the name `mmdc`.
 - CLI entry point with verbose logging.
 - Integration tests, cross-platform CI, and a GitHub Actions workflow to build and release wheels.
 
+[0.11.1]: https://github.com/mohammadraziei/mermaidx/compare/v0.11.0...v0.11.1
+[0.11.0]: https://github.com/mohammadraziei/mermaidx/compare/v0.10.1...v0.11.0
 [0.10.1]: https://github.com/mohammadraziei/mermaidx/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/mohammadraziei/mermaidx/compare/v0.9.5...v0.10.0
 [0.9.5]: https://github.com/mohammadraziei/mermaidx/compare/v0.9.4...v0.9.5
