@@ -16,10 +16,14 @@ follows [Semantic Versioning](https://semver.org/) (while below 1.0, a minor bum
   diagram that asks for ELK, and only for that one, so no other diagram gets slower. It works on both engines.
   The diagrams that ask for ELK are laid out differently than before (they were drawn by dagre).
   `js:pele` has its own layout and ignores the request. Rebuild the file with `tools/build_layout_elk.sh`.
-
-### Docs
-
-- `zenuml` is documented as not supported (#20): known issues and README.
+- **ZenUML diagrams** (#20) render now, on both engines. ZenUML is not part of Mermaid's core: its plugin
+  (`@mermaid-js/mermaid-zenuml`) draws HTML with React into a `foreignObject` and asks a browser how big it came out,
+  which the DOM shim cannot do. mermaidx uses another way: the command line tool of `@zenuml/core` has a renderer of
+  its own, `renderToSvg()`, that writes plain SVG (no `foreignObject`, so every rasterizer can paint it).
+  `mermaidx/assets/zenuml.js` (`@zenuml/core` 3.50.1, 406 KB, about 104 KB compressed) is evaluated for a diagram
+  that starts with `zenuml`, and only for that one. It measures text with the canvas of the DOM shim, so it gets the
+  same real font metrics as mermaid.js. The theme and the config of mermaid do not apply to it, and `js:pele` does not
+  know ZenUML. Rebuild the file with `tools/build_zenuml.sh`.
 
 ## [0.11.0] - 2026-11-01
 

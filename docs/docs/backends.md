@@ -52,6 +52,16 @@ mermaidx.render("flowchart TD\n  A --> B", config={"layout": "elk"})
 
 `js:pele` has its own layout and ignores the request.
 
+### ZenUML
+
+A diagram that starts with `zenuml` is drawn by ZenUML's own SVG renderer, not by mermaid.js. ZenUML is not part of Mermaid's core: its plugin draws HTML with React into a `foreignObject` and asks a browser for the size, which mermaidx cannot do, and rasterizers like novasvg do not paint such labels well anyway. The command line tool of `@zenuml/core` has a renderer that writes plain SVG, and that is what mermaidx runs (`assets/zenuml.js`, 406 KB, loaded only for a ZenUML diagram). It measures text with the same real font metrics as mermaid.js.
+
+```python
+mermaidx.render("zenuml\n  @Actor Alice\n  Alice->Bob: Hi Bob\n  Bob->Alice: Hi Alice").save("chat.png")
+```
+
+The `theme`, `config` and `css` of mermaid do not apply to it (see [known issues](./known-issues.md)), and `js:pele` does not know ZenUML.
+
 ## js:pele
 
 pele is a separate renderer with its own layout, so its output differs from mermaid.js. It is also much faster: in our timings it renders a small diagram in a few milliseconds where `js:mermaid` takes about a second (over 100 times faster on the samples we timed). The [Benchmarks page](/benchmarks) has the measured times and every sample rendered by every backend, so you can see what the different layout looks like before you choose it. It needs no DOM, runs on either engine, and is themed with CSS variables rather than Mermaid themes: leave `theme` unset, and pass `css`, for example `css="svg{--pele-bg:#111;--pele-fg:#eee}"`. `config` is passed to pele. PNG, JPEG and PDF output need `novasvg` 0.11.4 or newer, which mermaidx requires, because pele paints with nested CSS variables.

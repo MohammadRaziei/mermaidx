@@ -108,6 +108,61 @@ def pele_render_script(code: str, config: Optional[dict]) -> str:
     )
 
 
+# A ZenUML diagram starts with `zenuml`, after the frontmatter and the `%%` directives and comments, which is where
+# mermaid looks for it too. ZenUML is not part of mermaid's core: it is the separate package @mermaid-js/mermaid-zenuml,
+# which draws HTML with React and needs a browser to measure it. So mermaidx does not use that package. It runs the
+# SVG renderer that is inside the command line tool of @zenuml/core (assets/zenuml.js, built by
+# tools/build_zenuml.sh), and hands it the text after the `zenuml` line, as the plugin does.
+_FRONTMATTER = re.compile(r"\A\s*---[ \t]*\n.*?\n---[ \t]*(?:\n|\Z)", re.DOTALL)
+_DIRECTIVE_OR_COMMENT = re.compile(r"\A[ \t]*%%[^\n]*(?:\n|\Z)")
+_ZENUML_HEADER = re.compile(r"\A\s*zenuml\b")
+
+
+def zenuml_body(code: str) -> str | None:
+    """The ZenUML text after the `zenuml` line if `code` is a ZenUML diagram, else None."""
+    text = code
+    match = _FRONTMATTER.match(text)
+    if match:
+        text = text[match.end():]
+    while True:
+        match = _DIRECTIVE_OR_COMMENT.match(text)
+        if not match:
+            break
+        text = text[match.end():]
+    match = _ZENUML_HEADER.match(text)
+    return text[match.end():] if match else None
+
+
+def needs_zenuml(code: str) -> bool:
+    return zenuml_body(code) is not None
+
+
+@lru_cache(maxsize=1)
+def _zenuml_script() -> str:
+    """assets/zenuml.js (built by tools/build_zenuml.sh): defines `__zenuml.renderToSvg`. 400 KB, so it is only part
+    of the render script of a ZenUML diagram. It measures text with `document.createElement("canvas")`, which the DOM
+    shim has, so the widths are the same real font metrics mermaid.js gets."""
+    return (_ASSETS_DIR / "zenuml.js").read_text(encoding="utf-8")
+
+
+def zenuml_render_script(body: str) -> str:
+    """The ZenUML counterpart of render_script(): renderToSvg() is synchronous, so the result (or the error) is set
+    when the script returns. Neither the theme nor the config applies to it: they are mermaid's, not ZenUML's."""
+    return (
+        f"{_zenuml_script()}\n"
+        "__resetDocument();\n"
+        "globalThis.__renderResult = null;\n"
+        "globalThis.__renderError = null;\n"
+        "try {\n"
+        f"  const r = globalThis.__zenuml.renderToSvg({json.dumps(body)}, {{}});\n"
+        "  if (!r || !r.width || !r.height) throw new Error('the ZenUML diagram is empty or could not be parsed');\n"
+        "  globalThis.__renderResult = r.svg.slice(0);\n"
+        "} catch (e) {\n"
+        "  globalThis.__renderError = (e && e.name ? e.name + ': ' + e.message : String(e));\n"
+        "}\n"
+    )
+
+
 # A diagram asks for the ELK layout with `flowchart-elk`, `layout: elk` (frontmatter), `%%{init: {"layout": "elk"}}%%`,
 # or `config={"layout": "elk"}`; the other ELK algorithms are named `elk.stress`, `elk.force` and so on. All of them
 # contain the word `elk`. A false positive only costs the time to load the script, so the test stays this simple.
@@ -134,9 +189,13 @@ def render_script(code: str, theme: Optional[str], config: Optional[dict], css: 
 
     For library="pele" the script is pele_render_script() (theme and css are applied by the caller, in Python:
     pele is themed by CSS variables, not by a theme name; it has no ELK layout and ignores a request for it).
-    For a diagram that needs the ELK layout (see needs_elk), the ELK script comes first."""
+    For a diagram that needs the ELK layout (see needs_elk), the ELK script comes first. A ZenUML diagram does not go
+    through mermaid.js at all: zenuml_render_script() (the theme, the config and the css do not apply to it)."""
     if library == "pele":
         return pele_render_script(code, config)
+    body = zenuml_body(code)
+    if body is not None:
+        return zenuml_render_script(body)
     css_block = ""
     if css:
         css_block = (

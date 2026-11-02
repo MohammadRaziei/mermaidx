@@ -32,13 +32,9 @@ This is recorded in the test suite as a strict expected failure, so the test fai
 
 A label that contains an `<img>` tag makes the `js:mermaid` backend fail with `mermaid.render() produced no output (unknown error)`; `mmdc` renders the image. Mermaid waits for each image to finish loading, and mermaidx never loads images, so the wait never ends. Remove the `<img>` from the label, or draw the image another way. The other things tried in a label (entities, `<b>`, `<i>`) match `mmdc`, and `<script>` and event attributes such as `onclick` are removed, as in `mmdc`.
 
-## `zenuml` diagrams are not supported
+## ZenUML: no theme, no config, and not the same as in a browser
 
-A `zenuml` diagram fails with `UnknownDiagramError: No diagram type detected matching given configuration`. In Mermaid, `zenuml` is not part of the core package: it is an external diagram, the separate package `@mermaid-js/mermaid-zenuml` (a thin wrapper around `@zenuml/core`) that a page has to import and register with `mermaid.registerExternalDiagrams`. The bundled `mermaid.js` does not contain it, and neither does `pele`.
-
-Bundling it, as is done for the ELK layout, is the easy part. The hard part is how it draws. Every other diagram type builds SVG shapes. ZenUML renders an HTML page with React into a `foreignObject` and then asks the browser how big it came out (`window.getComputedStyle(container)`). That needs a real browser layout engine, which the small DOM shim of mermaidx does not have, and the result would be a diagram made of HTML that novasvg would have to paint (not tested).
-
-A first experiment (the plugin bundled with esbuild, 3.2 MB, or about 800 KB compressed) stopped on browser globals that the shim lacks: `location`, `localStorage`, and then the prototypes of some DOM classes. Those could be added, but the layout question would remain. If you want to help, see [#20](https://github.com/MohammadRaziei/mermaidx/issues/20).
+A `zenuml` diagram is not drawn by mermaid.js but by the SVG renderer of `@zenuml/core` (see [backends](./backends.md)), so Mermaid's `theme`, `config` and `css` do not apply to it. The `js:pele` backend does not know ZenUML. That renderer is the one of the ZenUML command line tool, not the HTML renderer of the Mermaid plugin that a browser runs, so small differences in spacing or style are possible. Only a few diagrams have been compared by eye so far.
 
 ## Rust backends
 
