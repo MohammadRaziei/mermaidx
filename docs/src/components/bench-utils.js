@@ -39,3 +39,16 @@ export function fmtSpeed(ratio) {
   if (ratio <= 0.95) return `${fmtTimes(1 / ratio)} slower`;
   return 'about the same';
 }
+
+// 21.6 MB, 4.1 GB, 730 KB.
+export function fmtBytes(b) {
+  if (b == null) return '–';
+  if (b >= 1e9) return `${(b / 1e9).toFixed(1)} GB`;
+  if (b >= 1e6) return `${b >= 1e8 ? Math.round(b / 1e6) : (b / 1e6).toFixed(1)} MB`;
+  return `${Math.round(b / 1e3)} KB`;
+}
+
+// 0.973 -> "97%"
+export function fmtPercent(x) {
+  return x == null ? '–' : `${Math.round(x * 100)}%`;
+}

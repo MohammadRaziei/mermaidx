@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import { Chart, registerables } from 'chart.js';
 import Link from '@docusaurus/Link';
 import { useColorMode } from '@docusaurus/theme-common';
-import { COLOR_VARS, chartLabel, fmtMs, fmtSpeed, fmtTick } from './bench-utils';
+import { COLOR_VARS, chartLabel, fmtBytes, fmtMs, fmtPercent, fmtSpeed, fmtTick } from './bench-utils';
 import styles from './BenchCharts.module.css';
 
 Chart.register(...registerables);
@@ -219,8 +219,261 @@ function PerDiagramChart({ data, log }) {
   return <canvas ref={ref} />;
 }
 
+// ---------------------------------------------------------------------------------------------------------------
+// More measurements. They come from run.py too, and every one of them is left out when its data is missing (a
+// benchmark file made by an older run.py, or a machine that could not measure it).
+
+const median = (values) => {
+  if (!values.length) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+};
+
+const barOptions = (theme, { right = 170, scale = {} } = {}) => ({
+  indexAxis: 'y',
+  responsive: true,
+  maintainAspectRatio: false,
+  animation: false,
+  layout: { padding: { right } },
+  scales: {
+    x: { grid: { color: theme.line }, border: { display: false }, ticks: { maxRotation: 0 }, ...scale },
+    y: { grid: { display: false }, border: { display: false }, ticks: { color: theme.text, font: { size: 13, weight: 600 } } },
+  },
+});
+
+function FootprintChart({ rows, footprint }) {
+  const ref = useChart(
+    (theme) => {
+      const values = rows.map((r) => footprint[r.id].bytes);
+      return {
+        type: 'bar',
+        data: {
+          labels: rows.map(chartLabel),
+          datasets: [{ data: values, backgroundColor: rows.map((r) => theme.color(r.id)), borderRadius: 3, barThickness: 26 }],
+        },
+        plugins: [valueLabels],
+        options: {
+          ...barOptions(theme, { right: 90, scale: { min: 0, ticks: { maxRotation: 0, callback: (v) => fmtBytes(v) } } }),
+          plugins: {
+            legend: { display: false },
+            valueLabels: { color: theme.text, labels: values.map(fmtBytes) },
+            tooltip: {
+              ...tooltipBase(theme),
+              callbacks: {
+                title: (items) => rows[items[0].dataIndex].label,
+                label: (item) => {
+                  const info = footprint[rows[item.dataIndex].id];
+                  const out = info.parts.map((part) => `${part.name}: ${fmtBytes(part.bytes)}`);
+                  if (info.js_bytes) out.push(`JavaScript one render loads: ${fmtBytes(info.js_bytes)}`);
+                  return out;
+                },
+              },
+            },
+          },
+        },
+      };
+    },
+    [rows, footprint],
+  );
+  return <canvas ref={ref} />;
+}
+
+function LabelsChart({ rows }) {
+  const ref = useChart(
+    (theme) => {
+      const values = rows.map((r) => r.labelsMedian);
+      return {
+        type: 'bar',
+        data: {
+          labels: rows.map(chartLabel),
+          datasets: [{ data: values, backgroundColor: rows.map((r) => theme.color(r.id)), borderRadius: 3, barThickness: 26 }],
+        },
+        plugins: [valueLabels],
+        options: {
+          ...barOptions(theme, { right: 190, scale: { min: 0, max: 1, ticks: { maxRotation: 0, callback: (v) => fmtPercent(v) } } }),
+          plugins: {
+            legend: { display: false },
+            valueLabels: { color: theme.text, labels: rows.map((r) => `${fmtPercent(r.labelsMedian)}  ·  ${r.labelsComplete} of ${r.labelsCount} complete`) },
+            tooltip: {
+              ...tooltipBase(theme),
+              callbacks: {
+                title: (items) => rows[items[0].dataIndex].label,
+                label: (item) => {
+                  const r = rows[item.dataIndex];
+                  const out = [`Median: ${fmtPercent(r.labelsMedian)} of the words`, `Every word drawn in ${r.labelsComplete} of ${r.labelsCount} diagrams`];
+                  if (r.labelsWorst) out.push(`Fewest words: ${r.labelsWorst.title}, ${fmtPercent(r.labelsWorst.value)}`);
+                  return out;
+                },
+              },
+            },
+          },
+        },
+      };
+    },
+    [rows],
+  );
+  return <canvas ref={ref} />;
+}
+
+function FirstRenderChart({ rows, log }) {
+  const ref = useChart(
+    (theme) => {
+      const first = rows.map((r) => r.startup_ms || 0);
+      const warm = rows.map((r) => r.median || 0);
+      const positive = [...first, ...warm].filter((v) => v > 0);
+      const lo = Math.min(...positive);
+      const hi = Math.max(...positive);
+      return {
+        type: 'bar',
+        data: {
+          labels: rows.map(chartLabel),
+          datasets: [
+            { label: 'First render', data: first, backgroundColor: theme.muted, borderRadius: 3, barThickness: 14 },
+            { label: 'Median after that', data: warm, backgroundColor: cssVar('--ifm-color-primary'), borderRadius: 3, barThickness: 14 },
+          ],
+        },
+        options: {
+          ...barOptions(theme, {
+            right: 20,
+            scale: {
+              type: log ? 'logarithmic' : 'linear',
+              min: log ? Math.pow(10, Math.floor(Math.log10(lo))) : 0,
+              max: log ? Math.pow(10, Math.ceil(Math.log10(hi))) : undefined,
+              ticks: { maxRotation: 0, callback: (v) => (log && ![1, 10, 100, 1000, 10000].includes(v) ? '' : fmtTick(v)) },
+            },
+          }),
+          plugins: {
+            legend: { display: true, position: 'bottom', labels: { color: theme.text, boxWidth: 12 } },
+            tooltip: { ...tooltipBase(theme), callbacks: { label: (item) => `${item.dataset.label}: ${fmtMs(item.parsed.x)}` } },
+          },
+        },
+      };
+    },
+    [rows, log],
+  );
+  return <canvas ref={ref} />;
+}
+
+function ScalingChart({ scaling }) {
+  const ref = useChart(
+    (theme) => {
+      const counts = scaling.series[0].points.map((p) => p.workers);
+      return {
+        type: 'line',
+        data: {
+          labels: counts.map(String),
+          datasets: [
+            ...scaling.series.map((s) => ({
+              label: s.label,
+              data: s.points.map((p) => p.speedup),
+              borderColor: theme.color(s.id),
+              backgroundColor: theme.color(s.id),
+              borderWidth: 3,
+              pointRadius: 5,
+              tension: 0,
+            })),
+            { label: 'Perfect scaling', data: counts, borderColor: theme.muted, borderDash: [6, 6], borderWidth: 1.5, pointRadius: 0 },
+          ],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: false,
+          scales: {
+            x: { title: { display: true, text: 'Worker processes', color: theme.muted }, grid: { display: false }, border: { display: false } },
+            y: { min: 0, title: { display: true, text: 'Faster than one worker', color: theme.muted }, grid: { color: theme.line }, border: { display: false }, ticks: { callback: (v) => `${v}×` } },
+          },
+          plugins: {
+            legend: { position: 'bottom', labels: { color: theme.text, boxWidth: 12 } },
+            tooltip: {
+              ...tooltipBase(theme),
+              callbacks: {
+                label: (item) => {
+                  const s = scaling.series[item.datasetIndex];
+                  if (!s) return `${item.dataset.label}: ${item.parsed.y}×`;
+                  const point = s.points[item.dataIndex];
+                  return `${s.label}: ${point.speedup}× (${fmtMs(point.ms)} for ${scaling.items} diagrams)`;
+                },
+              },
+            },
+          },
+        },
+      };
+    },
+    [scaling],
+  );
+  return <canvas ref={ref} />;
+}
+
+function SizeChart({ data, renderers, log }) {
+  const ref = useChart(
+    (theme) => ({
+      type: 'scatter',
+      data: {
+        datasets: renderers.map((r) => ({
+          label: chartLabel(r),
+          data: data.samples
+            .filter((s) => s.chars && s.results[r.id] && s.results[r.id].status === 'ok')
+            .map((s) => ({ x: s.chars, y: s.results[r.id].time_ms, title: s.title })),
+          backgroundColor: theme.color(r.id),
+          borderColor: theme.color(r.id),
+          pointRadius: 5,
+          pointHoverRadius: 7,
+        })),
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        scales: {
+          x: { type: 'logarithmic', title: { display: true, text: 'Characters in the Mermaid text', color: theme.muted }, grid: { color: theme.line }, border: { display: false } },
+          y: {
+            type: log ? 'logarithmic' : 'linear',
+            title: { display: true, text: 'Time per diagram', color: theme.muted },
+            grid: { color: theme.line },
+            border: { display: false },
+            ticks: { callback: (v) => (log && ![1, 10, 100, 1000, 10000].includes(v) ? '' : fmtTick(v)) },
+          },
+        },
+        plugins: {
+          legend: { position: 'bottom', labels: { color: theme.text, boxWidth: 12 } },
+          tooltip: { ...tooltipBase(theme), callbacks: { label: (item) => `${item.raw.title}: ${fmtMs(item.parsed.y)}, ${item.parsed.x} characters` } },
+        },
+      },
+    }),
+    [data, renderers, log],
+  );
+  return <canvas ref={ref} />;
+}
+
+// The labels row of every renderer that has the data: the share of the reference's words that its picture has.
+function withLabels(data, rows) {
+  return rows
+    .map((r) => {
+      const found = [];
+      for (const s of data.samples) {
+        const res = s.results[r.id];
+        if (res && res.status === 'ok' && res.labels != null) found.push({ value: res.labels, title: s.title });
+      }
+      if (!found.length) return null;
+      const worst = found.reduce((a, b) => (b.value < a.value ? b : a));
+      return {
+        ...r,
+        labelsMedian: median(found.map((f) => f.value)),
+        labelsCount: found.length,
+        labelsComplete: found.filter((f) => f.value >= 0.995).length,
+        labelsWorst: worst.value < 0.995 ? worst : null,
+      };
+    })
+    .filter(Boolean);
+}
+
 export default function BenchCharts({ data, rows, log, onLogChange }) {
   const ref = rows[0].reference;
+  const footprintRows = data.footprint ? rows.filter((r) => data.footprint[r.id]) : [];
+  const labelRows = withLabels(data, rows);
+  const hasSizes = data.samples.some((s) => s.chars);
   return (
     <section aria-labelledby="charts">
       <div className={styles.head}>
@@ -265,6 +518,71 @@ export default function BenchCharts({ data, rows, log, onLogChange }) {
           </div>
         </div>
       </figure>
+
+      <h3 id="more">More measurements</h3>
+      <div className={styles.grid}>
+        {footprintRows.length > 0 && (
+          <figure className={styles.figure}>
+            <figcaption>
+              <strong>Size on disk</strong>
+              <span>What installing each renderer puts on disk (the engine, novasvg and mermaidx; for mmdc, its node_modules and Chromium). Shorter is lighter.</span>
+            </figcaption>
+            <div className={styles.canvasWrap} style={{ height: 36 + footprintRows.length * 48 }} role="img"
+              aria-label={`Size on disk: ${footprintRows.map((r) => `${r.label} ${fmtBytes(data.footprint[r.id].bytes)}`).join(', ')}`}>
+              <FootprintChart rows={footprintRows} footprint={data.footprint} />
+            </div>
+          </figure>
+        )}
+        {labelRows.length > 0 && (
+          <figure className={styles.figure}>
+            <figcaption>
+              <strong>Words of the reference that were drawn</strong>
+              <span>For each diagram, the share of the words in the mermaid-cli picture that the renderer's picture has too. It ignores layout, font and color, so it catches missing labels and generic pictures, not a different look.</span>
+            </figcaption>
+            <div className={styles.canvasWrap} style={{ height: 36 + labelRows.length * 48 }} role="img"
+              aria-label={`Share of the reference's words that were drawn: ${labelRows.map((r) => `${r.label} ${fmtPercent(r.labelsMedian)}`).join(', ')}`}>
+              <LabelsChart rows={labelRows} />
+            </div>
+          </figure>
+        )}
+        <figure className={styles.figure}>
+          <figcaption>
+            <strong>First render and the ones after it</strong>
+            <span>The first render of mermaidx starts its engine; later renders are warm. Shorter is faster.</span>
+          </figcaption>
+          <div className={styles.canvasWrap} style={{ height: 70 + rows.length * 58 }} role="img"
+            aria-label="Time of the first render and the median of the next ones, for each renderer">
+            <FirstRenderChart rows={rows} log={log} />
+          </div>
+        </figure>
+        {data.scaling && data.scaling.series.length > 0 && (
+          <figure className={styles.figure}>
+            <figcaption>
+              <strong>Rendering many diagrams in parallel</strong>
+              <span>
+                <code>render_many()</code> with more worker processes: {data.scaling.items} diagrams from text to SVG, on {data.scaling.cores}{' '}
+                {data.scaling.cores === 1 ? 'core' : 'cores'}. Higher is better; it cannot pass the number of cores.
+              </span>
+            </figcaption>
+            <div className={styles.canvasWrap} style={{ height: 300 }} role="img"
+              aria-label={`Speed-up of render_many with more workers: ${data.scaling.series.map((s) => `${s.label} ${s.points.map((p) => `${p.workers} workers ${p.speedup} times`).join(', ')}`).join('; ')}`}>
+              <ScalingChart scaling={data.scaling} />
+            </div>
+          </figure>
+        )}
+      </div>
+
+      {hasSizes && (
+        <figure className={styles.figure}>
+          <figcaption>
+            <strong>Time against the size of the diagram</strong>
+            <span>One point for every diagram: the longer the Mermaid text, the more there is to lay out. Measured in characters, a rough size.</span>
+          </figcaption>
+          <div className={styles.canvasWrap} style={{ height: 360 }} role="img" aria-label="Time per diagram against the number of characters of its Mermaid text, one color per renderer">
+            <SizeChart data={data} renderers={rows} log={log} />
+          </div>
+        </figure>
+      )}
 
       <details className={styles.numbers}>
         <summary>Show the numbers</summary>

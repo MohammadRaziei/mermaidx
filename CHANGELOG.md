@@ -5,6 +5,23 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 follows [Semantic Versioning](https://semver.org/) (while below 1.0, a minor bump may carry breaking changes).
 
+## [Unreleased]
+
+### Added
+
+- **Five more charts on the benchmark page**, under "More measurements": the size on disk of every renderer (mmdc
+  with its Chromium against mermaidx with its engine), the share of the words of the mermaid-cli reference that each
+  renderer drew, the first render against the ones after it, how `render_many()` speeds up with more worker
+  processes, and the time of every diagram against the length of its Mermaid text. `benchmarks/run.py` writes the new
+  data into `results.json` (`footprint`, `scaling`, and `chars` and `labels` for the samples), and has the new options
+  `--scaling-items` and `--scaling-repeats`. The page still works with a `results.json` made by an older script. How
+  each one is measured is in "How the benchmarks work".
+
+### Fixed
+
+- **The docs site favicon has a transparent background.** `docs/static/img/favicon.svg` had a light rectangle behind
+  the logo, which showed as a white box in browser tabs.
+
 ## [0.11.1] - 2026-11-02
 
 ### Added

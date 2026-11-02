@@ -13,6 +13,7 @@ so its time includes starting Node.js and Chrome. See docs/docs/benchmarks-metho
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import platform
@@ -111,6 +112,8 @@ def mermaidx_renderers():
 
 
 def run_mermaidx_backend(backend, render_kwargs, samples, out_dir, repeats, log):
+    """Times every sample (PNG, `repeats` runs) and, when `<sample>.svg` sits next to it as the mermaid-cli
+    reference, also records how many of its words the SVG of this renderer has (`labels`)."""
     import mermaidx
 
     def render_png(source):
@@ -136,6 +139,10 @@ def run_mermaidx_backend(backend, render_kwargs, samples, out_dir, repeats, log)
             if not data:
                 raise RuntimeError("renderer returned no image")
             results[sample.stem] = ok_result(sample.stem, f"mermaidx-{backend}", data, runs, out_dir)
+            reference = sample.with_suffix(".svg")
+            if reference.is_file():
+                svg = mermaidx.render(source, **render_kwargs).svg()
+                results[sample.stem]["labels"] = label_recall(svg, reference.read_text(encoding="utf-8"))
             log(f"  {sample.stem:<34} {results[sample.stem]['time_ms']:>8.1f} ms")
         except Exception as exc:  # unsupported diagram, engine error, ...
             results[sample.stem] = {"status": "error", "error": short_error(exc)}
@@ -195,6 +202,141 @@ def run_mmdc(samples, out_dir, repeats, puppeteer_config, log):
 # --------------------------------------------------------------------------- shared
 
 
+# --------------------------------------------------------------------------- what is installed
+
+def tree_size(path: Path) -> int:
+    """Bytes of all the files under `path` (bytecode caches left out)."""
+    total = 0
+    for p in path.rglob("*"):
+        with contextlib.suppress(OSError):
+            if p.is_file() and not p.is_symlink() and "__pycache__" not in p.parts:
+                total += p.stat().st_size
+    return total
+
+
+def dist_size(name):
+    """Bytes on disk of an installed distribution, or None if it is not installed."""
+    from importlib import metadata
+
+    try:
+        dist = metadata.distribution(name)
+    except metadata.PackageNotFoundError:
+        return None
+    total = 0
+    for f in dist.files or []:
+        with contextlib.suppress(OSError):
+            path = dist.locate_file(f)
+            if path.is_file():
+                total += path.stat().st_size
+    return total or None
+
+
+# the Python package that holds each mermaidx renderer's engine
+ENGINE_DIST = {"quickjs": "quickjs-ng", "v8": "mini-racer", "merman": "mmdr", "mermaid-rs-renderer": "mmdr"}
+
+
+def mermaidx_footprint(name):
+    """What `pip install` puts on disk for a mermaidx renderer: mermaidx (the package holds the JavaScript of every
+    backend, whichever is used), novasvg (the PNG output) and the engine. `js_bytes` is the JavaScript one render
+    loads into the engine."""
+    import mermaidx
+
+    engine = ENGINE_DIST.get(name.removeprefix("pele-"))
+    own = tree_size(Path(mermaidx.__file__).parent)
+    parts = [{"name": "mermaidx, with the JavaScript of every backend", "bytes": own},
+             {"name": "novasvg (PNG output)", "bytes": dist_size("novasvg")}]
+    if engine:
+        parts.append({"name": engine, "bytes": dist_size(engine)})
+    parts = [part for part in parts if part["bytes"]]
+    out = {"bytes": sum(part["bytes"] for part in parts), "parts": parts}
+    library = "pele" if name.startswith("pele-") else "mermaid"
+    if name in ("quickjs", "v8", "pele-quickjs", "pele-v8"):
+        with contextlib.suppress(Exception):
+            from mermaidx.engines import _common
+
+            out["js_bytes"] = sum(len(script.encode("utf-8")) for script in _common.context_scripts(library))
+    return out
+
+
+def mmdc_footprint():
+    """mermaid-cli with everything it installed under node_modules, plus the Chromium that puppeteer downloaded.
+    Node.js itself is not counted."""
+    exe = shutil.which("mmdc")
+    if not exe:
+        return None
+    parts = []
+    root = next((p for p in Path(exe).resolve().parents if p.name == "node_modules"), None)
+    if root:
+        parts.append({"name": "mermaid-cli and its node_modules", "bytes": tree_size(root)})
+    cache = Path(os.environ.get("PUPPETEER_CACHE_DIR") or Path.home() / ".cache" / "puppeteer")
+    if cache.is_dir():
+        parts.append({"name": "Chromium (puppeteer cache)", "bytes": tree_size(cache)})
+    parts = [part for part in parts if part["bytes"]]
+    return {"bytes": sum(part["bytes"] for part in parts), "parts": parts} if parts else None
+
+
+# --------------------------------------------------------------------------- render_many()
+
+MIN_SAMPLES_FOR_SCALING = 3
+
+
+def measure_scaling(names, available, per_renderer, sources, *, items, repeats, log):
+    """How much faster does render_many() get with more worker processes? Mermaid text -> SVG (that is what the
+    workers do) for `items` diagrams, the ones in the middle of the renderer's own timings, so that one slow diagram
+    does not decide the result. Returns None when there is nothing to measure."""
+    import mermaidx
+
+    cores = os.cpu_count() or 1
+    counts = sorted({w for w in (1, 2, 4, 8, cores) if w <= max(cores, 2)})
+    series = []
+    for name in names:
+        results = per_renderer.get(f"mermaidx-{name}", {})
+        done = {stem: r for stem, r in results.items() if r and r.get("status") == "ok"}
+        if len(done) < MIN_SAMPLES_FOR_SCALING:
+            continue
+        middle = sorted(done, key=lambda stem: done[stem]["time_ms"])
+        quarter = len(middle) // 4
+        middle = middle[quarter:len(middle) - quarter][:8]
+        batch = [sources[middle[i % len(middle)]] for i in range(items)]
+        log(f"  render_many, {items} diagrams, {renderer_label(name)}")
+        points = []
+        try:
+            for workers in counts:
+                runs = []
+                for _ in range(repeats):
+                    t = time.perf_counter()
+                    mermaidx.render_many(batch, workers=workers, **available[name])
+                    runs.append((time.perf_counter() - t) * 1000)
+                points.append({"workers": workers, "ms": round(statistics.median(runs), 1)})
+                log(f"    {workers} worker(s): {points[-1]['ms']:>9.1f} ms")
+        except Exception as exc:
+            log(f"    skipped: {short_error(exc)}")
+            continue
+        for point in points:
+            point["speedup"] = round(points[0]["ms"] / point["ms"], 2)
+        series.append({"id": f"mermaidx-{name}", "label": renderer_label(name), "points": points})
+    return {"items": items, "cores": cores, "repeats": repeats, "series": series} if series else None
+
+
+# --------------------------------------------------------------------------- do the labels come out
+
+def svg_words(svg: str) -> set:
+    """The words a picture says: the text of an SVG, without its style, script, title and description."""
+    import html
+
+    svg = re.sub(r"<(style|script|title|desc)\b.*?</\1>", " ", svg, flags=re.DOTALL | re.IGNORECASE)
+    return set(re.findall(r"\w+", html.unescape(re.sub(r"<[^>]+>", " ", svg)).lower()))
+
+
+def label_recall(svg: str, reference_svg: str):
+    """The share of the words of the reference picture (mermaid-cli's, kept in tests/samples) that the picture
+    also has: 1.0 when every label is there, whatever the layout, the font or the colors. A renderer that draws a
+    diagram type it does not know as a generic picture, or leaves the labels out, shows up here. None when the
+    reference has no words."""
+    ref = svg_words(reference_svg)
+    return round(len(ref & svg_words(svg)) / len(ref), 3) if ref else None
+
+
 def ok_result(sample_id, renderer_id, data, runs, out_dir):
     path = out_dir / "png" / sample_id / f"{renderer_id}.png"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -219,6 +361,9 @@ def main(argv=None):
     ap.add_argument("--mmdc-repeats", type=int, default=3, help="timed runs per sample for mmdc")
     ap.add_argument("--only", action="append", help="sample name (repeatable)")
     ap.add_argument("--skip-mmdc", action="store_true")
+    ap.add_argument("--scaling-items", type=int, default=16,
+                    help="diagrams for the render_many() measurement, 0 to skip it (default: 16)")
+    ap.add_argument("--scaling-repeats", type=int, default=3, help="timed runs per worker count (default: 3)")
     ap.add_argument("--backend", action="append", help="mermaidx renderer: quickjs, v8, pele-quickjs, pele-v8, merman or mermaid-rs-renderer "
                                       "(repeatable; default: all available)")
     ap.add_argument("--puppeteer-config", type=Path, help="JSON file passed to mmdc -p (e.g. --no-sandbox)")
@@ -280,6 +425,22 @@ def main(argv=None):
     if not renderers:
         sys.exit("no renderer produced any result, see the messages above")
 
+    sources = {s.stem: s.read_text(encoding="utf-8") for s in samples}
+
+    footprint = {}
+    for r in renderers:
+        info = mmdc_footprint() if r["id"] == "mmdc" else mermaidx_footprint(r["id"].removeprefix("mermaidx-"))
+        if info:
+            footprint[r["id"]] = info
+
+    scaling = None
+    if args.scaling_items > 0:
+        log("render_many")
+        ids = ("mermaidx-quickjs", "mermaidx-pele-quickjs")
+        names = [r["id"].removeprefix("mermaidx-") for r in renderers if r["id"] in ids]
+        scaling = measure_scaling(names, available, per_renderer, sources,
+                                  items=args.scaling_items, repeats=args.scaling_repeats, log=log)
+
     def version(pkg):
         try:
             from importlib.metadata import version as v
@@ -302,11 +463,14 @@ def main(argv=None):
             "renderers": renderers,
             "skipped": skipped,
         },
+        "footprint": footprint,
+        "scaling": scaling,
         "samples": [
             {
                 "id": s.stem,
                 "title": re.sub(r"^\d+_", "", s.stem).replace("_", " "),
-                "type": diagram_type(s.read_text(encoding="utf-8")),
+                "type": diagram_type(sources[s.stem]),
+                "chars": len(sources[s.stem]),
                 "source": f"mmd/{s.name}",
                 "results": {r["id"]: per_renderer[r["id"]].get(s.stem) for r in renderers},
             }
