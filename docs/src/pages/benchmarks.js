@@ -312,7 +312,7 @@ export default function Benchmarks() {
       <main className={styles.page}>
         <h1>Benchmarks</h1>
         <p className={styles.intro}>
-          The same {state.status === 'ok' ? state.data.samples.length : 49} Mermaid diagrams, rendered by the official mermaid-cli and by every
+          The same {state.status === 'ok' ? state.data.samples.length : 50} Mermaid diagrams, rendered by the official mermaid-cli and by every
           mermaidx backend, including the ELK layout and ZenUML, which mermaid.js does not draw by itself. Compare the pictures,
           the time each renderer needed to produce them, and which diagrams a renderer cannot draw at all.
         </p>

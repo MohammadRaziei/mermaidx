@@ -23,7 +23,7 @@ The [benchmark gallery](/benchmarks) renders the same Mermaid files with every r
 The samples come from two directories:
 
 - `tests/samples` holds the diagrams of core Mermaid. Each one has a reference `.svg` made by mermaid-cli, which the tests compare with (and which the "words drawn" chart below uses).
-- `benchmarks/samples` holds diagrams that only the benchmark uses, so they have no reference. Today these are the **ELK layout** (`flowchart-elk`, and `layout: elk` in the front matter) and **ZenUML**. They cannot live in `tests/samples`, because the tests there need a mermaid-cli reference for every sample.
+- `benchmarks/samples` holds diagrams that only the benchmark uses, so they have no reference. Today these are the bare `info` diagram (the smallest possible input) and the **ELK layout** (`flowchart-elk`, and `layout: elk` in the front matter) and **ZenUML**. They cannot live in `tests/samples`, because the tests there need a mermaid-cli reference for every sample.
 
 To add a diagram to the benchmark, put a `.mmd` file in `benchmarks/samples`, named `NN_short_name.mmd` with the next free number.
 

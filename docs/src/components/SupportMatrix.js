@@ -37,7 +37,8 @@ function groupSamples(samples) {
     }
     groups.get(key).samples.push(s);
   }
-  const all = [...groups.values()];
+  // Array.from, not [...map.values()]: the docs build compiles a spread to [].concat(), which does not spread a Map iterator.
+  const all = Array.from(groups.values());
   const byLabel = (a, b) => a.label.localeCompare(b.label);
   return {
     core: all.filter((g) => !g.feature).sort(byLabel),
@@ -101,8 +102,8 @@ function collectFailures(data) {
         if (!byMessage.has(message)) byMessage.set(message, []);
         byMessage.get(message).push(s);
       }
-      const failed = [...byMessage.values()].reduce((n, list) => n + list.length, 0);
-      return { renderer, failed, messages: [...byMessage.entries()].sort((a, b) => b[1].length - a[1].length) };
+      const failed = Array.from(byMessage.values()).reduce((n, list) => n + list.length, 0);
+      return { renderer, failed, messages: Array.from(byMessage.entries()).sort((a, b) => b[1].length - a[1].length) };
     })
     .filter((entry) => entry.failed > 0);
 }

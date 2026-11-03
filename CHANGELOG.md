@@ -31,8 +31,8 @@ follows [Semantic Versioning](https://semver.org/) (while below 1.0, a minor bum
   data into `results.json` (`footprint`, `scaling`, and `chars` and `labels` for the samples), and has the new options
   `--scaling-items` and `--scaling-repeats`. The page still works with a `results.json` made by an older script. How
   each one is measured is in "How the benchmarks work".
-- **ELK layout and ZenUML in the benchmark.** Six new diagrams in `benchmarks/samples` (three `layout: elk` flowcharts and
-  three ZenUML sequence diagrams) are rendered by every renderer, `benchmarks/run.py` reads that directory next to
+- **ELK layout and ZenUML in the benchmark.** Seven new diagrams in `benchmarks/samples` (three `layout: elk` flowcharts,
+  three ZenUML sequence diagrams and the bare `info` diagram) are rendered by every renderer, `benchmarks/run.py` reads that directory next to
   `tests/samples` (`--samples` can be given more than once), and `results.json` marks each sample with `feature`
   (`elk`, `zenuml` or `null`) and `reference` (whether it has a mermaid-cli `.svg`). They are not in `tests/samples`
   because the tests there need a reference for every sample. The median time, the speed-up and the parallel measurement
