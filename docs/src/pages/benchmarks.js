@@ -7,6 +7,37 @@ import SupportMatrix, { FEATURES, ignoresElk } from '../components/SupportMatrix
 import { colorOf, fmtMs } from '../components/bench-utils';
 import styles from './benchmarks.module.css';
 
+// One broken section (a chart that does not like some value in results.json) must not take the whole page down. The
+// message and the stack are shown, so a report of the problem says where it happened.
+class Section extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+
+  render() {
+    const { error } = this.state;
+    if (!error) return this.props.children;
+    return (
+      <div className={styles.sectionError} role="alert">
+        <strong>{this.props.name} could not be drawn.</strong> {String(error && error.message)}
+        <details>
+          <summary>Details</summary>
+          <pre>{String((error && error.stack) || error)}</pre>
+        </details>
+      </div>
+    );
+  }
+}
+
+function Charts({ data, log, onLogChange }) {
+  return <BenchCharts data={data} rows={summarize(data)} log={log} onLogChange={onLogChange} />;
+}
+
 function median(values) {
   if (!values.length) return null;
   const s = [...values].sort((a, b) => a - b);
@@ -303,10 +334,18 @@ export default function Benchmarks() {
                 {state.data.meta.skipped.map((r) => `${r.label} (${r.error})`).join('; ')}
               </div>
             )}
-            <BenchCharts data={state.data} rows={summarize(state.data)} log={log} onLogChange={setLog} />
-            <SupportMatrix data={state.data} />
-            <Gallery data={state.data} />
-            <Meta meta={state.data.meta} />
+            <Section name="The charts">
+              <Charts data={state.data} log={log} onLogChange={setLog} />
+            </Section>
+            <Section name="The table of what each renderer can draw">
+              <SupportMatrix data={state.data} />
+            </Section>
+            <Section name="The gallery">
+              <Gallery data={state.data} />
+            </Section>
+            <Section name="The details of this run">
+              <Meta meta={state.data.meta} />
+            </Section>
           </>
         )}
       </main>

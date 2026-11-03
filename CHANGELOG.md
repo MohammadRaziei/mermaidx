@@ -5,10 +5,25 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 follows [Semantic Versioning](https://semver.org/) (while below 1.0, a minor bump may carry breaking changes).
 
-## [Unreleased]
+## [0.11.1] - 2026-11-03
 
 ### Added
 
+- **The ELK layout** (#33). `flowchart-elk`, `layout: elk` (in the frontmatter or in `config=`) and the other ELK
+  algorithms (`elk.stress`, `elk.force`, `elk.mrtree`, ...) fell back to dagre without a word, because mermaid.js
+  only knows ELK once `registerLayoutLoaders` has been called. `mermaidx/assets/layout_elk.js`
+  (`@mermaid-js/layout-elk` 1.0.1 with elkjs, 2.4 MB, about 690 KB compressed in the wheel) is now evaluated for a
+  diagram that asks for ELK, and only for that one, so no other diagram gets slower. It works on both engines.
+  The diagrams that ask for ELK are laid out differently than before (they were drawn by dagre).
+  `js:pele` has its own layout and ignores the request. Rebuild the file with `tools/build_layout_elk.sh`.
+- **ZenUML diagrams** (#20) render now, on both engines. ZenUML is not part of Mermaid's core: its plugin
+  (`@mermaid-js/mermaid-zenuml`) draws HTML with React into a `foreignObject` and asks a browser how big it came out,
+  which the DOM shim cannot do. mermaidx uses another way: the command line tool of `@zenuml/core` has a renderer of
+  its own, `renderToSvg()`, that writes plain SVG (no `foreignObject`, so every rasterizer can paint it).
+  `mermaidx/assets/zenuml.js` (`@zenuml/core` 3.50.1, 406 KB, about 104 KB compressed) is evaluated for a diagram
+  that starts with `zenuml`, and only for that one. It measures text with the canvas of the DOM shim, so it gets the
+  same real font metrics as mermaid.js. The theme and the config of mermaid do not apply to it, and `js:pele` does not
+  know ZenUML. Rebuild the file with `tools/build_zenuml.sh`.
 - **Five more charts on the benchmark page**, under "More measurements": the size on disk of every renderer (mmdc
   with its Chromium against mermaidx with its engine), the share of the words of the mermaid-cli reference that each
   renderer drew, the first render against the ones after it, how `render_many()` speeds up with more worker
@@ -28,30 +43,15 @@ follows [Semantic Versioning](https://semver.org/) (while below 1.0, a minor bum
   no ELK layout and draws those flowcharts with its own, is marked "Own layout". The gallery has a badge on these
   diagrams and the filters "ELK layout only" and "ZenUML only".
 
+### Changed
+
+- **pele 1.12.0 -> 1.13.0** (the minified `dist/pele.js` from npm, `mermaidx/assets/pele.js`).
+
 ### Fixed
 
+- **US spelling** in the code, the messages and the docs (#42, #44): recognize, colors, Enroll, label-center.
 - **The docs site favicon has a transparent background.** `docs/static/img/favicon.svg` had a light rectangle behind
   the logo, which showed as a white box in browser tabs.
-
-## [0.11.1] - 2026-11-02
-
-### Added
-
-- **The ELK layout** (#33). `flowchart-elk`, `layout: elk` (in the frontmatter or in `config=`) and the other ELK
-  algorithms (`elk.stress`, `elk.force`, `elk.mrtree`, ...) fell back to dagre without a word, because mermaid.js
-  only knows ELK once `registerLayoutLoaders` has been called. `mermaidx/assets/layout_elk.js`
-  (`@mermaid-js/layout-elk` 1.0.1 with elkjs, 2.4 MB, about 690 KB compressed in the wheel) is now evaluated for a
-  diagram that asks for ELK, and only for that one, so no other diagram gets slower. It works on both engines.
-  The diagrams that ask for ELK are laid out differently than before (they were drawn by dagre).
-  `js:pele` has its own layout and ignores the request. Rebuild the file with `tools/build_layout_elk.sh`.
-- **ZenUML diagrams** (#20) render now, on both engines. ZenUML is not part of Mermaid's core: its plugin
-  (`@mermaid-js/mermaid-zenuml`) draws HTML with React into a `foreignObject` and asks a browser how big it came out,
-  which the DOM shim cannot do. mermaidx uses another way: the command line tool of `@zenuml/core` has a renderer of
-  its own, `renderToSvg()`, that writes plain SVG (no `foreignObject`, so every rasterizer can paint it).
-  `mermaidx/assets/zenuml.js` (`@zenuml/core` 3.50.1, 406 KB, about 104 KB compressed) is evaluated for a diagram
-  that starts with `zenuml`, and only for that one. It measures text with the canvas of the DOM shim, so it gets the
-  same real font metrics as mermaid.js. The theme and the config of mermaid do not apply to it, and `js:pele` does not
-  know ZenUML. Rebuild the file with `tools/build_zenuml.sh`.
 
 ## [0.11.0] - 2026-11-01
 

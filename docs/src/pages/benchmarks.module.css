@@ -313,3 +313,15 @@
     width: 100%;
   }
 }
+
+.sectionError {
+  margin-top: 2rem;
+  padding: 0.9rem 1.1rem;
+  border: 1px solid var(--ifm-color-danger);
+  border-radius: 6px;
+}
+
+.sectionError pre {
+  overflow-x: auto;
+  font-size: 0.8rem;
+}
