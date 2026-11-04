@@ -1,6 +1,6 @@
 # mermaidx architecture
 
-This document explains how `mermaidx` turns a `.mmd` source string into SVG/PNG/PDF/ASCII **without a browser** — the core trick, the two files that do almost all of the work (`engine.py` and `assets/dom_shim.js`), and the algorithm behind the single hardest part: making a fake DOM answer layout questions (`getBBox()`, `getBoundingClientRect()`, `getContext("2d").measureText()`) correctly enough that mermaid.js's own layout engine (dagre / cytoscape) produces the same result it would in a real browser.
+This document explains how `mermaidx` turns a `.mmd` source string into SVG/PNG/PDF **without a browser** — the core trick, the two files that do almost all of the work (`engine.py` and `assets/dom_shim.js`), and the algorithm behind the single hardest part: making a fake DOM answer layout questions (`getBBox()`, `getBoundingClientRect()`, `getContext("2d").measureText()`) correctly enough that mermaid.js's own layout engine (dagre / cytoscape) produces the same result it would in a real browser.
 
 Diagrams in this file are plain Mermaid, rendered by GitHub natively — and, of course, by `mermaidx` itself.
 
@@ -260,7 +260,6 @@ flowchart TD
     SVGSTR --> DIAG["Diagram / DiagramBase\n(diagram.py) -- lazy, cached"]
     DIAG -->|".svg()"| SVGOUT["SVG string"]
     DIAG -->|".png() / .pdf() / .numpy()"| RASTER["raster.py → novasvg\n(same DejaVu Sans font file\nas font_metrics.py, so layout\nand paint agree by construction)"]
-    DIAG -->|".ascii()"| ASCII["ascii.py → termaid"]
     RASTER --> PNGOUT["PNG bytes"]
     RASTER --> PDFOUT["pdf_writer.py\n→ PDF bytes"]
     RASTER --> NPOUT["numpy array"]
@@ -284,7 +283,6 @@ flowchart TD
 | `mermaidx/pdf_writer.py` | PNG → PDF, hand-written (not novasvg). |
 | `mermaidx/diagram.py` | `DiagramBase`/`Diagram`/`DiagramRust` — the lazy, cached public object `render()` returns. |
 | `mermaidx/backends.py` | Discovers optional `mmdr`-provided backends. |
-| `mermaidx/ascii.py` | SVG → ASCII/Unicode art via `termaid`. |
 | `tests/test_samples.py` | Structural checks (label text, aspect ratio) *and* geometry/pixel checks (content not clipped, shapes painted before labels, labels not stacked on siblings, label ink pixel-centered in its shape) — the geometry/pixel checks exist specifically because the structural ones are provably blind to whole classes of real rendering bugs. |
 
 ---

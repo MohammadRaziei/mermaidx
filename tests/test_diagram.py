@@ -119,19 +119,6 @@ def test_pdf_fully_supported_unlike_mmdr():
     assert pdf[:5] == b"%PDF-"
 
 
-# ── ascii ─────────────────────────────────────────────────────────────────
-
-def test_ascii_method_exists_on_diagram():
-    d = mermaidx.render(FLOWCHART)
-    art = d.ascii()
-    assert isinstance(art, str) and art.strip()
-
-
-def test_ascii_is_cached():
-    d = mermaidx.render(FLOWCHART)
-    assert d.ascii() is d.ascii()
-
-
 # ── save() ────────────────────────────────────────────────────────────────
 
 def test_save_all_formats(tmp_path):
@@ -145,19 +132,10 @@ def test_save_all_formats(tmp_path):
     assert pdf_path.read_bytes()[:5] == b"%PDF-"
 
 
-def test_save_ascii_by_extension(tmp_path):
-    out = tmp_path / "d.txt"
-    mermaidx.render(FLOWCHART).save(str(out))
-    assert out.read_text(encoding="utf-8").strip()
-
-
-def test_save_ascii_ends_with_trailing_newline(tmp_path):
-    """https://github.com/MohammadRaziei/mermaidx/issues/32 -- save()
-    writes Diagram.ascii() straight to the file with no implicit
-    newline of its own, so the fix has to be in the string itself."""
-    out = tmp_path / "d.txt"
-    mermaidx.render(FLOWCHART).save(str(out))
-    assert out.read_text(encoding="utf-8").endswith("\n")
+def test_save_text_extension_is_not_a_format(tmp_path):
+    """ASCII output was removed in 0.11.1, so .txt is no longer a known extension."""
+    with pytest.raises(ValueError):
+        mermaidx.render(FLOWCHART).save(str(tmp_path / "d.txt"))
 
 
 def test_save_format_override_ignores_extension(tmp_path):

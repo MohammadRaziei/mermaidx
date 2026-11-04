@@ -9,13 +9,13 @@ export default function Home() {
   return (
     <Layout
       title="Mermaid diagrams from Python"
-      description="Convert Mermaid diagrams to SVG, PNG, JPEG, PDF or ASCII from Python, with no browser, Node.js or npm.">
+      description="Convert Mermaid diagrams to SVG, PNG, JPEG or PDF from Python, with no browser, Node.js or npm.">
       <header className={styles.hero}>
         <div className={styles.heroText}>
           <h1>Render Mermaid diagrams from Python, with no browser</h1>
           <p className={styles.lead}>
             mermaidx runs the real mermaid.js inside a small embedded engine. One <code>pip install</code> gives you
-            SVG, PNG, JPEG, PDF and ASCII output, with no Node.js, no Chrome and nothing to compile.
+            SVG, PNG, JPEG and PDF output, with no Node.js, no Chrome and nothing to compile.
           </p>
           <div className={styles.actions}>
             <CodeBlock language="bash">pip install mermaidx</CodeBlock>

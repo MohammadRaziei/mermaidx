@@ -3,7 +3,7 @@ mermaidx.diagram — the object returned by mermaidx.render().
 
     DiagramBase   -- all the shared machinery: caching, and default
                      implementations of every derived output (png/raw/
-                     numpy/pdf/ascii/save), each computed from self.svg().
+                     numpy/pdf/save), each computed from self.svg().
     Diagram       -- the 'js:' backends ('js:mermaid' (default), 'js:pele'),
                      running inside a JS engine: engine='quickjs' (default)
                      or 'v8'.
@@ -15,7 +15,7 @@ mermaidx.diagram — the object returned by mermaidx.render().
                      Diagram.pdf() raises NotImplementedError) get it here
                      for free.
 
-Every public method (svg/png/raw/numpy/pdf/ascii) is lazy *and* cached:
+Every public method (svg/png/raw/numpy/pdf) is lazy *and* cached:
 nothing is computed until you call it, and calling it again with the same
 arguments returns the memoized result instead of recomputing. Caching
 itself lives entirely in DiagramBase; subclasses never have to think about
@@ -33,7 +33,6 @@ import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
-from mermaidx.ascii import render_ascii
 from mermaidx.engines.quickjs_engine import Engine as _QuickJSEngine
 from mermaidx.backends import (
     JS_BACKENDS, available_engines, backends as _backends, parse_backend, resolve_engine,
@@ -141,7 +140,7 @@ class DiagramBase:
     Shared machinery for every backend.
 
     Subclasses override the private, *uncached* `_svg()` / `_png()` /
-    `_raw()` / `_numpy()` / `_pdf()` / `_ascii()` hooks; the public methods
+    `_raw()` / `_numpy()` / `_pdf()` hooks; the public methods
     of the same name (without the underscore) add caching on top and are
     defined here exactly once. Most subclasses only need to override
     `_svg()` -- the default `_png()`/`_raw()`/`_numpy()`/`_pdf()` all just
@@ -401,29 +400,11 @@ class DiagramBase:
         return self._cached("pdf", kwargs, lambda: self._pdf(**kwargs))
 
     # ------------------------------------------------------------------
-    # ASCII
-    # ------------------------------------------------------------------
-
-    def _ascii(self, **opts) -> str:
-        return render_ascii(self._source, **opts)
-
-    def ascii(self, **opts) -> str:
-        """Return the diagram as ASCII/Unicode box-drawing art (via termaid).
-
-        Rendered straight from the Mermaid source (termaid has its own
-        parser -- it doesn't go through the SVG at all, or care which
-        backend produced it), so it's available even if .svg() was never
-        called.
-        """
-        return self._cached("ascii", opts, lambda: self._ascii(**opts))
-
-    # ------------------------------------------------------------------
     # Save
     # ------------------------------------------------------------------
 
     _EXTENSION_FORMATS = {".svg": "svg", ".png": "png", ".pdf": "pdf",
-                          ".jpg": "jpg", ".jpeg": "jpg", ".bmp": "bmp", ".tga": "tga",
-                          ".txt": "ascii", ".ascii": "ascii"}
+                          ".jpg": "jpg", ".jpeg": "jpg", ".bmp": "bmp", ".tga": "tga"}
 
     def save(
         self,
@@ -439,14 +420,12 @@ class DiagramBase:
 
         Args:
             format: Force the output format ("svg", "png", "jpg", "bmp",
-                    "tga", "pdf", or "ascii") regardless of the file
+                    "tga", or "pdf") regardless of the file
                     extension. If omitted (the default), the format is
                     inferred from *output*'s extension: ``.svg``, ``.png``,
-                    ``.jpg``/``.jpeg``, ``.bmp``, ``.tga``, ``.pdf``, or
-                    ``.txt``/``.ascii``.
+                    ``.jpg``/``.jpeg``, ``.bmp``, ``.tga``, or ``.pdf``.
             **format_opts: Forwarded to the matching method -- quality for
-                    "jpg", pdf_format/pdf_landscape/pdf_margin for "pdf",
-                    any termaid option for "ascii".
+                    "jpg", pdf_format/pdf_landscape/pdf_margin for "pdf".
 
         Raises:
             ValueError: if the format can't be determined, or is unrecognized.
@@ -456,7 +435,7 @@ class DiagramBase:
         if fmt is None:
             raise ValueError(
                 f"Cannot infer output format from {output!r}. "
-                "Pass format=\"svg\"/\"png\"/\"jpg\"/\"bmp\"/\"tga\"/\"pdf\"/\"ascii\" explicitly, "
+                "Pass format=\"svg\"/\"png\"/\"jpg\"/\"bmp\"/\"tga\"/\"pdf\" explicitly, "
                 "or use one of these extensions: "
                 f"{sorted(set(self._EXTENSION_FORMATS))}"
             )
@@ -476,11 +455,9 @@ class DiagramBase:
                 width=width, height=height, scale=scale or 1.0,
                 background=background, **format_opts,
             ))
-        elif fmt == "ascii":
-            path.write_text(self.ascii(**format_opts), encoding="utf-8")
         else:
             raise ValueError(
-                f"Unknown format {fmt!r}. Supported: svg, png, jpg, bmp, tga, pdf, ascii"
+                f"Unknown format {fmt!r}. Supported: svg, png, jpg, bmp, tga, pdf"
             )
 
     # ------------------------------------------------------------------
@@ -565,7 +542,6 @@ class Diagram(DiagramBase):
         d.png(width=1200, background="#ffffff")   # a different cache entry
         d.raw()                          # (bytes, width, height) — RGBA8888
         d.numpy()                        # np.ndarray, no Pillow needed
-        d.ascii()                        # ASCII/Unicode box-drawing art
         d.save("out.svg")
         d.save("out.png", width=1200)
         d.save("out.jpg", quality=85)     # also .jpeg / .bmp / .tga; JPEG defaults to a white background
@@ -665,7 +641,7 @@ def render(source: str, backend: Optional[str] = None, engine: Optional[str] = N
     Returns:
         A DiagramBase subclass instance (Diagram for 'js:' backends,
         DiagramRust for anything from mmdr). Every method
-        (svg/png/raw/numpy/pdf/ascii) is lazy and cached, regardless of
+        (svg/png/raw/numpy/pdf) is lazy and cached, regardless of
         backend.
 
     Raises:

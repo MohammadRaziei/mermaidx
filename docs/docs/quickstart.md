@@ -20,7 +20,6 @@ d.save("diagram.svg")
 d.save("diagram.png", scale=2.0)
 d.save("diagram.jpg", quality=90)       # also .jpeg, .bmp and .tga
 d.save("diagram.pdf", pdf_format="A4")
-print(d.ascii())
 ```
 
 `render()` returns a `Diagram`. The SVG is computed once and cached, and every other format is derived from it.

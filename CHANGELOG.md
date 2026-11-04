@@ -47,6 +47,13 @@ follows [Semantic Versioning](https://semver.org/) (while below 1.0, a minor bum
 
 - **pele 1.12.0 -> 1.13.0** (the minified `dist/pele.js` from npm, `mermaidx/assets/pele.js`).
 
+### Removed
+
+- **ASCII output.** `mermaidx.render_ascii()`, `Diagram.ascii()` and the `ascii` format of `save()` (the `.txt` and
+  `.ascii` extensions) are gone, together with the `termaid` dependency: it had nothing to do with what mermaidx is
+  for, rendering Mermaid to SVG and the formats made from it. Code that used them has to drop them, or draw the
+  diagram with `termaid` itself.
+
 ### Fixed
 
 - **US spelling** in the code, the messages and the docs (#42, #44): recognize, colors, Enroll, label-center.

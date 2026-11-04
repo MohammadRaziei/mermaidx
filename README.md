@@ -4,7 +4,7 @@
 
 # mermaidx
 
-**Mermaid diagrams → SVG, PNG, JPG, PDF and ASCII, from plain Python.**<br/>
+**Mermaid diagrams → SVG, PNG, JPG and PDF, from plain Python.**<br/>
 No browser. No Node.js. No system packages. Just `pip install mermaidx`.
 
 [![PyPI](https://img.shields.io/pypi/v/mermaidx.svg)](https://pypi.org/project/mermaidx)
@@ -42,7 +42,7 @@ d.save("diagram.png", scale=2.0)
 
 - **Browserless.** No Chromium (~170 MB), no Puppeteer, no Node.js, no compiler. Prebuilt wheels only.
 - **The real Mermaid.** Not a reimplementation and not a subset: every diagram type of the Mermaid 12 core, with the ELK layout (`flowchart-elk`, `layout: elk`) and ZenUML.
-- **Many outputs.** SVG, PNG, JPG/JPEG, BMP, TGA, PDF, raw RGBA, NumPy arrays and terminal ASCII art.
+- **Many outputs.** SVG, PNG, JPG/JPEG, BMP, TGA, PDF, raw RGBA and NumPy arrays.
 - **One process.** Synchronous, in-process rendering, plus `render_many()` for parallel batches.
 - **Jupyter-ready.** A diagram displays itself as the last expression of a cell.
 - **Pluggable backends.** mermaid.js (default), pele, or native Rust (optional), on QuickJS-ng (default) or V8 (optional). pele is far faster than mermaid.js but draws its own layout: see the [benchmarks](https://mohammadraziei.github.io/mermaidx/benchmarks) before you choose.
@@ -84,7 +84,6 @@ d.save("diagram.svg")
 d.save("diagram.png", scale=2.0)
 d.save("diagram.jpg", quality=90)       # also .jpeg / .bmp / .tga
 d.save("diagram.pdf", pdf_format="A4")
-print(d.ascii())
 ```
 
 The same from the command line:
@@ -108,7 +107,6 @@ mermaidx.render("flowchart LR; A-->B-->C")   # just shows up
 ```mermaid
 flowchart TB
     SRC["Mermaid source"] --> MX
-    SRC -.-> ASCII["ASCII art<br/>termaid, straight from the source"]
 
     subgraph MX ["mermaidx: Mermaid to SVG"]
         direction LR
@@ -133,9 +131,8 @@ flowchart TB
 | **Mermaid → SVG** | `mermaidx` | `mermaid.js` runs unmodified in QuickJS-ng (or V8) against a minimal fake DOM/SVG layer (the shims). Anything a real browser would answer, such as text size via `getBBox`, comes from novasvg's font stack and one bundled font. |
 | **SVG → PNG / JPG / BMP / TGA / raw** | [`novasvg`](https://github.com/mohammadraziei/novasvg) | Same bundled font as the layout step, so what Mermaid measured is exactly what gets painted. JPEG has no alpha, so it defaults to a white background. |
 | **SVG → PDF** | `mermaidx` | A small hand-written PDF writer (stdlib `zlib`/`struct`) embeds the rasterized pixels. No Pillow, no Cairo, no reportlab. |
-| **Source → ASCII** | [`termaid`](https://pypi.org/project/termaid/) | A separate lightweight path that parses the Mermaid source directly, without going through the SVG. |
 
-Every backend is a small subclass of one shared `DiagramBase` and only overrides the private `_svg()` hook. Everything downstream (`png()`, `pdf()`, `raw()`, `numpy()`, `ascii()`, `save()`) is written once and behaves identically no matter which backend produced the SVG.
+Every backend is a small subclass of one shared `DiagramBase` and only overrides the private `_svg()` hook. Everything downstream (`png()`, `pdf()`, `raw()`, `numpy()`, `save()`) is written once and behaves identically no matter which backend produced the SVG.
 
 ### Why novasvg?
 
@@ -283,7 +280,6 @@ d.svg() is d.svg()   # True, the second call is a cache hit
 | `.png(width?, height?, scale?, background?)` | `bytes` | Aspect ratio is always preserved. |
 | `.jpg(quality?)`, `.bmp()`, `.tga()` | `bytes` | Same defaults as `.save()`. |
 | `.pdf(pdf_format?, pdf_landscape?, pdf_margin?, ...)` | `bytes` | `pdf_format=None` fits the page to the diagram. |
-| `.ascii(**opts)` | `str` | Renders from the source, no SVG needed. |
 | `.raw(width?, height?, background?)` | `(bytes, w, h)` | Raw RGBA8888, no imaging library. |
 | `.numpy(width?, height?, background?)` | `np.ndarray` | `(H, W, 4)` uint8. Requires `numpy`. |
 | `.save(path, format=None, ...)` | `None` | Format comes from the extension unless forced with `format=`. |
@@ -309,18 +305,6 @@ mermaidx.render(source, css=".node rect { rx: 8; ry: 8; }")
 diagrams = mermaidx.render_many(sources, workers=4, theme="dark")
 for d, name in zip(diagrams, output_names):
     d.save(name)
-```
-
-**ASCII output** works out of the box (`termaid` is a core dependency):
-
-```python
-print(mermaidx.render_ascii("graph LR; A-->B-->C"))
-```
-
-```
-┌───┐    ┌───┐    ┌───┐
-│ A ├───►│ B ├───►│ C │
-└───┘    └───┘    └───┘
 ```
 
 **Rasterize any SVG** without going through `render()`:
@@ -364,7 +348,7 @@ ZenUML (`zenuml`) works too, although it is not part of the Mermaid core: it is 
 ## Requirements
 
 - Python 3.9+
-- `quickjs-ng`, `novasvg`, `termaid` (installed automatically)
+- `quickjs-ng`, `novasvg` (installed automatically)
 - `mini-racer` (optional, for `engine="v8"`)
 
 ## Documentation
@@ -403,7 +387,6 @@ The longer version, in my own words: [The story of mermaidx](https://mohammadraz
 - [Mermaid](https://github.com/mermaid-js/mermaid): the diagramming library this project renders. `mermaidx` just runs the real thing somewhere a browser can't go.
 - [novasvg](https://github.com/mohammadraziei/novasvg): SVG rasterization, image encoding and text measurement.
 - [mmdr](https://github.com/mohammadraziei/mmdr): a native-Rust Mermaid renderer by the same author, usable as an extra backend.
-- [termaid](https://pypi.org/project/termaid/): powers ASCII/Unicode terminal output.
 
 ## Contributing
 

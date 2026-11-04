@@ -10,7 +10,7 @@ mermaidx is published on [PyPI](https://pypi.org/project/mermaidx) as prebuilt w
 pip install mermaidx
 ```
 
-SVG, PNG, JPEG, PDF and ASCII output all work with the base install. Python 3.9 or newer is required.
+SVG, PNG, JPEG and PDF output all work with the base install. Python 3.9 or newer is required.
 
 ## Optional extras
 

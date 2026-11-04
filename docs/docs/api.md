@@ -27,10 +27,6 @@ Render a Mermaid diagram and return a `Diagram`.
 
 Render a list of sources in parallel with a process pool and return the `Diagram` objects in the same order. `workers` defaults to the smaller of the number of sources and the CPU count. The other options are passed to every diagram.
 
-### `render_ascii(source, **opts)`
-
-Return the diagram as text with box-drawing characters, for terminals. It is always available.
-
 ### `backends()`
 
 Return the names of the backends that can be used in this environment, as `<kind>:<name>`.
@@ -64,7 +60,6 @@ Results are cached per set of options, so calling `d.svg()` twice computes once.
 | `raw(...)` | `(bytes, width, height)`, RGBA8888 |
 | `numpy(...)` | `numpy.ndarray`, no Pillow needed |
 | `pdf(*, width, height, scale=1.0, background, pdf_format, pdf_landscape=False, pdf_margin="0")` | PDF `bytes`. Fits the diagram unless `pdf_format` is given |
-| `ascii(**opts)` | The diagram as text |
 | `save(output, ..., format=None, **format_opts)` | Writes a file. The format comes from the extension, or from `format` |
 | `show()` | Opens the diagram for viewing |
 
