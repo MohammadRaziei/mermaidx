@@ -408,40 +408,63 @@ function ScalingChart({ scaling }) {
 
 function SizeChart({ data, renderers, log }) {
   const ref = useChart(
-    (theme) => ({
-      type: 'scatter',
-      data: {
-        datasets: renderers.map((r) => ({
-          label: chartLabel(r),
-          data: data.samples
-            .filter((s) => s.chars && s.results[r.id] && s.results[r.id].status === 'ok')
-            .map((s) => ({ x: s.chars, y: s.results[r.id].time_ms, title: s.title })),
-          backgroundColor: theme.color(r.id),
-          borderColor: theme.color(r.id),
-          pointRadius: 5,
-          pointHoverRadius: 7,
-        })),
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        animation: false,
-        scales: {
-          x: { type: 'logarithmic', title: { display: true, text: 'Characters in the Mermaid text', color: theme.muted }, grid: { color: theme.line }, border: { display: false } },
-          y: {
-            type: log ? 'logarithmic' : 'linear',
-            title: { display: true, text: 'Time per diagram', color: theme.muted },
-            grid: { color: theme.line },
-            border: { display: false },
-            ticks: { callback: (v) => (log && ![1, 10, 100, 1000, 10000].includes(v) ? '' : fmtTick(v)) },
+    (theme) => {
+      // The diagrams from the shortest Mermaid text to the longest, one line for every renderer.
+      const sized = data.samples.filter((s) => s.chars).sort((a, b) => a.chars - b.chars);
+      return {
+        type: 'line',
+        data: {
+          labels: sized.map((s) => String(s.chars)),
+          datasets: renderers.map((r) => ({
+            label: chartLabel(r),
+            data: sized.map((s) => (s.results[r.id] && s.results[r.id].status === 'ok' ? s.results[r.id].time_ms : null)),
+            borderColor: theme.color(r.id),
+            backgroundColor: theme.color(r.id),
+            borderWidth: 1.75,
+            pointRadius: 2.5,
+            pointHoverRadius: 5,
+            tension: 0,
+            spanGaps: true,
+          })),
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: false,
+          interaction: { mode: 'index', intersect: false },
+          scales: {
+            x: {
+              title: { display: true, text: 'Characters in the Mermaid text, from the shortest diagram to the longest', color: theme.muted },
+              grid: { display: false },
+              border: { display: false },
+              ticks: { autoSkip: true, maxTicksLimit: 14, maxRotation: 0 },
+            },
+            y: {
+              type: log ? 'logarithmic' : 'linear',
+              min: log ? undefined : 0,
+              title: { display: true, text: 'Time per diagram', color: theme.muted },
+              grid: { color: theme.line },
+              border: { display: false },
+              ticks: { callback: (v) => (log && ![1, 10, 100, 1000, 10000].includes(v) ? '' : fmtTick(v)) },
+            },
+          },
+          plugins: {
+            legend: { position: 'bottom', labels: { color: theme.text, boxWidth: 12 } },
+            tooltip: {
+              ...tooltipBase(theme),
+              itemSort: (a, b) => (b.raw ?? -1) - (a.raw ?? -1),
+              callbacks: {
+                title: (items) => {
+                  const s = sized[items[0].dataIndex];
+                  return s ? `${s.title}, ${s.chars} characters` : '';
+                },
+                label: (item) => ` ${item.dataset.label}: ${item.raw == null ? 'no image' : fmtMs(item.raw)}`,
+              },
+            },
           },
         },
-        plugins: {
-          legend: { position: 'bottom', labels: { color: theme.text, boxWidth: 12 } },
-          tooltip: { ...tooltipBase(theme), callbacks: { label: (item) => `${item.raw.title}: ${fmtMs(item.parsed.y)}, ${item.parsed.x} characters` } },
-        },
-      },
-    }),
+      };
+    },
     [data, renderers, log],
   );
   return <canvas ref={ref} />;
@@ -576,9 +599,9 @@ export default function BenchCharts({ data, rows, log, onLogChange }) {
         <figure className={styles.figure}>
           <figcaption>
             <strong>Time against the size of the diagram</strong>
-            <span>One point for every diagram: the longer the Mermaid text, the more there is to lay out. Measured in characters, a rough size.</span>
+            <span>The diagrams from the shortest Mermaid text to the longest, one line for every renderer. The longer the text, the more there is to lay out. Characters are a rough size.</span>
           </figcaption>
-          <div className={styles.canvasWrap} style={{ height: 360 }} role="img" aria-label="Time per diagram against the number of characters of its Mermaid text, one color per renderer">
+          <div className={styles.canvasWrap} style={{ height: 360 }} role="img" aria-label="Time per diagram, with the diagrams ordered by the number of characters of their Mermaid text, one line per renderer">
             <SizeChart data={data} renderers={rows} log={log} />
           </div>
         </figure>

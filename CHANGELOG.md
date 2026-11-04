@@ -27,7 +27,7 @@ follows [Semantic Versioning](https://semver.org/) (while below 1.0, a minor bum
 - **Five more charts on the benchmark page**, under "More measurements": the size on disk of every renderer (mmdc
   with its Chromium against mermaidx with its engine), the share of the words of the mermaid-cli reference that each
   renderer drew, the first render against the ones after it, how `render_many()` speeds up with more worker
-  processes, and the time of every diagram against the length of its Mermaid text. `benchmarks/run.py` writes the new
+  processes, and the time of every diagram, ordered by the length of its Mermaid text. `benchmarks/run.py` writes the new
   data into `results.json` (`footprint`, `scaling`, and `chars` and `labels` for the samples), and has the new options
   `--scaling-items` and `--scaling-repeats`. The page still works with a `results.json` made by an older script. How
   each one is measured is in "How the benchmarks work".
@@ -37,11 +37,9 @@ follows [Semantic Versioning](https://semver.org/) (while below 1.0, a minor bum
   (`elk`, `zenuml` or `null`) and `reference` (whether it has a mermaid-cli `.svg`). They are not in `tests/samples`
   because the tests there need a reference for every sample. The median time, the speed-up and the parallel measurement
   use the core diagrams only.
-- **A table of what each renderer can draw** on the benchmark page, one row per diagram type, with the ELK layout and
-  ZenUML in a group of their own. A renderer that cannot draw a diagram shows "Not supported" there with its error, and
-  the list "Why a diagram was not drawn" gives every error message with the diagrams it happened on. `js:pele`, which has
-  no ELK layout and draws those flowcharts with its own, is marked "Own layout". The gallery has a badge on these
-  diagrams and the filters "ELK layout only" and "ZenUML only".
+- **ELK and ZenUML in the gallery.** These diagrams have a badge, the filters "ELK layout only" and "ZenUML only", and
+  a renderer that cannot draw one shows "Not supported" with its error. `js:pele`, which has no ELK layout and draws
+  those flowcharts with its own, is marked as such under the diagram.
 
 ### Changed
 

@@ -52,3 +52,12 @@ export function fmtBytes(b) {
 export function fmtPercent(x) {
   return x == null ? '–' : `${Math.round(x * 100)}%`;
 }
+
+// What mermaid.js itself does not draw. A sample that uses one of these is marked in the gallery and can be filtered.
+export const FEATURES = {
+  elk: { label: 'Flowchart, ELK layout', short: 'ELK layout' },
+  zenuml: { label: 'ZenUML', short: 'ZenUML' },
+};
+
+// pele has no ELK layout: it ignores the request and draws the flowchart with its own layout.
+export const ignoresElk = (rendererId) => rendererId.includes('pele');

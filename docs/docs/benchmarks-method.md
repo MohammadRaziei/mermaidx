@@ -27,7 +27,7 @@ The samples come from two directories:
 
 To add a diagram to the benchmark, put a `.mmd` file in `benchmarks/samples`, named `NN_short_name.mmd` with the next free number.
 
-ELK and ZenUML are not part of core Mermaid, so the page keeps them apart. The median time and the speed-up at the top, and the parallel measurement, use the core diagrams only. ELK and ZenUML have their own rows in the table "What each renderer can draw". They also take longer, on purpose: mermaidx evaluates the ELK layout (2.4 MB of JavaScript) only for a diagram that asks for it, and draws ZenUML with the renderer of `@zenuml/core`.
+ELK and ZenUML are not part of core Mermaid, so the page keeps them apart. The median time and the speed-up at the top, and the parallel measurement, use the core diagrams only. In the gallery they carry a badge and have their own filters. They also take longer, on purpose: mermaidx evaluates the ELK layout (2.4 MB of JavaScript) only for a diagram that asks for it, and draws ZenUML with the renderer of `@zenuml/core`.
 
 ## What is timed
 
@@ -47,15 +47,11 @@ The clock covers the work from Mermaid text to PNG bytes (to a PNG file for `mmd
 - Absolute times depend on the CI machine. The machine and every version are listed on the page, so treat the numbers as relative.
 - The images are not identical. Each renderer lays out and paints text its own way, which makes the gallery useful for spotting visual differences too.
 
-## What each renderer can draw
+## Renderers that cannot draw a diagram
 
-A renderer is never dropped because it cannot draw a diagram. The script records the error, and the page shows it in three places:
+A renderer is never dropped because it cannot draw a diagram. The script records the error, and the gallery shows **Not supported** with the message where the picture would be. The filter "Not supported by at least one renderer" lists those diagrams, and "ELK layout only" or "ZenUML only" lists just those.
 
-- the table **What each renderer can draw** has one row per diagram type, and a cell says whether the renderer drew all of them, some (`2 of 3`) or none (**Not supported**, with the error in the tooltip);
-- the list **Why a diagram was not drawn** gives, for each renderer, every error message and the diagrams it happened on;
-- the gallery shows **Not supported** where the picture would be, and the filter "ELK layout only" or "ZenUML only" shows just those diagrams.
-
-`js:pele` has no ELK layout and does not raise an error for it: it draws the flowchart with its own layout. The table calls this **Own layout**, because the picture is a drawing of the diagram, but not an ELK one. ZenUML is not known to `js:pele`, so it fails there. Other renderers are shown exactly as they behaved in that run. For `mmdc` that depends on the plugins of the mermaid-cli version that was installed.
+`js:pele` has no ELK layout and does not raise an error for it: it draws the flowchart with its own layout, and the gallery says so under the diagram. ZenUML is not known to `js:pele`, so it fails there. Other renderers are shown exactly as they behaved in that run. For `mmdc` that depends on the plugins of the mermaid-cli version that was installed.
 
 ## More measurements
 
@@ -65,7 +61,7 @@ Under "More measurements" the page has five more charts. They are made by the sa
 - **Words of the reference that were drawn** compares each mermaidx picture with the mermaid-cli reference that is kept next to the sample (`tests/samples/<name>.svg`). For every diagram it takes the words of the reference and counts how many of them the renderer's SVG has too. It does not look at layout, font or color, so it cannot tell you that a picture looks different, only that a label is missing or that the diagram was drawn as a generic picture. `js:mermaid` should be at 100%, as it is the same Mermaid. This chart is not shown for `mmdc`, which made the references.
 - **First render and the ones after it** shows the startup cost: the first render of mermaidx starts its engine, the next ones do not. It is the number that counts for a script that renders one diagram and exits.
 - **Rendering many diagrams in parallel** times `mermaidx.render_many()` with 1, 2, 4, ... worker processes, up to the number of cores of the machine. It renders from Mermaid text to SVG, which is the work of the workers. The diagrams are taken from the middle of the renderer's own timings (up to 8 of them, repeated to `--scaling-items`, 16 by default) so that one slow diagram does not decide the result, and every point is the median of `--scaling-repeats` runs. The speed-up cannot pass the number of cores, and on a machine with one core more workers are only slower. It is measured for `js:mermaid | quickjs` and `js:pele | quickjs`.
-- **Time against the size of the diagram** has one point for every diagram and renderer: the length of the Mermaid text in characters against the time. The length is a rough size; two diagrams with the same number of characters can be very different to lay out.
+- **Time against the size of the diagram** is a line chart with one line for every renderer. The diagrams are ordered from the shortest Mermaid text to the longest (the number of characters is on the axis) and the line shows the time of each. The length is a rough size; two diagrams with the same number of characters can be very different to lay out.
 
 ## Run it yourself
 

@@ -3,8 +3,7 @@ import Layout from '@theme/Layout';
 import Link from '@docusaurus/Link';
 import useBaseUrl from '@docusaurus/useBaseUrl';
 import BenchCharts from '../components/BenchCharts';
-import SupportMatrix, { FEATURES, ignoresElk } from '../components/SupportMatrix';
-import { colorOf, fmtMs } from '../components/bench-utils';
+import { colorOf, fmtMs, FEATURES, ignoresElk } from '../components/bench-utils';
 import styles from './benchmarks.module.css';
 
 // One broken section (a chart that does not like some value in results.json) must not take the whole page down. The
@@ -336,9 +335,6 @@ export default function Benchmarks() {
             )}
             <Section name="The charts">
               <Charts data={state.data} log={log} onLogChange={setLog} />
-            </Section>
-            <Section name="The table of what each renderer can draw">
-              <SupportMatrix data={state.data} />
             </Section>
             <Section name="The gallery">
               <Gallery data={state.data} />
