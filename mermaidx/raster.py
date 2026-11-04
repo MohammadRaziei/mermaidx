@@ -14,7 +14,8 @@ multi-line text, styled spans -- now reaches the final pixels unmodified.
 Same bundled-font strategy this project has always used: mermaidx.font_metrics
 measures with the bundled DejaVu Sans files, and this module paints with the
 exact same files, so mermaid's layout math and the final pixels always agree
-regardless of what's installed on the host.
+regardless of what's installed on the host (the font names mermaid.js writes into the SVG are pointed at those
+files too, see _ALIASES).
 """
 
 from __future__ import annotations
@@ -37,6 +38,19 @@ _FAMILY = "DejaVu Sans"
 # the same two files the same way, for the same reason.
 _fonts.add_font_face_from_file(_FAMILY, False, False, str(_FONTS_DIR / "DejaVuSans.ttf"))
 _fonts.add_font_face_from_file(_FAMILY, True, False, str(_FONTS_DIR / "DejaVuSans-Bold.ttf"))
+
+# The SVG does not ask for DejaVu Sans: mermaid.js writes its own font stack into it ("trebuchet ms", verdana, arial,
+# sans-serif, or "Recursive Variable", arial, sans-serif), and novasvg takes the first of those names it can find.
+# Left alone that is Arial, Liberation Sans or whatever the host has, a narrower font than the one the layout was
+# measured with, so the text fills fewer lines than the box was made for. These names are therefore pointed at the
+# bundled font too, which is what makes the pixels agree with the layout on every host.
+_ALIASES = (
+    "Recursive Variable", "trebuchet ms", "Trebuchet MS", "verdana", "Verdana", "arial", "Arial",
+    "helvetica", "Helvetica", "sans-serif",
+)
+for _alias in _ALIASES:
+    _fonts.add_font_face_from_file(_alias, False, False, str(_FONTS_DIR / "DejaVuSans.ttf"))
+    _fonts.add_font_face_from_file(_alias, True, False, str(_FONTS_DIR / "DejaVuSans-Bold.ttf"))
 
 
 def _parse_background(background: Optional[str]) -> int:

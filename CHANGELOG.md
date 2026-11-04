@@ -54,6 +54,12 @@ follows [Semantic Versioning](https://semver.org/) (while below 1.0, a minor bum
 
 ### Fixed
 
+- **The text of a PNG is painted in the font the layout was measured with.** The SVG names mermaid.js's own font stack
+  (`"trebuchet ms", verdana, arial` or `"Recursive Variable", arial`), and novasvg took the first of those names the
+  host had (Arial, Liberation Sans...), a narrower font than the bundled DejaVu Sans that the layout is measured with.
+  Labels then took fewer lines than their boxes were made for and the boxes looked too tall (`10_flowchart_long_label`).
+  Those names are now pointed at the bundled DejaVu Sans, so the pixels agree with the layout on every host. The SVG
+  was never affected.
 - **US spelling** in the code, the messages and the docs (#42, #44): recognize, colors, Enroll, label-center.
 - **The docs site favicon has a transparent background.** `docs/static/img/favicon.svg` had a light rectangle behind
   the logo, which showed as a white box in browser tabs.
