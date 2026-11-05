@@ -43,6 +43,8 @@ follows [Semantic Versioning](https://semver.org/) (while below 1.0, a minor bum
 
 ### Changed
 
+- **mermaid.js 12.2.0 -> 12.3.0** (the minified `dist/mermaid.min.js`, unmodified). It bundles DOMPurify 3.4.17 instead
+  of 3.4.12, which needed one more thing from the DOM shim (see "Fixed").
 - **pele 1.12.0 -> 1.13.0** (the minified `dist/pele.js` from npm, `mermaidx/assets/pele.js`).
 
 ### Removed
@@ -54,6 +56,11 @@ follows [Semantic Versioning](https://semver.org/) (while below 1.0, a minor bum
 
 ### Fixed
 
+- **DOMPurify removed nothing with mermaid.js 12.3.** The DOMPurify inside it (3.4.17; mermaid.js 12.2.0 had 3.4.12)
+  removes an attribute with `Element.prototype.removeAttributeNode`, which the DOM shim did not have. DOMPurify looks
+  it up in a way that makes a missing method a silent no-op, so every attribute it decided to drop stayed in the SVG:
+  `onclick` on a label, and mermaid's own layout scratch attributes (`label-offset-y`, `text-height`, `position`). The
+  shim now has `getAttributeNode()` and `removeAttributeNode()`, and `tests/test_sanitization.py` covers it.
 - **The text of a PNG is painted in the font the layout was measured with.** The SVG names mermaid.js's own font stack
   (`"trebuchet ms", verdana, arial` or `"Recursive Variable", arial`), and novasvg took the first of those names the
   host had (Arial, Liberation Sans...), a narrower font than the bundled DejaVu Sans that the layout is measured with.

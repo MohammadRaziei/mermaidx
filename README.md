@@ -12,7 +12,7 @@ No browser. No Node.js. No system packages. Just `pip install mermaidx`.
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Tests](https://github.com/MohammadRaziei/mermaidx/actions/workflows/wheel.yml/badge.svg)](https://github.com/MohammadRaziei/mermaidx/actions/workflows/wheel.yml)
 <!-- Static badges: update the two versions with mermaidx/assets/mermaid.js (see its npm version) and mermaidx/assets/pele.js, and the count with mermaidx.backends() plus mermaidx[rust]. -->
-[![mermaid.js](https://img.shields.io/badge/mermaid.js-12.2.0-ff3670)](https://mermaid.js.org)
+[![mermaid.js](https://img.shields.io/badge/mermaid.js-12.3.0-ff3670)](https://mermaid.js.org)
 [![pele.js](https://img.shields.io/badge/pele.js-1.13.0-8a63d2)](https://pele.run)
 [![Backends](https://img.shields.io/badge/backends-4-2ea44f)](#backends)
 [![GitHub stars](https://img.shields.io/github/stars/MohammadRaziei/mermaidx?style=social)](https://github.com/MohammadRaziei/mermaidx/stargazers)

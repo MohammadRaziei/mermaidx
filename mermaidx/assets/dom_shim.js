@@ -1824,13 +1824,25 @@ Object.defineProperty(Element.prototype, "ownerSVGElement", {
     return null;
   },
 });
+function __attrNode(el, name) {
+  return { name, localName: name, value: el._attrs[name], namespaceURI: el._attrNs[name] || null, specified: true, ownerElement: el };
+}
 Object.defineProperty(Element.prototype, "attributes", {
   configurable: true,
   get() {
     // a snapshot is fine: DOMPurify walks it backwards while removing/updating attributes
-    return Object.keys(this._attrs).map((name) => ({ name, localName: name, value: this._attrs[name], namespaceURI: this._attrNs[name] || null, specified: true }));
+    return Object.keys(this._attrs).map((name) => __attrNode(this, name));
   },
 });
+// DOMPurify >= 3.4.13 (bundled in mermaid >= 12.3) removes an attribute with Element.prototype.removeAttributeNode(el, attr),
+// which it looks up like the accessors above: when the shim has no such method the call silently does nothing, the
+// attribute is recorded as removed and stays in the SVG (onclick, mermaid's layout scratch attributes...).
+Element.prototype.getAttributeNode = function (name) { return this.hasAttribute(name) ? __attrNode(this, name) : null; };
+Element.prototype.removeAttributeNode = function (attr) {
+  if (!attr || !this.hasAttribute(attr.name)) throw new Error("NotFoundError: the attribute is not on this element");
+  this.removeAttribute(attr.name);
+  return attr;
+};
 
 const NodeFilter = {
   FILTER_ACCEPT: 1, FILTER_REJECT: 2, FILTER_SKIP: 3,
