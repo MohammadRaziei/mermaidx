@@ -34,6 +34,26 @@ def run(*args, input: str = None) -> subprocess.CompletedProcess:
     )
 
 
+def run_bytes(*args, stdin: str | None = None) -> subprocess.CompletedProcess:
+    """Like run(), but stdout/stderr stay bytes -- for the binary formats written to stdout."""
+    return subprocess.run(  # noqa: S603
+        [sys.executable, "-m", "mermaidx", *args],
+        capture_output=True, input=None if stdin is None else stdin.encode("utf-8"), check=False,
+    )
+
+
+_PNG = b"\x89PNG\r\n\x1a\n"
+# (format, check on the first bytes of the file)
+_MAGIC = {
+    "png": lambda b: b[:8] == _PNG,
+    "jpg": lambda b: b[:2] == b"\xff\xd8",
+    "jpeg": lambda b: b[:2] == b"\xff\xd8",
+    "bmp": lambda b: b[:2] == b"BM",
+    "pdf": lambda b: b[:5] == b"%PDF-",
+    "svg": lambda b: b.lstrip().startswith(b"<svg"),
+}
+
+
 def _png_dims(data: bytes):
     assert data[:8] == b"\x89PNG\r\n\x1a\n"
     return struct.unpack(">I", data[16:20])[0], struct.unpack(">I", data[20:24])[0]
@@ -344,4 +364,81 @@ def test_bad_backend_engine_theme_is_a_usage_error_not_a_traceback(args):
     r = run("-i", str(BASIC_MERMAID), *args)
     assert r.returncode == 2
     assert "Traceback" not in r.stderr
-    
+
+
+# ── output format on stdout: -f/--format and -o - (issue #46) ────────────────
+
+@pytest.mark.parametrize("fmt", sorted(_MAGIC))
+def test_format_flag_without_output_writes_that_format_to_stdout(fmt):
+    r = run_bytes("-i", "-", "-f", fmt, stdin=SIMPLE)
+    assert r.returncode == 0, r.stderr
+    assert _MAGIC[fmt](r.stdout)
+
+
+@pytest.mark.parametrize("fmt", sorted(_MAGIC))
+def test_dash_output_with_format_writes_that_format_to_stdout(fmt):
+    r = run_bytes("-i", "-", "-o", "-", "--format", fmt, stdin=SIMPLE)
+    assert r.returncode == 0, r.stderr
+    assert _MAGIC[fmt](r.stdout)
+
+
+def test_tga_to_stdout():
+    r = run_bytes("-i", "-", "-f", "tga", stdin=SIMPLE)
+    assert r.returncode == 0, r.stderr
+    assert len(r.stdout) > 18 and r.stdout[2] in (2, 10)  # TGA has no magic: image type of the header
+
+
+def test_dash_output_defaults_to_svg():
+    r = run("-i", "-", "-o", "-", input=SIMPLE)
+    assert r.returncode == 0
+    assert r.stdout.lstrip().startswith("<svg")
+
+
+def test_stdout_png_honours_size_options_and_says_nothing_on_stderr():
+    r = run_bytes("-i", "-", "-f", "png", "-w", "500", stdin=SIMPLE)
+    assert r.returncode == 0
+    assert _png_dims(r.stdout)[0] == 500
+    assert b"saved to" not in r.stderr
+
+
+def test_stdout_png_is_the_same_as_the_file(tmp_path):
+    out = tmp_path / "out.png"
+    assert run("-i", "-", "-o", str(out), "-q", input=SIMPLE).returncode == 0
+    assert run_bytes("-i", "-", "-f", "png", stdin=SIMPLE).stdout == out.read_bytes()
+
+
+def test_stdout_jpeg_quality_applies():
+    low = run_bytes("-i", "-", "-f", "jpg", "--quality", "5", stdin=FLOWCHART).stdout
+    high = run_bytes("-i", "-", "-f", "jpg", "--quality", "95", stdin=FLOWCHART).stdout
+    assert len(low) < len(high)
+
+
+def test_stdout_pdf_options_apply():
+    r = run_bytes("-i", "-", "-f", "pdf", "--pdf-format", "A4", "--landscape", stdin=SIMPLE)
+    assert r.returncode == 0
+    assert r.stdout[:5] == b"%PDF-"
+
+
+def test_format_flag_overrides_the_extension_of_a_file(tmp_path):
+    out = tmp_path / "out.svg"
+    assert run("-i", "-", "-o", str(out), "-f", "png", "-q", input=SIMPLE).returncode == 0
+    assert out.read_bytes()[:8] == _PNG
+
+
+def test_format_flag_names_a_file_without_extension(tmp_path):
+    out = tmp_path / "diagram"
+    assert run("-i", "-", "-o", str(out), "--format", "pdf", "-q", input=SIMPLE).returncode == 0
+    assert out.read_bytes()[:5] == b"%PDF-"
+
+
+def test_unknown_extension_without_format_is_a_usage_error_not_a_traceback(tmp_path):
+    r = run("-i", "-", "-o", str(tmp_path / "diagram.xyz"), input=SIMPLE)
+    assert r.returncode == 2
+    assert "--format" in r.stderr
+    assert "Traceback" not in r.stderr
+
+
+def test_bad_format_is_a_usage_error():
+    r = run("-i", "-", "-f", "gif", input=SIMPLE)
+    assert r.returncode == 2
+    assert "Traceback" not in r.stderr

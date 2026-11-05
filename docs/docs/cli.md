@@ -8,14 +8,15 @@ description: Every option of the mermaidx command.
 mermaidx -i INPUT -o OUTPUT [options]
 ```
 
-Without `-o`, the SVG is written to standard output. Use `-i -` to read the diagram from standard input.
+Without `-o`, or with `-o -`, the diagram is written to standard output. Use `-i -` to read the diagram from standard input.
 
-The output format comes from the extension of `-o`: `.svg`, `.png`, `.jpg`, `.jpeg`, `.bmp`, `.tga` or `.pdf`.
+The output format comes from the extension of `-o`: `.svg`, `.png`, `.jpg`, `.jpeg`, `.bmp`, `.tga` or `.pdf`. Standard output has no extension, so it is SVG unless you pick another format with `-f`. `-f` also overrides the extension of a file, and names the format of a file that has none.
 
 | Option | Description |
 | --- | --- |
 | `-i`, `--input FILE` | Mermaid source file, or `-` for standard input |
-| `-o`, `--output FILE` | Output file. Omit it to write SVG to standard output |
+| `-o`, `--output FILE` | Output file, or `-` for standard output. Omit it to write to standard output too |
+| `-f`, `--format FORMAT` | Output format: `svg`, `png`, `jpg`, `jpeg`, `bmp`, `tga` or `pdf`. Overrides the extension of `-o`; the default is that extension, or `svg` for standard output |
 | `--backend KIND:NAME` | Rendering backend, such as `js:mermaid` (the default), `js:pele` or `rust:merman` |
 | `--engine NAME` | JS engine of a `js:` backend, `quickjs` (the default) or `v8` |
 | `--list-backends` | List the available backends and engines, and exit |
@@ -44,4 +45,7 @@ mermaidx -i flow.mmd -o flow.pdf --pdf-format A4 --margin 1cm
 mermaidx -i flow.mmd -o flow.jpg --quality 80
 mermaidx -i flow.mmd --engine v8 -o flow.svg
 mermaidx -i flow.mmd --backend js:pele -o flow.png
+mermaidx -i flow.mmd -f png -o - > flow.png     # PNG on standard output
+cat flow.mmd | mermaidx -i - -f pdf | lpr       # pipe a PDF to another program
+mermaidx -i flow.mmd -o flow -f jpg             # a file name without an extension
 ```

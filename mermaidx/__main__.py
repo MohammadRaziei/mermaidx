@@ -7,6 +7,7 @@ loop here at all -- one less thing to start up.
 
 Examples:
     mermaidx -i diagram.mermaid                    # SVG to stdout
+    mermaidx -i diagram.mermaid -f png -o -        # PNG to stdout
     mermaidx -i diagram.mermaid -o diagram.svg
     mermaidx -i diagram.mermaid -o diagram.png -w 1200
     mermaidx -i diagram.mermaid -o diagram.pdf --pdf-format A4
@@ -23,6 +24,8 @@ from pathlib import Path
 
 import mermaidx
 from mermaidx.diagram import Diagram
+
+_FORMATS = ("svg", "png", "jpg", "jpeg", "bmp", "tga", "pdf")
 
 
 def _get_version() -> str:
@@ -41,6 +44,7 @@ def _build_parser() -> argparse.ArgumentParser:
         epilog="""
 examples:
   mermaidx -i diagram.mermaid                         # SVG to stdout
+  mermaidx -i diagram.mermaid -f png -o - | display   # PNG to stdout
   mermaidx -i diagram.mermaid -o diagram.svg
   mermaidx -i diagram.mermaid -o diagram.png -w 1200
   mermaidx -i diagram.mermaid -o diagram.png --scale 2.0
@@ -68,7 +72,12 @@ examples:
     parser.add_argument("-i", "--input", metavar="FILE",
                         help="Input Mermaid file, or '-' to read from stdin")
     parser.add_argument("-o", "--output", default=None, metavar="FILE",
-                        help="Output file (.svg/.png/.jpg/.jpeg/.bmp/.tga/.pdf). Omit to write SVG to stdout.")
+                        help="Output file (.svg/.png/.jpg/.jpeg/.bmp/.tga/.pdf), or '-' for stdout. "
+                             "Omit to write to stdout too.")
+    parser.add_argument("-f", "--format", default=None, choices=_FORMATS, metavar="FORMAT",
+                        help="Output format: " + ", ".join(_FORMATS) + ". Overrides the extension of -o, "
+                             "and is the only way to pick one for stdout (default: the extension of -o, "
+                             "or svg for stdout).")
     parser.add_argument("-w", "--width", type=float, default=None, metavar="N",
                         help="Output width in pixels (PNG/PDF-fit)")
     parser.add_argument("-H", "--height", type=float, default=None, metavar="N",
@@ -162,26 +171,43 @@ def main() -> None:
     except ValueError as exc:  # a bad --backend / --engine / --theme combination: say so, no traceback
         parser.error(str(exc))
 
-    if args.output is None:
-        sys.stdout.buffer.write(d.svg().encode("utf-8"))
+    to_stdout = args.output is None or args.output == "-"
+    output = None if to_stdout else Path(args.output)
+
+    fmt = args.format
+    if fmt is None:
+        fmt = "svg" if to_stdout else Diagram._EXTENSION_FORMATS.get(output.suffix.lower())
+        if fmt is None:
+            parser.error(f"cannot infer the output format from {args.output!r}: use one of the extensions "
+                         f"{sorted(Diagram._EXTENSION_FORMATS)} or pass -f/--format")
+    if fmt == "jpeg":
+        fmt = "jpg"
+
+    raster_kwargs = {"width": args.width, "height": args.height, "scale": args.scale, "background": args.background}
+    format_opts = {}
+    if fmt == "pdf":
+        format_opts = {"pdf_format": args.pdf_format, "pdf_landscape": args.landscape, "pdf_margin": args.margin}
+    elif fmt == "jpg" and args.quality is not None:
+        format_opts = {"quality": args.quality}
+
+    if to_stdout:
+        sys.stdout.buffer.write(_encode(d, fmt, raster_kwargs, format_opts))
+        sys.stdout.buffer.flush()
         return
 
-    output = Path(args.output)
-    raster_kwargs = dict(width=args.width, height=args.height, scale=args.scale, background=args.background)
-    suffix = output.suffix.lower()
-
-    if suffix == ".pdf":
-        d.save(str(output), **raster_kwargs, pdf_format=args.pdf_format,
-               pdf_landscape=args.landscape, pdf_margin=args.margin)
-    elif suffix == ".svg":
-        d.save(str(output), **raster_kwargs)
-    elif suffix in (".jpg", ".jpeg") and args.quality is not None:
-        d.save(str(output), **raster_kwargs, quality=args.quality)
-    else:
-        d.save(str(output), **raster_kwargs)
+    d.save(str(output), format=fmt, **(raster_kwargs if fmt != "svg" else {}), **format_opts)
 
     if not args.quiet:
         print(f"saved to {output}  ({output.stat().st_size:,} bytes)", file=sys.stderr)
+
+
+def _encode(d: Diagram, fmt: str, raster_kwargs: dict, format_opts: dict) -> bytes:
+    """The bytes of *d* in *fmt* (what ``Diagram.save`` would write), for standard output."""
+    if fmt == "svg":
+        return d.svg().encode("utf-8")
+    if fmt == "pdf":
+        return d.pdf(**{**raster_kwargs, "scale": raster_kwargs["scale"] or 1.0}, **format_opts)
+    return getattr(d, fmt)(**raster_kwargs, **format_opts)
 
 
 if __name__ == "__main__":

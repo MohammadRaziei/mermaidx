@@ -44,9 +44,19 @@ follows [Semantic Versioning](https://semver.org/) (while below 1.0, a minor bum
 - **`NOTICES.md` and `third_party_licenses/`**: the licenses of the JavaScript files in `mermaidx/assets`
   (mermaid.js, pele, @zenuml/core with antlr4 and marked, the ELK layout with elkjs, which is EPL-2.0) next to the
   DejaVu license that was already there. They are also in the wheel, under `mermaidx/`.
+- **`-f`/`--format` for the command line** (#46). The format of the output came only from the extension of `-o`, so
+  standard output could only ever be SVG. `mermaidx -i flow.mmd -f png > flow.png` (or `-o -`) now writes any format to
+  standard output: `svg`, `png`, `jpg`, `jpeg`, `bmp`, `tga` or `pdf`, with the size, background, `--quality` and PDF
+  options applying as they do for a file. `-f` also overrides the extension of a file, and names the format of a file
+  without one (`-o diagram -f pdf`). Without `-f` nothing changes: the extension of `-o` decides, and standard output
+  is SVG.
 
 ### Changed
 
+- The minimum `novasvg` is now 0.11.5. mermaid.js 12.3 colors the nodes of some diagrams (the entities of an ER
+  diagram, for one) with CSS rules that select on attributes (`[data-look="neo"][data-color-id="color-0"].node path`),
+  which novasvg before 0.11.5 does not apply: the SVG was colored, but the PNG, JPEG and PDF made from it came out
+  without those colors. 0.11.5 applies them.
 - **mermaid.js 12.2.0 -> 12.3.0** (the minified `dist/mermaid.min.js`, unmodified). It bundles DOMPurify 3.4.17 instead
   of 3.4.12, which needed one more thing from the DOM shim (see "Fixed").
 - **pele 1.12.0 -> 1.13.0** (the minified `dist/pele.js` from npm, `mermaidx/assets/pele.js`).
@@ -60,6 +70,8 @@ follows [Semantic Versioning](https://semver.org/) (while below 1.0, a minor bum
 
 ### Fixed
 
+- An output file with an extension mermaidx does not know (`-o diagram.xyz`) ended in a Python traceback. It is a usage
+  error now, and the message points at `-f`.
 - **DOMPurify removed nothing with mermaid.js 12.3.** The DOMPurify inside it (3.4.17; mermaid.js 12.2.0 had 3.4.12)
   removes an attribute with `Element.prototype.removeAttributeNode`, which the DOM shim did not have. DOMPurify looks
   it up in a way that makes a missing method a silent no-op, so every attribute it decided to drop stayed in the SVG:
