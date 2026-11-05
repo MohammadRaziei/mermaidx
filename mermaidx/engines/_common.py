@@ -26,6 +26,20 @@ BACKGROUND = "transparent"
 # The JS libraries an engine can run (the `js:<library>` backends, see mermaidx.backends).
 LIBRARIES = ("mermaid", "pele")
 
+# A context is thrown away after every render because mermaid.js keeps state between renders that a browser would
+# start from zero on every page load: module-level id counters (actor1, classId-Animal-0, ...) and the position in
+# its pseudo-random sequence, which moves the hand-drawn shapes. pele.js keeps none: rendering all 43 samples of
+# tests/samples in one context gives byte-for-byte the same SVG as a fresh context for each (tests/test_engine_common.py
+# keeps checking this). A context is the whole cost of a pele render (about 100 ms to parse pele.js, against 1 ms to
+# render), so pele's contexts are reused. Not forever: the context is replaced after this many renders, so whatever
+# a long-running process might accumulate in it stays bounded.
+CONTEXT_REUSE_LIMIT = 1000
+
+
+def reuses_context(library: str, renders_so_far: int) -> bool:
+    """True when a context that has rendered `renders_so_far` diagrams may render the next one as it is."""
+    return library == "pele" and renders_so_far < CONTEXT_REUSE_LIMIT
+
 
 class MermaidRenderError(RuntimeError):
     """Raised when mermaid.js itself reports a parse/render error."""

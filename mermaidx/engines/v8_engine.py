@@ -92,7 +92,7 @@ import threading
 from functools import lru_cache
 from typing import Optional
 
-from mermaidx.engines._common import LIBRARIES, MermaidRenderError, TextMeasurer, collect_svg, context_scripts, render_script, run_event_loop
+from mermaidx.engines._common import LIBRARIES, MermaidRenderError, TextMeasurer, collect_svg, context_scripts, render_script, reuses_context, run_event_loop, CONTEXT_REUSE_LIMIT
 from mermaidx.font_metrics import get_font
 
 _DEFAULT_RENDER_TIMEOUT_MS = 8_000
@@ -280,6 +280,7 @@ def _child_main(conn, library: str = "mermaid") -> None:
     """
     known: dict = {}
     measurer = TextMeasurer()
+    ctx_renders = 0  # renders the current context has done
     try:
         ctx = _build_context(library)
         conn.send(("ready", None))
@@ -296,19 +297,25 @@ def _child_main(conn, library: str = "mermaid") -> None:
             return
 
         code, theme, config, css = msg
+        ctx_renders += 1
         try:
             svg = _render(ctx, code, theme, config, css, known, measurer.foreign_object,
                           lambda: _build_context(library), library)
             conn.send(("ok", svg))
         except MermaidRenderError as exc:
             conn.send(("render_error", str(exc)))
+            ctx_renders = CONTEXT_REUSE_LIMIT  # a context that failed is never reused
         except Exception as exc:  # noqa: BLE001 -- report *any* other failure to the parent
             conn.send(("render_error", f"{type(exc).__name__}: {exc}"))
+            ctx_renders = CONTEXT_REUSE_LIMIT
+        if reuses_context(library, ctx_renders):
+            continue
         # A browser starts every page from zero (mermaid.js keeps module-level id counters), and
         # mermaid-cli opens a new page per diagram: the next render gets a context of its own.
         # Built right after replying, so it is ready while the caller is busy with the result.
         try:
             ctx = _build_context(library)
+            ctx_renders = 0
         except Exception as exc:  # noqa: BLE001
             conn.send(("boot_error", f"{type(exc).__name__}: {exc}"))
             return

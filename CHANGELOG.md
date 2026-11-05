@@ -5,6 +5,18 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 follows [Semantic Versioning](https://semver.org/) (while below 1.0, a minor bump may carry breaking changes).
 
+## [Unreleased]
+
+### Changed
+
+- **`js:pele` renders about six times faster.** Every render used to get a context of its own, and building one
+  (parsing the 730 KB of `pele.js`) took about 100 ms, against 1 ms for the render itself. pele keeps nothing between
+  renders (all 43 samples of `tests/samples` give byte-for-byte the same SVG in one context as in a fresh one each,
+  which `tests/test_engine_common.py` now checks), so its contexts are reused, on both engines, and replaced after
+  1000 renders or after a render that failed. Measured from text to PNG, one diagram after another: median 128 ms
+  before, 21.5 ms after. `js:mermaid` is unchanged: mermaid.js keeps id counters and a random sequence between
+  renders, so it still gets a fresh context for each diagram.
+
 ## [0.11.1] - 2026-11-06
 
 ### Added

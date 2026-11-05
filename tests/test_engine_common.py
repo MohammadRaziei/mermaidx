@@ -1,10 +1,13 @@
 """What the QuickJS and V8 engines share lives in mermaidx/engines/_common.py (written once)."""
 import json
+from pathlib import Path
 
 import pytest
 import quickjs
 
 from mermaidx.engines import _common
+from mermaidx.engines._common import MermaidRenderError
+from mermaidx.engines.quickjs_engine import Engine
 
 
 def test_both_engines_raise_the_same_error_class():
@@ -181,3 +184,47 @@ def test_event_loop_is_bounded_when_a_page_never_stops(monkeypatch):
     page = _FakePage(timers=10**9)
     _common.run_event_loop(page.evaluate, page.run_job)
     assert page.timers_run == 50
+
+
+# -- reusing a context -----------------------------------------------------------------------------------------------
+
+
+def test_only_pele_reuses_a_context_and_not_forever():
+    assert _common.reuses_context("pele", 1)
+    assert not _common.reuses_context("mermaid", 0)  # mermaid.js keeps id counters and a random sequence
+    assert not _common.reuses_context("pele", _common.CONTEXT_REUSE_LIMIT)
+
+
+def test_pele_in_one_reused_context_draws_what_a_fresh_context_draws():
+    """The reason pele's contexts may be reused: nothing a render leaves behind reaches the next one."""
+    sources = [p.read_text(encoding="utf-8") for p in sorted((Path(__file__).parent / "samples").glob("*.mmd"))]
+    assert len(sources) > 20
+
+    reused = Engine("pele")
+    reused.start()
+    try:
+        once_each = []
+        for source in sources:
+            fresh = Engine("pele")
+            fresh.start()
+            try:
+                once_each.append(fresh.render_svg(source, None, None, None))
+            finally:
+                fresh.close()
+        in_one_context = [reused.render_svg(source, None, None, None) for source in sources]
+        assert reused._ctx_renders == len(sources)  # they really did share a context
+    finally:
+        reused.close()
+    assert in_one_context == once_each
+
+
+def test_a_failed_pele_render_does_not_leave_its_context_to_the_next_one():
+    engine = Engine("pele")
+    engine.start()
+    try:
+        engine.render_svg("flowchart LR; A-->B", None, None, None)
+        with pytest.raises(MermaidRenderError):
+            engine.render_svg("this is not a diagram", None, None, None)
+        assert "<svg" in engine.render_svg("flowchart LR; A-->B", None, None, None)
+    finally:
+        engine.close()

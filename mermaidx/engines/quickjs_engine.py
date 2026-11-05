@@ -33,7 +33,7 @@ from typing import Optional
 
 import quickjs
 
-from mermaidx.engines._common import LIBRARIES, MermaidRenderError, TextMeasurer, collect_svg, context_scripts, render_script, run_event_loop  # noqa: F401 (re-exported: the engines are interchangeable by their import line)
+from mermaidx.engines._common import LIBRARIES, MermaidRenderError, TextMeasurer, collect_svg, context_scripts, render_script, reuses_context, run_event_loop, CONTEXT_REUSE_LIMIT  # noqa: F401 (re-exported: the engines are interchangeable by their import line)
 
 
 # A browser gives a page's JS a stack deep enough for mermaid.js's recursion (dagre walks a long chain of
@@ -68,6 +68,7 @@ class Engine:
         self._ctx: Optional[quickjs.Context] = None
         self._measurer: Optional[TextMeasurer] = None
         self._render_count = 0
+        self._ctx_renders = 0  # renders the current context has done
         self._ctx_used = False
         self._lock = threading.Lock()
 
@@ -103,6 +104,7 @@ class Engine:
         self._measurer = TextMeasurer()
         self._ctx = self._build_context()
         self._ctx_used = False
+        self._ctx_renders = 0
 
     def _ensure_fresh_context(self) -> None:
         """Make sure self._ctx has not rendered anything yet.
@@ -111,9 +113,11 @@ class Engine:
         the class diagram's classId-N-M) that a browser starts from zero on every page load; mermaid-cli
         opens a new page for each diagram. A context that already rendered would number the next
         diagram's ids on from where the last one stopped, so each render gets a context of its own."""
-        if self._ctx is None or self._ctx_used:
-            self._ctx = self._build_context()
-            self._ctx_used = False
+        if self._ctx is not None and (not self._ctx_used or reuses_context(self._library, self._ctx_renders)):
+            return
+        self._ctx = self._build_context()
+        self._ctx_used = False
+        self._ctx_renders = 0
 
     def _build_context(self):
         ctx = quickjs.Context()
@@ -165,11 +169,17 @@ class Engine:
         self._ensure_fresh_context()
         ctx = self._ctx
         self._ctx_used = True
+        self._ctx_renders += 1
         self._render_count += 1
-        ctx.eval(render_script(code, theme, config, css, self._library))
-        run_event_loop(ctx.eval, self._run_job)
-
-        return collect_svg(lambda js: ctx.eval(f"__flat({js})"))
+        try:
+            ctx.eval(render_script(code, theme, config, css, self._library))
+            run_event_loop(ctx.eval, self._run_job)
+            return collect_svg(lambda js: ctx.eval(f"__flat({js})"))
+        except BaseException:
+            # A render that failed halfway (stack overflow, out of memory) may leave the context in any state:
+            # never reuse it, even where contexts are reused.
+            self._ctx_renders = CONTEXT_REUSE_LIMIT
+            raise
 
     # -- public, thread-safe entry point ---------------------------------------
 
