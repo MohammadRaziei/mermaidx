@@ -5,7 +5,7 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 follows [Semantic Versioning](https://semver.org/) (while below 1.0, a minor bump may carry breaking changes).
 
-## [0.11.1] - 2026-11-04
+## [0.11.1] - 2026-11-06
 
 ### Added
 
