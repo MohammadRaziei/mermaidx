@@ -5,7 +5,7 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 follows [Semantic Versioning](https://semver.org/) (while below 1.0, a minor bump may carry breaking changes).
 
-## [0.11.1] - 2026-11-03
+## [0.11.1] - 2026-11-04
 
 ### Added
 
@@ -40,6 +40,10 @@ follows [Semantic Versioning](https://semver.org/) (while below 1.0, a minor bum
 - **ELK and ZenUML in the gallery.** These diagrams have a badge, the filters "ELK layout only" and "ZenUML only", and
   a renderer that cannot draw one shows "Not supported" with its error. `js:pele`, which has no ELK layout and draws
   those flowcharts with its own, is marked as such under the diagram.
+
+- **`NOTICES.md` and `third_party_licenses/`**: the licenses of the JavaScript files in `mermaidx/assets`
+  (mermaid.js, pele, @zenuml/core with antlr4 and marked, the ELK layout with elkjs, which is EPL-2.0) next to the
+  DejaVu license that was already there. They are also in the wheel, under `mermaidx/`.
 
 ### Changed
 
