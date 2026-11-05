@@ -71,6 +71,9 @@ follows [Semantic Versioning](https://semver.org/) (while below 1.0, a minor bum
   Labels then took fewer lines than their boxes were made for and the boxes looked too tall (`10_flowchart_long_label`).
   Those names are now pointed at the bundled DejaVu Sans, so the pixels agree with the layout on every host. The SVG
   was never affected.
+- **quickjs-ng 0.18.** It hands a long string (a rope) to Python itself, where older bindings raised `Unknown quickjs
+  tag`. The `__flat` wrappers stay, because `quickjs-ng>=0.15.1` is still allowed and they are harmless on 0.18; two
+  tests that required the old error now accept both behaviors.
 - **US spelling** in the code, the messages and the docs (#42, #44): recognize, colors, Enroll, label-center.
 - **The docs site favicon has a transparent background.** `docs/static/img/favicon.svg` had a light rectangle behind
   the logo, which showed as a white box in browser tabs.

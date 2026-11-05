@@ -110,9 +110,13 @@ class TestFlatHelper:
 
     def test_flattens_a_rope(self, ctx):
         ctx.eval("var r = ''; for (var i = 0; i < 2000; i++) r = r + '<t>— ' + i + '</t>'; 0")
-        with pytest.raises(TypeError, match="Unknown quickjs tag"):
-            ctx.eval("r")  # still a rope: the helper is needed
-        assert len(ctx.eval("__flat(r)")) == len(ctx.eval("JSON.stringify(r)")) - 2
+        expected = len(ctx.eval("JSON.stringify(r)")) - 2
+        # An older binding cannot hand a rope to Python (the helper is needed), a newer quickjs-ng (0.18) can.
+        try:
+            ctx.eval("r")
+        except TypeError as exc:
+            assert "Unknown quickjs tag" in str(exc)
+        assert len(ctx.eval("__flat(r)")) == expected
 
     @pytest.mark.parametrize(
         "expression, expected",

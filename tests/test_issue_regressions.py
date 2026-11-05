@@ -375,11 +375,17 @@ def test_long_label_above_latin1_renders():
     assert "臨床試験" in svg
 
 
-def test_binding_still_rejects_ropes():
-    """Pins the binding behavior the __flat wrappers exist for. If this starts
-    failing, quickjs converts ropes itself and __flat can go."""
+def test_binding_handles_ropes_either_way():
+    """The __flat wrappers exist because older quickjs bindings raise TypeError("Unknown quickjs tag") for a rope. A
+    newer quickjs-ng (0.18) converts ropes itself, and the wrappers are then harmless. Either is fine; what must hold is
+    that a rope never comes back wrong, and that slice(0), which __flat uses, always gives the whole string."""
     ctx = quickjs.Context()
     ctx.eval("var r = ''; for (var i = 0; i < 2000; i++) r = r + '<t>— ' + i + '</t>'; 0")
-    with pytest.raises(TypeError, match="Unknown quickjs tag"):
-        ctx.eval("r")
-    assert len(ctx.eval("r.slice(0)")) == len(ctx.eval("JSON.stringify(r)")) - 2
+    expected = len(ctx.eval("JSON.stringify(r)")) - 2
+    try:
+        value = ctx.eval("r")
+    except TypeError as exc:
+        assert "Unknown quickjs tag" in str(exc)  # the older binding, which __flat is for
+    else:
+        assert isinstance(value, str) and len(value) == expected  # the newer binding
+    assert len(ctx.eval("r.slice(0)")) == expected
