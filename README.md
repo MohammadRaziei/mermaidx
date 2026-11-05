@@ -324,6 +324,7 @@ Full reference: [Python API docs](https://mohammadraziei.github.io/mermaidx/docs
 ```bash
 mermaidx -i diagram.mermaid                        # SVG to stdout
 mermaidx -i diagram.mermaid -f png -o - > out.png  # any format to stdout
+mermaidx -i diagram.mermaid -f png --data-uri      # as data:image/png;base64,...
 mermaidx -i diagram.mermaid -o diagram.png         # format from the extension
 mermaidx -i diagram.mermaid -o diagram.png -w 1200 # or --scale 2.0
 mermaidx -i diagram.mermaid -o diagram.svg --theme dark

@@ -442,3 +442,33 @@ def test_bad_format_is_a_usage_error():
     r = run("-i", "-", "-f", "gif", input=SIMPLE)
     assert r.returncode == 2
     assert "Traceback" not in r.stderr
+
+
+# ── --data-uri and the terminal guard ────────────────────────────────────────
+
+_DATA_URI = {"svg": "image/svg+xml", "png": "image/png", "jpg": "image/jpeg", "bmp": "image/bmp",
+             "tga": "image/x-tga", "pdf": "application/pdf"}
+
+
+@pytest.mark.parametrize("fmt", sorted(_DATA_URI))
+def test_data_uri_decodes_to_the_same_bytes_as_stdout(fmt):
+    import base64
+    uri = run("-i", "-", "-f", fmt, "--data-uri", input=SIMPLE).stdout.strip()
+    prefix = f"data:{_DATA_URI[fmt]};base64,"
+    assert uri.startswith(prefix)
+    raw = base64.b64decode(uri[len(prefix):])
+    if fmt != "svg":  # SVG of some diagrams carries random rough.js paths; the others are deterministic
+        assert raw == run_bytes("-i", "-", "-f", fmt, stdin=SIMPLE).stdout
+
+
+def test_data_uri_defaults_to_svg():
+    r = run("-i", "-", "--data-uri", input=SIMPLE)
+    assert r.returncode == 0
+    assert r.stdout.startswith("data:image/svg+xml;base64,")
+
+
+def test_data_uri_with_a_file_is_a_usage_error(tmp_path):
+    r = run("-i", "-", "-o", str(tmp_path / "out.png"), "--data-uri", input=SIMPLE)
+    assert r.returncode == 2
+    assert "--data-uri" in r.stderr
+    assert "Traceback" not in r.stderr

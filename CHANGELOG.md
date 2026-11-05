@@ -49,11 +49,12 @@ follows [Semantic Versioning](https://semver.org/) (while below 1.0, a minor bum
   standard output: `svg`, `png`, `jpg`, `jpeg`, `bmp`, `tga` or `pdf`, with the size, background, `--quality` and PDF
   options applying as they do for a file. `-f` also overrides the extension of a file, and names the format of a file
   without one (`-o diagram -f pdf`). Without `-f` nothing changes: the extension of `-o` decides, and standard output
-  is SVG.
+  is SVG. Binary formats are raw bytes, so a pipe or a redirect gets a valid file; a terminal gets an error instead of
+  garbage. **`--data-uri`** writes `data:image/png;base64,...` instead, for HTML, Markdown or JSON.
 
 ### Changed
 
-- The minimum `novasvg` is now 0.11.5. mermaid.js 12.3 colors the nodes of some diagrams (the entities of an ER
+- `novasvg` is now pinned to exactly 0.11.5 (`==`, not a minimum). mermaid.js 12.3 colors the nodes of some diagrams (the entities of an ER
   diagram, for one) with CSS rules that select on attributes (`[data-look="neo"][data-color-id="color-0"].node path`),
   which novasvg before 0.11.5 does not apply: the SVG was colored, but the PNG, JPEG and PDF made from it came out
   without those colors. 0.11.5 applies them.

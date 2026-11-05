@@ -16,6 +16,7 @@ The output format comes from the extension of `-o`: `.svg`, `.png`, `.jpg`, `.jp
 | --- | --- |
 | `-i`, `--input FILE` | Mermaid source file, or `-` for standard input |
 | `-o`, `--output FILE` | Output file, or `-` for standard output. Omit it to write to standard output too |
+| `--data-uri` | Write the output to standard output as a data URI (`data:image/png;base64,...`) instead of raw bytes. Stdout only |
 | `-f`, `--format FORMAT` | Output format: `svg`, `png`, `jpg`, `jpeg`, `bmp`, `tga` or `pdf`. Overrides the extension of `-o`; the default is that extension, or `svg` for standard output |
 | `--backend KIND:NAME` | Rendering backend, such as `js:mermaid` (the default), `js:pele` or `rust:merman` |
 | `--engine NAME` | JS engine of a `js:` backend, `quickjs` (the default) or `v8` |
@@ -48,4 +49,7 @@ mermaidx -i flow.mmd --backend js:pele -o flow.png
 mermaidx -i flow.mmd -f png -o - > flow.png     # PNG on standard output
 cat flow.mmd | mermaidx -i - -f pdf | lpr       # pipe a PDF to another program
 mermaidx -i flow.mmd -o flow -f jpg             # a file name without an extension
+mermaidx -i flow.mmd -f png --data-uri          # data:image/png;base64,... for HTML, Markdown or JSON
 ```
+
+Binary formats go to standard output as raw bytes, so they can be redirected or piped. If standard output is a terminal, mermaidx refuses to print them and says so; redirect (`> flow.png`) or pass `--data-uri` to get the same image as text. The MIME type is `image/svg+xml`, `image/png`, `image/jpeg`, `image/bmp`, `image/x-tga` or `application/pdf`; browsers do not display TGA at all, and many block a PDF opened from a data URI.

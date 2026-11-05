@@ -8,6 +8,7 @@ loop here at all -- one less thing to start up.
 Examples:
     mermaidx -i diagram.mermaid                    # SVG to stdout
     mermaidx -i diagram.mermaid -f png -o -        # PNG to stdout
+    mermaidx -i diagram.mermaid -f png --data-uri  # data:image/png;base64,... to stdout
     mermaidx -i diagram.mermaid -o diagram.svg
     mermaidx -i diagram.mermaid -o diagram.png -w 1200
     mermaidx -i diagram.mermaid -o diagram.pdf --pdf-format A4
@@ -18,6 +19,7 @@ Examples:
 """
 
 import argparse
+import base64
 import json
 import sys
 from pathlib import Path
@@ -26,6 +28,10 @@ import mermaidx
 from mermaidx.diagram import Diagram
 
 _FORMATS = ("svg", "png", "jpg", "jpeg", "bmp", "tga", "pdf")
+_MIME = {
+    "svg": "image/svg+xml", "png": "image/png", "jpg": "image/jpeg", "bmp": "image/bmp",
+    "tga": "image/x-tga", "pdf": "application/pdf",
+}
 
 
 def _get_version() -> str:
@@ -45,6 +51,7 @@ def _build_parser() -> argparse.ArgumentParser:
 examples:
   mermaidx -i diagram.mermaid                         # SVG to stdout
   mermaidx -i diagram.mermaid -f png -o - | display   # PNG to stdout
+  mermaidx -i diagram.mermaid -f png --data-uri       # data:image/png;base64,... to stdout
   mermaidx -i diagram.mermaid -o diagram.svg
   mermaidx -i diagram.mermaid -o diagram.png -w 1200
   mermaidx -i diagram.mermaid -o diagram.png --scale 2.0
@@ -78,6 +85,10 @@ examples:
                         help="Output format: " + ", ".join(_FORMATS) + ". Overrides the extension of -o, "
                              "and is the only way to pick one for stdout (default: the extension of -o, "
                              "or svg for stdout).")
+    parser.add_argument("--data-uri", action="store_true",
+                        help="Write the output to stdout as a data URI (data:image/png;base64,...) instead of "
+                             "raw bytes, for embedding in HTML/Markdown/JSON or for a terminal. "
+                             "Stdout only (no -o FILE).")
     parser.add_argument("-w", "--width", type=float, default=None, metavar="N",
                         help="Output width in pixels (PNG/PDF-fit)")
     parser.add_argument("-H", "--height", type=float, default=None, metavar="N",
@@ -183,6 +194,12 @@ def main() -> None:
     if fmt == "jpeg":
         fmt = "jpg"
 
+    if args.data_uri and not to_stdout:
+        parser.error("--data-uri writes to standard output: drop -o FILE (or use -o -)")
+    if to_stdout and fmt != "svg" and not args.data_uri and sys.stdout.isatty():
+        parser.error(f"refusing to write binary {fmt} to a terminal: redirect it (> out.{fmt}) "
+                     "or pass --data-uri to get it as text")
+
     raster_kwargs = {"width": args.width, "height": args.height, "scale": args.scale, "background": args.background}
     format_opts = {}
     if fmt == "pdf":
@@ -191,7 +208,10 @@ def main() -> None:
         format_opts = {"quality": args.quality}
 
     if to_stdout:
-        sys.stdout.buffer.write(_encode(d, fmt, raster_kwargs, format_opts))
+        data = _encode(d, fmt, raster_kwargs, format_opts)
+        if args.data_uri:
+            data = f"data:{_MIME[fmt]};base64,{base64.b64encode(data).decode('ascii')}\n".encode("ascii")
+        sys.stdout.buffer.write(data)
         sys.stdout.buffer.flush()
         return
 
