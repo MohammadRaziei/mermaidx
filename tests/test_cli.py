@@ -394,7 +394,7 @@ def test_dash_output_defaults_to_svg():
     assert r.stdout.lstrip().startswith("<svg")
 
 
-def test_stdout_png_honours_size_options_and_says_nothing_on_stderr():
+def test_stdout_png_honors_size_options_and_says_nothing_on_stderr():
     r = run_bytes("-i", "-", "-f", "png", "-w", "500", stdin=SIMPLE)
     assert r.returncode == 0
     assert _png_dims(r.stdout)[0] == 500
