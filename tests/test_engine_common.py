@@ -228,3 +228,25 @@ def test_a_failed_pele_render_does_not_leave_its_context_to_the_next_one():
         assert "<svg" in engine.render_svg("flowchart LR; A-->B", None, None, None)
     finally:
         engine.close()
+
+
+def test_pele_on_v8_in_one_reused_context_draws_what_a_fresh_context_draws():
+    pytest.importorskip("py_mini_racer")
+    v8_engine = pytest.importorskip("mermaidx.engines.v8_engine")
+
+    sources = [p.read_text(encoding="utf-8") for p in sorted((Path(__file__).parent / "samples").glob("*.mmd"))][:10]
+    once_each = []
+    for source in sources:
+        fresh = v8_engine.Engine(library="pele")
+        fresh.start()
+        try:
+            once_each.append(fresh.render_svg(source, None, None, None))
+        finally:
+            fresh.close()
+    shared = v8_engine.Engine(library="pele")
+    shared.start()
+    try:
+        in_one_context = [shared.render_svg(source, None, None, None) for source in sources]
+    finally:
+        shared.close()
+    assert in_one_context == once_each

@@ -33,7 +33,19 @@ from typing import Optional
 
 import quickjs
 
-from mermaidx.engines._common import LIBRARIES, MermaidRenderError, TextMeasurer, collect_svg, context_scripts, render_script, reuses_context, run_event_loop, CONTEXT_REUSE_LIMIT  # noqa: F401 (re-exported: the engines are interchangeable by their import line)
+from mermaidx.engines import _bytecode
+from mermaidx.engines._common import (
+    LIBRARIES,
+    MermaidRenderError,  # noqa: F401 (re-exported: the engines are interchangeable by their import line)
+    TextMeasurer,
+    collect_svg,
+    context_scripts,
+    library_scripts,
+    render_script,
+    reuses_context,
+    run_event_loop,
+    CONTEXT_REUSE_LIMIT,
+)
 
 
 # A browser gives a page's JS a stack deep enough for mermaid.js's recursion (dagre walks a long chain of
@@ -69,6 +81,7 @@ class Engine:
         self._measurer: Optional[TextMeasurer] = None
         self._render_count = 0
         self._ctx_renders = 0  # renders the current context has done
+        self._scripts: tuple[str, ...] | None = None
         self._ctx_used = False
         self._lock = threading.Lock()
 
@@ -154,8 +167,10 @@ class Engine:
             "globalThis.__measureGlyphs = (t,s,f,w,st) => JSON.parse(__measureGlyphs_raw(__flat(t),__flat(s),__flat(f),__flat(w),__flat(st)));\n"
             "globalThis.__measureForeignObject = (h,s,f,w,st) => JSON.parse(__measureForeignObject_raw(__flat(h),__flat(s),__flat(f),__flat(w),__flat(st)));\n"
         )
-        for script in context_scripts(self._library):
-            ctx.eval(script)
+        if self._scripts is None:  # read from disk once per engine, not once per context
+            self._scripts = context_scripts(self._library)
+        for index, script in enumerate(self._scripts):
+            _bytecode.run(ctx, script, f"{self._library}-{index}")
         return ctx
 
     def _run_job(self) -> bool:
@@ -172,7 +187,9 @@ class Engine:
         self._ctx_renders += 1
         self._render_count += 1
         try:
-            ctx.eval(render_script(code, theme, config, css, self._library))
+            for name, source in library_scripts(code, config, self._library):
+                _bytecode.run(ctx, source, name)
+            ctx.eval(render_script(code, theme, config, css, self._library, with_libraries=False))
             run_event_loop(ctx.eval, self._run_job)
             return collect_svg(lambda js: ctx.eval(f"__flat({js})"))
         except BaseException:

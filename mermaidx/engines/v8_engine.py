@@ -92,7 +92,17 @@ import threading
 from functools import lru_cache
 from typing import Optional
 
-from mermaidx.engines._common import LIBRARIES, MermaidRenderError, TextMeasurer, collect_svg, context_scripts, render_script, reuses_context, run_event_loop, CONTEXT_REUSE_LIMIT
+from mermaidx.engines._common import (
+    LIBRARIES,
+    MermaidRenderError,
+    TextMeasurer,
+    collect_svg,
+    context_scripts,
+    render_script,
+    reuses_context,
+    run_event_loop,
+    CONTEXT_REUSE_LIMIT,
+)
 from mermaidx.font_metrics import get_font
 
 _DEFAULT_RENDER_TIMEOUT_MS = 8_000

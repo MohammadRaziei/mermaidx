@@ -159,11 +159,13 @@ def _zenuml_script() -> str:
     return (_ASSETS_DIR / "zenuml.js").read_text(encoding="utf-8")
 
 
-def zenuml_render_script(body: str) -> str:
+def zenuml_render_script(body: str, *, with_library: bool = True) -> str:
     """The ZenUML counterpart of render_script(): renderToSvg() is synchronous, so the result (or the error) is set
-    when the script returns. Neither the theme nor the config applies to it: they are mermaid's, not ZenUML's."""
+    when the script returns. Neither the theme nor the config applies to it: they are mermaid's, not ZenUML's.
+    `with_library=False` leaves out the 400 KB of zenuml.js, for an engine that has loaded it itself
+    (see library_scripts)."""
     return (
-        f"{_zenuml_script()}\n"
+        f"{_zenuml_script() + chr(10) if with_library else ''}"
         "__resetDocument();\n"
         "globalThis.__renderResult = null;\n"
         "globalThis.__renderError = null;\n"
@@ -195,21 +197,36 @@ def _elk_script() -> str:
     return (_ASSETS_DIR / "layout_elk.js").read_text(encoding="utf-8")
 
 
+def library_scripts(code: str, config: dict | None = None, library: str = "mermaid") -> tuple[tuple[str, str], ...]:
+    """The big scripts a render of `code` needs besides the ones every context has, as (name, source): the ELK layout
+    for a diagram that asks for it, zenuml.js for a ZenUML diagram. render_script() puts them in front of its own
+    text; an engine that can load them faster than evaluating their source (see _bytecode) asks for them here and
+    calls render_script(..., with_libraries=False)."""
+    if library != "mermaid":
+        return ()
+    if zenuml_body(code) is not None:
+        return (("zenuml", _zenuml_script()),)
+    if needs_elk(code, config):
+        return (("layout_elk", _elk_script()),)
+    return ()
+
+
 def render_script(code: str, theme: Optional[str], config: Optional[dict], css: Optional[str],
-                  library: str = "mermaid") -> str:
+                  library: str = "mermaid", *, with_libraries: bool = True) -> str:
     """One script that starts a render in a fresh context: a clean document, mermaid.initialize(), the caller's
     CSS if any, then `__renderLikeMmdc`. It leaves `__renderResult` (the svg) or `__renderError` set once the
     returned promise settles. Every value goes in as a JSON literal, so any text is passed through unchanged.
 
     For library="pele" the script is pele_render_script() (theme and css are applied by the caller, in Python:
     pele is themed by CSS variables, not by a theme name; it has no ELK layout and ignores a request for it).
-    For a diagram that needs the ELK layout (see needs_elk), the ELK script comes first. A ZenUML diagram does not go
+    For a diagram that needs the ELK layout (see needs_elk), the ELK script comes first (unless
+    `with_libraries=False`, see library_scripts). A ZenUML diagram does not go
     through mermaid.js at all: zenuml_render_script() (the theme, the config and the css do not apply to it)."""
     if library == "pele":
         return pele_render_script(code, config)
     body = zenuml_body(code)
     if body is not None:
-        return zenuml_render_script(body)
+        return zenuml_render_script(body, with_library=with_libraries)
     css_block = ""
     if css:
         css_block = (
@@ -220,7 +237,7 @@ def render_script(code: str, theme: Optional[str], config: Optional[dict], css: 
             "  document.head.appendChild(el);\n"
             "})();\n"
         )
-    elk = _elk_script() + "\n" if needs_elk(code, config) else ""
+    elk = _elk_script() + "\n" if with_libraries and needs_elk(code, config) else ""
     return (
         f"{elk}"
         "__resetDocument();\n"

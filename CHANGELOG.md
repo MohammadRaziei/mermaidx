@@ -9,13 +9,27 @@ follows [Semantic Versioning](https://semver.org/) (while below 1.0, a minor bum
 
 ### Changed
 
+- **`js:mermaid` renders about 2.8 times faster on QuickJS, from bytecode.** Every render gets a context of its own,
+  and building one was almost all parsing: QuickJS compiles every function of a script when it loads it, so the 5.5 MB
+  of `mermaid.js` took 600 to 800 ms to evaluate. The same script loaded as precompiled bytecode takes about 100 ms.
+  The bytecode is made by the first context that needs it and kept in memory and in the cache directory of the user
+  (`~/.cache/mermaidx/bytecode`, `MERMAIDX_CACHE_DIR` moves it, `MERMAIDX_BYTECODE_CACHE=0` turns it off), so a command
+  line call for one diagram starts with it too: the first `start()` of a process went from 670-1200 ms to about
+  200 ms. A cache file is only run if its checksum, the bytecode version of the QuickJS that reads it and the checksum
+  of the script it was made from all match, and what is drawn is the same as from source (`tests/test_bytecode.py`
+  compares them, ELK and ZenUML included). The ELK layout and ZenUML scripts, which are loaded for the diagrams that
+  need them, go the same way. Measured from text to PNG over the 43 samples of `tests/samples`, one diagram after
+  another: median 948 ms before, 340 ms after (p90 1572 ms before, about 900 ms after).
+  **It needs `Context.compile()` and `Context.eval_bytecode()`, which the `quickjs-ng` package does not have yet:**
+  `tools/quickjs_ng_bytecode/` builds `quickjs-ng` 0.18.0.1 with them (see its README). Without them nothing
+  changes: the source is evaluated, as before.
 - **`js:pele` renders about six times faster.** Every render used to get a context of its own, and building one
   (parsing the 730 KB of `pele.js`) took about 100 ms, against 1 ms for the render itself. pele keeps nothing between
   renders (all 43 samples of `tests/samples` give byte-for-byte the same SVG in one context as in a fresh one each,
-  which `tests/test_engine_common.py` now checks), so its contexts are reused, on both engines, and replaced after
+  which `tests/test_engine_common.py` now checks, on both engines), so its contexts are reused, and replaced after
   1000 renders or after a render that failed. Measured from text to PNG, one diagram after another: median 128 ms
-  before, 21.5 ms after. `js:mermaid` is unchanged: mermaid.js keeps id counters and a random sequence between
-  renders, so it still gets a fresh context for each diagram.
+  before, 21.5 ms after. `js:mermaid` cannot do this: mermaid.js keeps id counters (`actor1`, `classId-Animal-0`, ...)
+  and a random sequence between renders, so it still gets a fresh context for each diagram.
 
 ## [0.11.1] - 2026-11-06
 
