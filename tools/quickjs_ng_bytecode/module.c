@@ -92,7 +92,7 @@ static void prepare_call_js(RuntimeData *runtime_data) {
 	setup_time_limit(runtime_data, &runtime_data->interrupt_data);
 }
 
-// This method is called right after returning from running JS code. Aquires the GIL etc.
+// This method is called right after returning from running JS code. Acquires the GIL etc.
 static void end_call_js(RuntimeData *runtime_data) {
 	teardown_time_limit(runtime_data);
 	assert(runtime_data->thread_state);
