@@ -23,9 +23,15 @@ Render a Mermaid diagram and return a `Diagram`.
 - `node_spacing`, `rank_spacing`, `aspect_ratio`: layout options of the Rust backends.
 - `raster`: the SVG rasterizer. Only `"novasvg"` is supported. `"resvg"` raises a `ValueError`.
 
-### `render_many(sources, *, workers=None, **opts)`
+### `render_many(sources, *, workers=None, reuse_pool=True, **opts)`
 
 Render a list of sources in parallel with a process pool and return the `Diagram` objects in the same order. `workers` defaults to the smaller of the number of sources and the CPU count. The other options are passed to every diagram.
+
+The worker processes stay running after the call, with their engines loaded, and the next `render_many()` with the same number of workers uses them, so only the first call pays for starting them (about 0.2 s for `js:pele`, about a second for `js:mermaid`). They stop when the interpreter exits. Pass `reuse_pool=False` to start workers for one call and stop them before it returns.
+
+### `shutdown_pool()`
+
+Stop the worker processes `render_many()` keeps running between calls. The next `render_many()` starts new ones. Call it when no `render_many()` is running.
 
 ### `backends()`
 

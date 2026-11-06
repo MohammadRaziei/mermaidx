@@ -7,6 +7,21 @@ follows [Semantic Versioning](https://semver.org/) (while below 1.0, a minor bum
 
 ## [Unreleased]
 
+### Added
+
+- **`render_many()` keeps its workers between calls**, with their engines loaded. Starting a worker (a fresh
+  interpreter, the imports, the engine and its JavaScript library) costs about 0.2 s for `js:pele` and about a second
+  for `js:mermaid`, and every call used to pay it again, so a batch of a few diagrams spent more on starting workers
+  than on drawing. Now the next call with the same number of workers is handed the ones the last call left running:
+  four tiny diagrams with `js:pele`, call after call, took 0.22 s each and take 0.00 s from the second call on;
+  `js:mermaid` saves about 0.35 s per call. The workers stop when the interpreter exits (no leftover processes, no
+  warnings), or at once with the new `mermaidx.shutdown_pool()`. `render_many(..., reuse_pool=False)` starts workers for
+  one call and stops them before it returns, which is what every call did before. A call that needs another number of
+  workers while another call is using the pool gets a pool of its own, a call that fails stops the pool so that no
+  stray tasks are left running in it, and a pool inherited through `fork()` is left to its parent. The scaling
+  benchmark (`benchmarks/run.py`) passes `reuse_pool=False`, so that its numbers still include starting the workers
+  and stay comparable with the earlier ones.
+
 ### Changed
 
 - **`js:mermaid` renders about 2.8 times faster on QuickJS, from bytecode.** Every render gets a context of its own,

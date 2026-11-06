@@ -42,6 +42,8 @@ for d, name in zip(diagrams, ["a.svg", "b.svg", "c.svg"]):
     d.save(name)
 ```
 
+The worker processes stay running between calls, so a second `render_many()` does not start them again. Call `mermaidx.shutdown_pool()` to stop them, or pass `reuse_pool=False`.
+
 ## From the command line
 
 ```bash

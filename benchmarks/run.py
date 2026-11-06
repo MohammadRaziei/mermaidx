@@ -325,7 +325,9 @@ def measure_scaling(names, available, per_renderer, sources, *, items, repeats, 
                 runs = []
                 for _ in range(repeats):
                     t = time.perf_counter()
-                    mermaidx.render_many(batch, workers=workers, **available[name])
+                    # reuse_pool=False: every run starts its workers, as the first call of a program does, so
+                    # that the numbers stay what they were before render_many() kept its workers between calls
+                    mermaidx.render_many(batch, workers=workers, reuse_pool=False, **available[name])
                     runs.append((time.perf_counter() - t) * 1000)
                 points.append({"workers": workers, "ms": round(statistics.median(runs), 1)})
                 log(f"    {workers} worker(s): {points[-1]['ms']:>9.1f} ms")
