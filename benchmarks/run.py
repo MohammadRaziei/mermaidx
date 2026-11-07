@@ -299,10 +299,13 @@ def mmdc_footprint():
 MIN_SAMPLES_FOR_SCALING = 3
 
 
-def measure_scaling(names, available, per_renderer, sources, *, items, repeats, log, skip=()):
-    """How much faster does render_many() get with more worker processes? Mermaid text -> SVG (that is what the
-    workers do) for `items` diagrams, the ones in the middle of the renderer's own timings, so that one slow diagram
-    does not decide the result. The samples in `skip` (ELK and ZenUML, which load more JavaScript) are left out.
+def measure_scaling(
+    names, available, per_renderer, sources, *, items, repeats, log, skip=(), executor="process",
+):
+    """How much faster does render_many() get with more workers (processes or threads, as `executor` says)? Mermaid
+    text -> SVG (that is what the workers do) for `items` diagrams, the ones in the middle of the renderer's own
+    timings, so that one slow diagram does not decide the result. The samples in `skip` (ELK and ZenUML, which load
+    more JavaScript) are left out.
     Returns None when there is nothing to measure."""
     import mermaidx
 
@@ -325,9 +328,9 @@ def measure_scaling(names, available, per_renderer, sources, *, items, repeats, 
                 runs = []
                 for _ in range(repeats):
                     t = time.perf_counter()
-                    # reuse_pool=False: every run starts its workers, as the first call of a program does, so
-                    # that the numbers stay what they were before render_many() kept its workers between calls
-                    mermaidx.render_many(batch, workers=workers, reuse_pool=False, **available[name])
+                    # Every run starts its workers (render_many() does not keep them), as the first call of a
+                    # program does.
+                    mermaidx.render_many(batch, workers=workers, executor=executor, **available[name])
                     runs.append((time.perf_counter() - t) * 1000)
                 points.append({"workers": workers, "ms": round(statistics.median(runs), 1)})
                 log(f"    {workers} worker(s): {points[-1]['ms']:>9.1f} ms")
@@ -337,7 +340,9 @@ def measure_scaling(names, available, per_renderer, sources, *, items, repeats, 
         for point in points:
             point["speedup"] = round(points[0]["ms"] / point["ms"], 2)
         series.append({"id": f"mermaidx-{name}", "label": renderer_label(name), "points": points})
-    return {"items": items, "cores": cores, "repeats": repeats, "series": series} if series else None
+    if not series:
+        return None
+    return {"items": items, "cores": cores, "repeats": repeats, "executor": executor, "series": series}
 
 
 # --------------------------------------------------------------------------- do the labels come out
@@ -387,6 +392,9 @@ def main(argv=None):
     ap.add_argument("--scaling-items", type=int, default=16,
                     help="diagrams for the render_many() measurement, 0 to skip it (default: 16)")
     ap.add_argument("--scaling-repeats", type=int, default=3, help="timed runs per worker count (default: 3)")
+    ap.add_argument("--scaling-executor", choices=("process", "thread"), default="process",
+                    help="what the render_many() workers are (default: process, what the numbers have always "
+                         "measured; thread is what render_many() uses by default)")
     ap.add_argument("--backend", action="append", help="mermaidx renderer: quickjs, v8, pele-quickjs, pele-v8, merman or mermaid-rs-renderer "
                                       "(repeatable; default: all available)")
     ap.add_argument("--puppeteer-config", type=Path, help="JSON file passed to mmdc -p (e.g. --no-sandbox)")
@@ -467,6 +475,7 @@ def main(argv=None):
         names = [r["id"].removeprefix("mermaidx-") for r in renderers if r["id"] in ids]
         scaling = measure_scaling(names, available, per_renderer, sources,
                                   items=args.scaling_items, repeats=args.scaling_repeats, log=log,
+                                  executor=args.scaling_executor,
                                   skip={stem for stem, text in sources.items() if sample_feature(text)})
 
     def version(pkg):

@@ -59,28 +59,51 @@ if TYPE_CHECKING:
 _engines: dict = {}
 _engines_lock = threading.Lock()
 
+# The engines that belong to the thread, when it is a worker of a Renderer: see _bind_engines().
+_scope = threading.local()
+
+
+def _new_engine(name: str, library: str):
+    """A started engine of the kind asked for. Whoever asks owns it, and must close() it."""
+    if name == "quickjs":
+        engine = _QuickJSEngine(library)
+    elif name == "v8":
+        if "v8" not in available_engines():
+            raise ImportError(
+                "engine='v8' requires the optional 'mini-racer' package. "
+                "Install it with:\n    pip install mermaidx[v8engine]"
+            )
+        engine = _V8Engine(library=library)
+    else:
+        raise ValueError(f"Unknown JS engine {name!r}; expected 'quickjs' or 'v8'.")
+    engine.start()
+    return engine
+
+
+def _bind_engines(registry: dict | None) -> None:
+    """Makes the calling thread render in the engines of `registry` instead of the shared ones of the process.
+    The engines are made the first time they are asked for, kept in `registry`, and closed by whoever owns it; None
+    goes back to the shared ones. A Renderer binds a registry of its own to each of its worker threads: an engine
+    renders one diagram at a time, so two threads that shared one would only take turns."""
+    _scope.engines = registry
+
 
 def _get_engine(name: str, library: str):
     """
-    Lazily creates and caches one engine instance per (engine name, library),
-    so they can coexist in the same process without one evicting another.
+    The engine for (engine name, library): the calling thread's own when it is bound to a registry (see
+    _bind_engines), else the process's shared one -- lazily created, so the engines can coexist in the same
+    process without one evicting another.
     """
     key = (name, library)
+    registry = getattr(_scope, "engines", None)
+    if registry is not None:
+        if key not in registry:
+            registry[key] = _new_engine(name, library)
+        return registry[key]
     if key not in _engines:
         with _engines_lock:
             if key not in _engines:  # re-check inside the lock
-                if name == "quickjs":
-                    e = _QuickJSEngine(library)
-                elif name == "v8":
-                    if "v8" not in available_engines():
-                        raise ImportError(
-                            "engine='v8' requires the optional 'mini-racer' package. "
-                            "Install it with:\n    pip install mermaidx[v8engine]"
-                        )
-                    e = _V8Engine(library=library)
-                else:
-                    raise ValueError(f"Unknown JS engine {name!r}; expected 'quickjs' or 'v8'.")
-                e.start()
+                e = _new_engine(name, library)
                 # engines.v8_engine runs its V8 isolate in a child process
                 # (see that module's docstring for why) -- register a clean
                 # shutdown so it doesn't linger as an orphan if the process

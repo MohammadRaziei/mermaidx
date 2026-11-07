@@ -34,4 +34,4 @@ the script it was made from all match; otherwise it is made again.
 The change is small and general, and belongs in `quickjs-ng` itself. Until it is released there, this directory is the
 way to have it. When a `quickjs-ng` release has the two methods, delete this directory.
 
-`module.c` is under the license of the package it comes from (`LICENSE` here).
+`module.c` is under the license of the package it comes from: [`licenses/quickjs-ng-MIT.txt`](../../licenses/quickjs-ng-MIT.txt).

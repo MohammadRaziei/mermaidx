@@ -42,7 +42,13 @@ for d, name in zip(diagrams, ["a.svg", "b.svg", "c.svg"]):
     d.save(name)
 ```
 
-The worker processes stay running between calls, so a second `render_many()` does not start them again. Call `mermaidx.shutdown_pool()` to stop them, or pass `reuse_pool=False`.
+`render_many()` starts its workers for the call and stops them before it returns. To render several batches, keep the workers with a `Renderer`; the `with` block is their lifetime:
+
+```python
+with mermaidx.Renderer(workers=4, theme="dark") as renderer:
+    for batch in batches:
+        diagrams = renderer.render_many(batch)
+```
 
 ## From the command line
 

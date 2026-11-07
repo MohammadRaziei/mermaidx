@@ -53,6 +53,7 @@ from mermaidx.engines._common import (
 # native stack is sized explicitly, and the JS limit sits below it, so hitting the limit is always a JS
 # RangeError and never a segfault -- whatever the platform's default thread stack is (512 KiB on macOS).
 _WORKER_THREAD_STACK_BYTES = 32 * 1024 * 1024
+_STACK_SIZE_LOCK = threading.Lock()  # see Engine.start()
 _JS_STACK_LIMIT_BYTES = 24 * 1024 * 1024
 
 # QuickJS-ng keeps a long concatenation as a rope (JS_TAG_STRING_ROPE) until something reads it, and the
@@ -92,12 +93,16 @@ class Engine:
             return
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="mermaidx-engine")
         # The executor starts its thread inside the first submit(); threading.stack_size() is process-wide,
-        # so it is set only around that call and put back right after.
-        previous = threading.stack_size(_WORKER_THREAD_STACK_BYTES)
-        try:
-            first = self._executor.submit(self._init_context)
-        finally:
-            threading.stack_size(previous)
+        # so it is set only around that call and put back right after. Engines are started from several
+        # threads at once by a Renderer: without the lock, one start could put the old size back between
+        # another's set and submit, and that engine's thread would get a default stack, too small for a deep
+        # diagram.
+        with _STACK_SIZE_LOCK:
+            previous = threading.stack_size(_WORKER_THREAD_STACK_BYTES)
+            try:
+                first = self._executor.submit(self._init_context)
+            finally:
+                threading.stack_size(previous)
         first.result()
 
     def close(self) -> None:

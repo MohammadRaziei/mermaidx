@@ -16,15 +16,17 @@ mermaidx — Mermaid diagram rendering, no browser, Node.js, or npm required.
     mermaidx.render(src, engine="v8")          # JS engine for js: backends: 'quickjs' (default) or 'v8'
     mermaidx.backends()          # ['js:mermaid', 'js:pele']  (+ 'rust:...' if mmdr is installed)
     mermaidx.available_engines() # ['quickjs']  (+ 'v8' if mini-racer is installed)
-    mermaidx.render_many(sources, workers=4)   # real parallelism (multiprocessing)
-    mermaidx.shutdown_pool()     # stop the workers render_many() keeps between calls
+    mermaidx.render_many(sources, workers=4)   # parallel (threads; executor="process" for processes)
+    with mermaidx.Renderer(workers=4) as r:   # workers that stay ready between batches
+        r.render_many(sources)
 """
 
 from .__about__ import __version__
 from .diagram import Diagram, DiagramBase, DiagramRust, render
 from .backends import available_engines, backends
 from .raster import svg_to_png, svg_to_jpg, svg_to_image, svg_to_raw
-from .pool import render_many, shutdown_pool
+from .pool import render_many
+from .renderer import Renderer
 
 __all__ = [
     "__version__",
@@ -39,5 +41,5 @@ __all__ = [
     "svg_to_image",
     "svg_to_raw",
     "render_many",
-    "shutdown_pool",
+    "Renderer",
 ]

@@ -65,7 +65,7 @@ packages = ["mermaidx"]
 # the licenses of the JavaScript and font files in mermaidx/assets travel with the wheel
 [tool.hatch.build.targets.wheel.force-include]
 "NOTICES.md" = "mermaidx/NOTICES.md"
-"third_party_licenses" = "mermaidx/third_party_licenses"
+"licenses" = "mermaidx/licenses"
 
 [tool.hatch.envs.default]
 dependencies = [

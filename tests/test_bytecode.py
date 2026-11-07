@@ -9,7 +9,7 @@ from mermaidx.engines.quickjs_engine import Engine
 
 needs_binding = pytest.mark.skipif(
     not _bytecode.supported(quickjs.Context()),
-    reason="the installed quickjs-ng has no Context.compile / eval_bytecode (see third_party/quickjs-ng-bytecode)",
+    reason="the installed quickjs-ng has no Context.compile / eval_bytecode (see tools/quickjs_ng_bytecode)",
 )
 SAMPLES = Path(__file__).parent / "samples"
 

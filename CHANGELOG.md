@@ -9,21 +9,35 @@ follows [Semantic Versioning](https://semver.org/) (while below 1.0, a minor bum
 
 ### Added
 
-- **`render_many()` keeps its workers between calls**, with their engines loaded. Starting a worker (a fresh
-  interpreter, the imports, the engine and its JavaScript library) costs about 0.2 s for `js:pele` and about a second
-  for `js:mermaid`, and every call used to pay it again, so a batch of a few diagrams spent more on starting workers
-  than on drawing. Now the next call with the same number of workers is handed the ones the last call left running:
-  four tiny diagrams with `js:pele`, call after call, took 0.22 s each and take 0.00 s from the second call on;
-  `js:mermaid` saves about 0.35 s per call. The workers stop when the interpreter exits (no leftover processes, no
-  warnings), or at once with the new `mermaidx.shutdown_pool()`. `render_many(..., reuse_pool=False)` starts workers for
-  one call and stops them before it returns, which is what every call did before. A call that needs another number of
-  workers while another call is using the pool gets a pool of its own, a call that fails stops the pool so that no
-  stray tasks are left running in it, and a pool inherited through `fork()` is left to its parent. The scaling
-  benchmark (`benchmarks/run.py`) passes `reuse_pool=False`, so that its numbers still include starting the workers
-  and stay comparable with the earlier ones.
+- **`mermaidx.Renderer`: workers with a lifetime you can see.** `with mermaidx.Renderer(workers=4) as renderer:` starts
+  the workers, each with the engine its diagrams render in already loaded (so a bad option or a missing engine raises
+  from the constructor, before anything is left running), and `renderer.render_many(batch)` can then be called again
+  and again without starting anything; `close()` or the end of the block stops them. Nothing is kept by the module:
+  no global pool, nothing at interpreter exit for a Renderer that was closed (one that was not is closed by a
+  finalizer). Also `render(source)`, and `executor="thread"` or `"process"`. This replaces the idea of a pool that
+  `render_many()` keeps between calls, which was tried first and dropped: its lifetime was implicit, and the Windows
+  CI run of that version passed every test and then failed while shutting down (the cause was not established).
+
+### Fixed
+
+- **Starting several engines at once could leave the process's thread stack size at 32 MB.** `Engine.start()` sets
+  `threading.stack_size()`, which is process-wide, around the start of its thread and puts it back; two engines
+  started from two threads at once could put it back in the wrong order (12 of 12 runs with six workers). It is now
+  done under a lock. Nothing started engines concurrently before `Renderer`.
 
 ### Changed
 
+- **`render_many()` uses threads by default**, and takes `executor="process"` for the old behaviour. The old
+  reasoning, that threads cannot overlap rendering because of the GIL, does not hold: the QuickJS binding gives the
+  GIL back while JavaScript runs (a Python thread kept 51% of its speed on one core while another thread ran
+  JavaScript), and the V8 engine runs in a child process of its own. Each worker thread has an engine of its own, so
+  they do not take turns. They start faster than processes, use less memory, and no `Diagram` is pickled on its way
+  back. `render_many()` also never starts more workers than there are sources. It still starts its workers for the
+  call and stops them before it returns; for several batches use `Renderer`. Not measured: how much faster threads
+  are than processes on a machine with several cores (the benchmark has `--scaling-executor` for that).
+- **`third_party_licenses/` is now `licenses/`**, in the repository and in the wheel (`mermaidx/licenses/`, where it
+  was `mermaidx/third_party_licenses/`). The license of the `quickjs-ng` package, from which
+  `tools/quickjs_ng_bytecode/module.c` comes, is in it too.
 - **`js:mermaid` renders about 2.8 times faster on QuickJS, from bytecode.** Every render gets a context of its own,
   and building one was almost all parsing: QuickJS compiles every function of a script when it loads it, so the 5.5 MB
   of `mermaid.js` took 600 to 800 ms to evaluate. The same script loaded as precompiled bytecode takes about 100 ms.

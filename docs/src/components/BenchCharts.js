@@ -583,7 +583,7 @@ export default function BenchCharts({ data, rows, log, onLogChange }) {
             <figcaption>
               <strong>Rendering many diagrams in parallel</strong>
               <span>
-                <code>render_many()</code> with more worker processes: {data.scaling.items} diagrams from text to SVG, on {data.scaling.cores}{' '}
+                <code>render_many()</code> with more worker {data.scaling.executor === 'thread' ? 'threads' : 'processes'}: {data.scaling.items} diagrams from text to SVG, on {data.scaling.cores}{' '}
                 {data.scaling.cores === 1 ? 'core' : 'cores'}. Higher is better; it cannot pass the number of cores.
               </span>
             </figcaption>
