@@ -71,7 +71,18 @@ jobs:
           pip install pip pytest-cov pytest-xdist pytest-timeout psutil pygixml
           pip install -e ".[all]"
 
+      # The quickjs-ng on PyPI has no Context.compile / eval_bytecode, so the bytecode path would never run.
+      # Build the patched wheel (tools/quickjs_ng_bytecode) and install it over the stock one.
+      - name: Install quickjs-ng with bytecode
+        shell: bash
+        run: |
+          tools/quickjs_ng_bytecode/build.sh "$RUNNER_TEMP/quickjs-bytecode"
+          pip install --force-reinstall --no-deps "$RUNNER_TEMP"/quickjs-bytecode/quickjs_ng-*.whl
+          python -c "import quickjs; assert hasattr(quickjs.Context, 'compile') and hasattr(quickjs.Context, 'eval_bytecode')"
+
       - name: Run tests
+        env:
+          MERMAIDX_REQUIRE_BYTECODE: "1"
         run: |
           python -m pytest -v -n 4 -x --cov 
 

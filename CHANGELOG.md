@@ -18,6 +18,13 @@ follows [Semantic Versioning](https://semver.org/) (while below 1.0, a minor bum
   `render_many()` keeps between calls, which was tried first and dropped: its lifetime was implicit, and the Windows
   CI run of that version passed every test and then failed while shutting down (the cause was not established).
 
+### Changed
+
+- **CI runs the bytecode path.** The test job of `wheel.yml` builds the `quickjs-ng` wheel with `Context.compile()` and
+  `Context.eval_bytecode()` (`tools/quickjs_ng_bytecode/build.sh`) and installs it over the one from PyPI, which does
+  not have them, and sets `MERMAIDX_REQUIRE_BYTECODE=1`: with that variable `tests/test_bytecode.py` fails when the
+  methods are missing instead of skipping its tests. Before, every run of CI used the stock package and skipped them.
+
 ### Fixed
 
 - **Starting several engines at once could leave the process's thread stack size at 32 MB.** `Engine.start()` sets

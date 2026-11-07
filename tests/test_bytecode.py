@@ -1,4 +1,5 @@
 """mermaidx/engines/_bytecode.py: a fresh context loads big scripts as bytecode instead of parsing them again."""
+import os
 from pathlib import Path
 
 import pytest
@@ -7,10 +8,19 @@ import quickjs
 from mermaidx.engines import _bytecode, _common
 from mermaidx.engines.quickjs_engine import Engine
 
+# CI sets MERMAIDX_REQUIRE_BYTECODE=1 after installing the patched quickjs-ng, so a missing binding fails there
+# instead of silently skipping the bytecode tests.
+REQUIRED = bool(os.environ.get("MERMAIDX_REQUIRE_BYTECODE"))
+HAS_BINDING = _bytecode.supported(quickjs.Context())
 needs_binding = pytest.mark.skipif(
-    not _bytecode.supported(quickjs.Context()),
+    not HAS_BINDING and not REQUIRED,
     reason="the installed quickjs-ng has no Context.compile / eval_bytecode (see tools/quickjs_ng_bytecode)",
 )
+
+
+def test_binding_is_there_when_required():
+    if REQUIRED:
+        assert HAS_BINDING, "MERMAIDX_REQUIRE_BYTECODE is set but quickjs-ng has no Context.compile / eval_bytecode"
 SAMPLES = Path(__file__).parent / "samples"
 
 

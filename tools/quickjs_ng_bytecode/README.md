@@ -29,6 +29,12 @@ The first render makes the bytecode (31 MB for `mermaid.js`) and keeps it in `~/
 turns the whole thing off). A file there is only used if its checksum, its QuickJS bytecode version and the checksum of
 the script it was made from all match; otherwise it is made again.
 
+## CI
+
+`.github/workflows/wheel.yml` builds this wheel with `build.sh` and installs it over the stock `quickjs-ng` before the
+tests run, and sets `MERMAIDX_REQUIRE_BYTECODE=1`, so the bytecode tests fail there instead of skipping when the
+two methods are missing. Locally, without that variable, they still skip on the stock package.
+
 ## Upstream
 
 The change is small and general, and belongs in `quickjs-ng` itself. Until it is released there, this directory is the
