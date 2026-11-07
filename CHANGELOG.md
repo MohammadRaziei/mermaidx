@@ -7,7 +7,7 @@ follows [Semantic Versioning](https://semver.org/) (while below 1.0, a minor bum
 
 ## [Unreleased]
 
-## [0.12.0] - 2026-11-07
+## [0.11.2] - 2026-11-07
 
 ### Added
 
@@ -579,7 +579,7 @@ First release, under the name `mmdc`.
 - CLI entry point with verbose logging.
 - Integration tests, cross-platform CI, and a GitHub Actions workflow to build and release wheels.
 
-[0.12.0]: https://github.com/mohammadraziei/mermaidx/compare/v0.11.1...v0.12.0
+[0.11.2]: https://github.com/mohammadraziei/mermaidx/compare/v0.11.1...v0.11.2
 [0.11.1]: https://github.com/mohammadraziei/mermaidx/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/mohammadraziei/mermaidx/compare/v0.10.1...v0.11.0
 [0.10.1]: https://github.com/mohammadraziei/mermaidx/compare/v0.10.0...v0.10.1

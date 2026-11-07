@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "mermaidx"
 dynamic = ["version"]
-description = "Python-native Mermaid diagram converter – no browser, Node.js, or npm required. Renders diagrams to SVG/PNG/PDF using an embedded QuickJS engine and novasvg, perfect for documentation automation and CI/CD pipelines."
+description = "Render Mermaid diagrams to SVG, PNG and PDF from Python, with no browser, Node.js or npm. Four backends: QuickJS and V8 (running the real mermaid.js, or the much faster pele.js), and the Rust renderers merman and mermaid-rs-renderer."
 readme = "README.md"
 requires-python = ">=3.9"
 license = "MIT"
