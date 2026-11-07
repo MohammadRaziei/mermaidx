@@ -252,6 +252,18 @@ for name in mermaidx.backends():
     mermaidx.render(source, backend=name).save(f"diagram-{name.replace(':', '-')}.png")
 ```
 
+### Same diagram, different backends
+
+Three diagrams from the [benchmark gallery](https://mohammadraziei.github.io/mermaidx/benchmarks), rendered by `mmdc` and by four mermaidx backends. `js:mermaid` is shown on QuickJS; V8 draws the same picture and only differs in time. `js:pele` and the two Rust backends draw their own layout.
+
+| Diagram | `mmdc` (reference) | `js:mermaid` | `js:pele` | `rust:merman` | `rust:mermaid-rs-renderer` |
+| --- | :---: | :---: | :---: | :---: | :---: |
+| Sequence | <img src="https://mohammadraziei.github.io/mermaidx/benchmarks/png/16_sequence_notes_activation/mmdc.png" width="150" alt="Sequence, mmdc"/> | <img src="https://mohammadraziei.github.io/mermaidx/benchmarks/png/16_sequence_notes_activation/mermaidx-quickjs.png" width="150" alt="Sequence, mermaidx-quickjs"/> | <img src="https://mohammadraziei.github.io/mermaidx/benchmarks/png/16_sequence_notes_activation/mermaidx-pele-quickjs.png" width="150" alt="Sequence, mermaidx-pele-quickjs"/> | <img src="https://mohammadraziei.github.io/mermaidx/benchmarks/png/16_sequence_notes_activation/mermaidx-merman.png" width="150" alt="Sequence, mermaidx-merman"/> | <img src="https://mohammadraziei.github.io/mermaidx/benchmarks/png/16_sequence_notes_activation/mermaidx-mermaid-rs-renderer.png" width="150" alt="Sequence, mermaidx-mermaid-rs-renderer"/> |
+| Flowchart | <img src="https://mohammadraziei.github.io/mermaidx/benchmarks/png/09_flowchart_subgraphs/mmdc.png" width="150" alt="Flowchart, mmdc"/> | <img src="https://mohammadraziei.github.io/mermaidx/benchmarks/png/09_flowchart_subgraphs/mermaidx-quickjs.png" width="150" alt="Flowchart, mermaidx-quickjs"/> | <img src="https://mohammadraziei.github.io/mermaidx/benchmarks/png/09_flowchart_subgraphs/mermaidx-pele-quickjs.png" width="150" alt="Flowchart, mermaidx-pele-quickjs"/> | <img src="https://mohammadraziei.github.io/mermaidx/benchmarks/png/09_flowchart_subgraphs/mermaidx-merman.png" width="150" alt="Flowchart, mermaidx-merman"/> | <img src="https://mohammadraziei.github.io/mermaidx/benchmarks/png/09_flowchart_subgraphs/mermaidx-mermaid-rs-renderer.png" width="150" alt="Flowchart, mermaidx-mermaid-rs-renderer"/> |
+| Class | <img src="https://mohammadraziei.github.io/mermaidx/benchmarks/png/11_class_diagram/mmdc.png" width="150" alt="Class, mmdc"/> | <img src="https://mohammadraziei.github.io/mermaidx/benchmarks/png/11_class_diagram/mermaidx-quickjs.png" width="150" alt="Class, mermaidx-quickjs"/> | <img src="https://mohammadraziei.github.io/mermaidx/benchmarks/png/11_class_diagram/mermaidx-pele-quickjs.png" width="150" alt="Class, mermaidx-pele-quickjs"/> | <img src="https://mohammadraziei.github.io/mermaidx/benchmarks/png/11_class_diagram/mermaidx-merman.png" width="150" alt="Class, mermaidx-merman"/> | <img src="https://mohammadraziei.github.io/mermaidx/benchmarks/png/11_class_diagram/mermaidx-mermaid-rs-renderer.png" width="150" alt="Class, mermaidx-mermaid-rs-renderer"/> |
+
+The gallery has every sample, every renderer and the timings.
+
 Options depend on the backend:
 
 ```python
