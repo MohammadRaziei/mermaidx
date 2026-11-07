@@ -41,7 +41,10 @@ endef
 # NO_SANDBOX=1      let mmdc's headless Chrome start on CI runners
 # BENCH_ARGS="..."  extra arguments for benchmarks/run.py, e.g.
 #                   make benchmark BENCH_ARGS="--only 31_venn --repeats 10"
+# WITH_BYTECODE=0   keep the quickjs-ng from PyPI (no Context.compile / eval_bytecode), so js:mermaid loads
+#                   mermaid.js from source on every render instead of from cached bytecode
 WITH_MMDC  ?= 1
+WITH_BYTECODE ?= 1
 BENCH_ARGS ?=
 RUN_ARGS   := $(BENCH_ARGS)
 BENCH_DEPS := $(PY_STAMP)
@@ -76,6 +79,13 @@ $(PY_STAMP): $(ROOT)/pyproject.toml
 	$(BASE_PYTHON) -m venv $(VENV)
 	$(PYTHON) -m pip install --quiet --upgrade pip
 	$(PYTHON) -m pip install --quiet -e "$(ROOT)[all]"
+ifeq ($(WITH_BYTECODE),1)
+	# The quickjs-ng on PyPI has no Context.compile / eval_bytecode; build the patched wheel (tools/quickjs_ng_bytecode)
+	# and put it over the stock one, so the published benchmark numbers include the bytecode cache.
+	bash $(ROOT)/tools/quickjs_ng_bytecode/build.sh $(abspath $(CACHE))/quickjs-bytecode
+	$(PYTHON) -m pip install --quiet --force-reinstall --no-deps $(abspath $(CACHE))/quickjs-bytecode/quickjs_ng-*.whl
+	$(PYTHON) -c "import quickjs; assert hasattr(quickjs.Context, 'compile') and hasattr(quickjs.Context, 'eval_bytecode')"
+endif
 	@mkdir -p $(CACHE) && touch $@
 
 $(NPM_STAMP): package.json package-lock.json
