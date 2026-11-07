@@ -6,6 +6,8 @@ description: What the benchmark page measures, how, and how to read it.
 
 The [benchmark gallery](/benchmarks) renders the same Mermaid files with every renderer below and shows the resulting PNGs next to the time each one took. Everything on that page is produced by a CI job on every release, so nothing is typed in by hand.
 
+The `quickjs-ng` that the job installs is a build with `Context.compile()` and `Context.eval_bytecode()` added (see `tools/quickjs_ng_bytecode`), so `js:mermaid | quickjs` loads `mermaid.js` from cached bytecode instead of parsing it again for every diagram. The `quickjs-ng` on PyPI does not have those methods yet; with it `js:mermaid | quickjs` gives the same pictures but needs roughly 500 to 700 ms more per diagram. See [ADR 0003](https://github.com/MohammadRaziei/mermaidx/blob/master/docs/adr/0003-load-large-scripts-from-quickjs-bytecode.md) and [ADR 0004](https://github.com/MohammadRaziei/mermaidx/blob/master/docs/adr/0004-ship-bytecode-methods-through-quickjs-ng-upstream.md).
+
 ## Renderers
 
 | Renderer | How it is run |

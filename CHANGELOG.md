@@ -7,6 +7,8 @@ follows [Semantic Versioning](https://semver.org/) (while below 1.0, a minor bum
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-11-07
+
 ### Added
 
 - **`mermaidx.Renderer`: workers with a lifetime you can see.** `with mermaidx.Renderer(workers=4) as renderer:` starts
@@ -17,20 +19,6 @@ follows [Semantic Versioning](https://semver.org/) (while below 1.0, a minor bum
   finalizer). Also `render(source)`, and `executor="thread"` or `"process"`. This replaces the idea of a pool that
   `render_many()` keeps between calls, which was tried first and dropped: its lifetime was implicit, and the Windows
   CI run of that version passed every test and then failed while shutting down (the cause was not established).
-
-### Changed
-
-- **CI runs the bytecode path.** The test job of `wheel.yml` builds the `quickjs-ng` wheel with `Context.compile()` and
-  `Context.eval_bytecode()` (`tools/quickjs_ng_bytecode/build.sh`) and installs it over the one from PyPI, which does
-  not have them, and sets `MERMAIDX_REQUIRE_BYTECODE=1`: with that variable `tests/test_bytecode.py` fails when the
-  methods are missing instead of skipping its tests. Before, every run of CI used the stock package and skipped them.
-
-### Fixed
-
-- **Starting several engines at once could leave the process's thread stack size at 32 MB.** `Engine.start()` sets
-  `threading.stack_size()`, which is process-wide, around the start of its thread and puts it back; two engines
-  started from two threads at once could put it back in the wrong order (12 of 12 runs with six workers). It is now
-  done under a lock. Nothing started engines concurrently before `Renderer`.
 
 ### Changed
 
@@ -66,6 +54,26 @@ follows [Semantic Versioning](https://semver.org/) (while below 1.0, a minor bum
   1000 renders or after a render that failed. Measured from text to PNG, one diagram after another: median 128 ms
   before, 21.5 ms after. `js:mermaid` cannot do this: mermaid.js keeps id counters (`actor1`, `classId-Animal-0`, ...)
   and a random sequence between renders, so it still gets a fresh context for each diagram.
+
+### Fixed
+
+- **Starting several engines at once could leave the process's thread stack size at 32 MB.** `Engine.start()` sets
+  `threading.stack_size()`, which is process-wide, around the start of its thread and puts it back; two engines
+  started from two threads at once could put it back in the wrong order (12 of 12 runs with six workers). It is now
+  done under a lock. Nothing started engines concurrently before `Renderer`.
+
+### Tests, CI and docs
+
+- **Architecture decision records in `docs/adr/`**: why every `js:mermaid` render gets a fresh context, why `mermaid.js` is
+  loaded from cached QuickJS bytecode, how the two `quickjs-ng` methods it needs are meant to reach users, why CI and
+  the benchmarks run the patched build, and what is known about the V8 backend's load time (still open).
+- **CI runs the bytecode path.** The test job of `wheel.yml` builds the `quickjs-ng` wheel with `Context.compile()` and
+  `Context.eval_bytecode()` (`tools/quickjs_ng_bytecode/build.sh`) and installs it over the one from PyPI, which does
+  not have them, and sets `MERMAIDX_REQUIRE_BYTECODE=1`: with that variable `tests/test_bytecode.py` fails when the
+  methods are missing instead of skipping its tests. Before, every run of CI used the stock package and skipped them.
+- **The published benchmarks are measured with the bytecode build.** `docs/Makefile` installs the same patched wheel in
+  its virtualenv, so `make all` (what CI runs) shows what `js:mermaid | quickjs` does with bytecode;
+  `make all WITH_BYTECODE=0` keeps the stock package. The benchmark method page says which build was used.
 
 ## [0.11.1] - 2026-11-06
 
@@ -571,6 +579,7 @@ First release, under the name `mmdc`.
 - CLI entry point with verbose logging.
 - Integration tests, cross-platform CI, and a GitHub Actions workflow to build and release wheels.
 
+[0.12.0]: https://github.com/mohammadraziei/mermaidx/compare/v0.11.1...v0.12.0
 [0.11.1]: https://github.com/mohammadraziei/mermaidx/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/mohammadraziei/mermaidx/compare/v0.10.1...v0.11.0
 [0.10.1]: https://github.com/mohammadraziei/mermaidx/compare/v0.10.0...v0.10.1
