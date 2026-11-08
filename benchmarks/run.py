@@ -31,6 +31,8 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -253,105 +255,116 @@ def run_mmdc(samples, out_dir, repeats, puppeteer_config, log):
 
 # --------------------------------------------------------------------------- what is installed
 
-def tree_size(path: Path) -> int:
-    """Bytes of all the files under `path` (bytecode caches left out)."""
-    total = 0
-    for p in path.rglob("*"):
-        with contextlib.suppress(OSError):
-            if p.is_file() and not p.is_symlink() and "__pycache__" not in p.parts:
-                total += p.stat().st_size
-    return total
-
-
-def dist_size(name):
-    """Bytes on disk of an installed distribution, or None if it is not installed."""
-    from importlib import metadata
-
-    try:
-        dist = metadata.distribution(name)
-    except metadata.PackageNotFoundError:
-        return None
-    total = 0
-    for f in dist.files or []:
-        with contextlib.suppress(OSError):
-            path = dist.locate_file(f)
-            if path.is_file():
-                total += path.stat().st_size
-    return total or None
-
-
-# the Python package that holds each mermaidx renderer's engine
-ENGINE_DIST = {"quickjs": "quickjs-ng", "v8": "mini-racer", "merman": "mmdr", "mermaid-rs-renderer": "mmdr"}
-
-
-def mermaidx_footprint(name):
-    """What `pip install` puts on disk for a mermaidx renderer: mermaidx (the package holds the JavaScript of every
-    backend, whichever is used), novasvg (the PNG output) and the engine. `js_bytes` is the JavaScript one render
-    loads into the engine."""
-    import mermaidx
-
-    engine = ENGINE_DIST.get(name.removeprefix("pele-"))
-    own = tree_size(Path(mermaidx.__file__).parent)
-    parts = [{"name": "mermaidx, with the JavaScript of every backend", "bytes": own},
-             {"name": "novasvg (PNG output)", "bytes": dist_size("novasvg")}]
-    if engine:
-        parts.append({"name": engine, "bytes": dist_size(engine)})
-    parts = [part for part in parts if part["bytes"]]
-    out = {"bytes": sum(part["bytes"] for part in parts), "parts": parts}
-    library = "pele" if name.startswith("pele-") else "mermaid"
-    if name in ("quickjs", "v8", "pele-quickjs", "pele-v8"):
-        with contextlib.suppress(Exception):
-            from mermaidx.engines import _common
-
-            out["js_bytes"] = sum(len(script.encode("utf-8")) for script in _common.context_scripts(library))
-    return out
-
-
 # the extra that brings in the engine of each mermaidx renderer (the other renderers need none)
 ENGINE_EXTRA = {"v8": "v8engine", "merman": "rust", "mermaid-rs-renderer": "rust"}
-_download_cache = {}
+_wheel_cache = {}
+HTTP_TIMEOUT = 60
 
 
-def download_footprint(name):
+def _warn(message: str) -> None:
+    sys.stderr.write(f"download size: left out, {message}\n")
+
+
+def mermaidx_download(name):
     """What a user downloads to `pip install` a mermaidx renderer, measured by pip-size.
 
     pip-size builds a wheel from this checkout (the working tree, with the extra that brings the renderer's engine)
-    and adds the wheels of everything it depends on, looked up on PyPI. These are compressed wheel sizes, not bytes
-    on disk. Returns None, so the page leaves the bar out, when pip-size is not installed, the build fails, or a
-    dependency could not be looked up (the total would be too small). One build per extra, not per renderer."""
+    and adds the wheels of everything it depends on, looked up on PyPI. Returns None, so the page leaves the bar
+    out, when pip-size is not installed, the build fails, or a dependency could not be looked up (the total would
+    be too small). One build per extra, not per renderer."""
     if pip_size is None:
         return None
     extra = ENGINE_EXTRA.get(name.removeprefix("pele-"))
-    if extra not in _download_cache:
+    if extra not in _wheel_cache:
         info = None
         try:
             res = pip_size.resolve(str(ROOT), extras=extra)
             if res.warnings:
-                sys.stderr.write(f"pip-size: left out, a dependency was not resolved: {res.warnings[0]}\n")
+                _warn(f"pip-size could not look up a dependency: {res.warnings[0]}")
             else:
                 parts = [{"name": f"{pkg.name} {pkg.version}", "bytes": pkg.size} for pkg in res.packages]
                 info = {"bytes": res.total_size, "parts": parts, "tool": f"pip-size {pip_size.__version__}"}
         except Exception as exc:  # a failed build or lookup must never cost the benchmark its other results
-            sys.stderr.write(f"pip-size: left out, {short_error(exc)}\n")
-        _download_cache[extra] = info
-    return _download_cache[extra]
+            _warn(f"pip-size: {short_error(exc)}")
+        _wheel_cache[extra] = info
+    return _wheel_cache[extra]
 
 
-def mmdc_footprint():
-    """mermaid-cli with everything it installed under node_modules, plus the Chromium that puppeteer downloaded.
-    Node.js itself is not counted."""
-    exe = shutil.which("mmdc")
-    if not exe:
+def js_bytes(name):
+    """The JavaScript one render loads into the engine (all of mermaid.js, or much less for pele), or None."""
+    library = "pele" if name.startswith("pele-") else "mermaid"
+    if name.removeprefix("pele-") not in ("quickjs", "v8"):
         return None
-    parts = []
-    root = next((p for p in Path(exe).resolve().parents if p.name == "node_modules"), None)
-    if root:
-        parts.append({"name": "mermaid-cli and its node_modules", "bytes": tree_size(root)})
+    with contextlib.suppress(Exception):
+        from mermaidx.engines import _common
+
+        return sum(len(script.encode("utf-8")) for script in _common.context_scripts(library))
+    return None
+
+
+def remote_size(url, *, allow_download):
+    """The size in bytes of the file at `url`: from Content-Length of a HEAD request. Some servers and proxies leave
+    it out; then the file is downloaded and counted if `allow_download`, else the size is None."""
+    # the URLs are https links from npm's lockfile and Chrome for Testing, never user input
+    with urllib.request.urlopen(urllib.request.Request(url, method="HEAD"), timeout=HTTP_TIMEOUT) as resp:  # noqa: S310
+        length = resp.headers.get("Content-Length")
+    if length is not None:
+        return int(length)
+    if not allow_download:
+        return None
+    with urllib.request.urlopen(url, timeout=HTTP_TIMEOUT) as resp:  # noqa: S310
+        return len(resp.read())
+
+
+# puppeteer's cache folders are named <platform>-<version>; Chrome for Testing names its downloads differently
+CFT_PLATFORM = {"linux": "linux64", "mac": "mac-x64", "mac_arm": "mac-arm64", "win32": "win32", "win64": "win64"}
+
+
+def chrome_downloads():
+    """[(name, url)] of the browser archives puppeteer fetched for mmdc, found from its cache folders."""
     cache = Path(os.environ.get("PUPPETEER_CACHE_DIR") or Path.home() / ".cache" / "puppeteer")
-    if cache.is_dir():
-        parts.append({"name": "Chromium (puppeteer cache)", "bytes": tree_size(cache)})
-    parts = [part for part in parts if part["bytes"]]
-    return {"bytes": sum(part["bytes"] for part in parts), "parts": parts} if parts else None
+    out = []
+    for product in ("chrome", "chrome-headless-shell"):
+        for folder in sorted((cache / product).glob("*")) if (cache / product).is_dir() else []:
+            platform_name, _, version = folder.name.partition("-")
+            cft = CFT_PLATFORM.get(platform_name)
+            if cft and version:
+                out.append((f"{product} {version} (puppeteer download)",
+                            f"https://storage.googleapis.com/chrome-for-testing-public/{version}/{cft}/{product}-{cft}.zip"))
+    return out
+
+
+def mmdc_download():
+    """What `npm install` of mermaid-cli downloads: the tarball of every package npm installed (read from
+    node_modules/.package-lock.json, which lists only what is on this machine, so other platforms' optional
+    packages are not counted), plus the browser archive puppeteer fetches in its postinstall step. The sizes come
+    from the registry and the Chrome for Testing server. None when mmdc is not an npm install, or when a size could
+    not be had (the total would be too small)."""
+    exe = shutil.which("mmdc")
+    root = next((p for p in Path(exe).resolve().parents if p.name == "node_modules"), None) if exe else None
+    lock = root / ".package-lock.json" if root else None
+    if not lock or not lock.is_file():
+        return None
+    packages = [(path.removeprefix("node_modules/"), entry["resolved"], entry.get("version", ""))
+                for path, entry in json.loads(lock.read_text(encoding="utf-8")).get("packages", {}).items()
+                if entry.get("resolved")]
+    try:
+        with ThreadPoolExecutor(16) as pool:
+            sizes = list(pool.map(lambda item: remote_size(item[1], allow_download=True), packages))
+            browsers = chrome_downloads()
+            browser_sizes = list(pool.map(lambda item: remote_size(item[1], allow_download=False), browsers))
+    except Exception as exc:
+        _warn(f"mmdc: {short_error(exc)}")
+        return None
+    if any(size is None for size in browser_sizes):
+        _warn("mmdc: the size of the browser download is not known")
+        return None
+    if not browsers:
+        _warn("mmdc: no browser found in the puppeteer cache, and the total would be without it")
+        return None
+    parts = [{"name": f"npm: {len(packages)} packages", "bytes": sum(sizes)}]
+    parts += [{"name": name, "bytes": size} for (name, _), size in zip(browsers, browser_sizes)]
+    return {"bytes": sum(part["bytes"] for part in parts), "parts": parts, "tool": "npm tarballs + Chrome for Testing"}
 
 
 # --------------------------------------------------------------------------- render_many()
@@ -533,13 +546,12 @@ def main(argv=None):
     footprint = {}
     for r in renderers:
         if r["id"] == "mmdc":
-            info = mmdc_footprint()
+            info = mmdc_download()
         else:
             name = r["id"].removeprefix("mermaidx-")
-            info = mermaidx_footprint(name)
-            download = download_footprint(name)
-            if download:
-                info["download"] = download
+            info = mermaidx_download(name)
+            if info and js_bytes(name):
+                info["js_bytes"] = js_bytes(name)
         if info:
             footprint[r["id"]] = info
 
