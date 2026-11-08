@@ -7,11 +7,18 @@ follows [Semantic Versioning](https://semver.org/) (while below 1.0, a minor bum
 
 ## [Unreleased]
 
+## [0.11.3] - 2026-11-08
+
 ### Fixed
 - **A label made of `&nbsp;` was sized 0x0** (#23). The DOM shim decided whether a label has content with the JS
   regex `\S`, and JS counts U+00A0 as whitespace. mermaid's block arrow, `blockArrowId<["&nbsp;&nbsp;&nbsp;"]>(down)`,
   has such a label, so it came out at the minimum size and was smaller than in `mmdc`. Only HTML whitespace (space,
   tab, CR, LF, FF) counts as empty now, as in a browser.
+
+### Documentation
+- **README: the same diagram on every backend.** A table of five benchmark samples (pie chart, sequence,
+  git graph, ER diagram, ELK dense graph) rendered by `mmdc`, `js:mermaid`, `js:pele`, `rust:merman` and
+  `rust:mermaid-rs-renderer`, with a link to the benchmark page for the rest.
 
 ## [0.11.2] - 2026-11-07
 
@@ -28,7 +35,7 @@ follows [Semantic Versioning](https://semver.org/) (while below 1.0, a minor bum
 
 ### Changed
 
-- **`render_many()` uses threads by default**, and takes `executor="process"` for the old behavior. The old
+- **`render_many()` uses threads by default**, and takes `executor="process"` for the old behaviour. The old
   reasoning, that threads cannot overlap rendering because of the GIL, does not hold: the QuickJS binding gives the
   GIL back while JavaScript runs (a Python thread kept 51% of its speed on one core while another thread ran
   JavaScript), and the V8 engine runs in a child process of its own. Each worker thread has an engine of its own, so
@@ -585,6 +592,7 @@ First release, under the name `mmdc`.
 - CLI entry point with verbose logging.
 - Integration tests, cross-platform CI, and a GitHub Actions workflow to build and release wheels.
 
+[0.11.3]: https://github.com/mohammadraziei/mermaidx/compare/v0.11.2...v0.11.3
 [0.11.2]: https://github.com/mohammadraziei/mermaidx/compare/v0.11.1...v0.11.2
 [0.11.1]: https://github.com/mohammadraziei/mermaidx/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/mohammadraziei/mermaidx/compare/v0.10.1...v0.11.0
