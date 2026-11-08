@@ -34,6 +34,11 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+try:  # optional: measures the download size of each renderer (download_footprint)
+    import pip_size
+except ImportError:
+    pip_size = None
+
 ROOT = Path(__file__).resolve().parent.parent
 WARMUP_SOURCE = "flowchart LR\n    A --> B"
 SAMPLE_DIRS = (ROOT / "tests" / "samples", ROOT / "benchmarks" / "samples")
@@ -302,6 +307,36 @@ def mermaidx_footprint(name):
     return out
 
 
+# the extra that brings in the engine of each mermaidx renderer (the other renderers need none)
+ENGINE_EXTRA = {"v8": "v8engine", "merman": "rust", "mermaid-rs-renderer": "rust"}
+_download_cache = {}
+
+
+def download_footprint(name):
+    """What a user downloads to `pip install` a mermaidx renderer, measured by pip-size.
+
+    pip-size builds a wheel from this checkout (the working tree, with the extra that brings the renderer's engine)
+    and adds the wheels of everything it depends on, looked up on PyPI. These are compressed wheel sizes, not bytes
+    on disk. Returns None, so the page leaves the bar out, when pip-size is not installed, the build fails, or a
+    dependency could not be looked up (the total would be too small). One build per extra, not per renderer."""
+    if pip_size is None:
+        return None
+    extra = ENGINE_EXTRA.get(name.removeprefix("pele-"))
+    if extra not in _download_cache:
+        info = None
+        try:
+            res = pip_size.resolve(str(ROOT), extras=extra)
+            if res.warnings:
+                sys.stderr.write(f"pip-size: left out, a dependency was not resolved: {res.warnings[0]}\n")
+            else:
+                parts = [{"name": f"{pkg.name} {pkg.version}", "bytes": pkg.size} for pkg in res.packages]
+                info = {"bytes": res.total_size, "parts": parts, "tool": f"pip-size {pip_size.__version__}"}
+        except Exception as exc:  # a failed build or lookup must never cost the benchmark its other results
+            sys.stderr.write(f"pip-size: left out, {short_error(exc)}\n")
+        _download_cache[extra] = info
+    return _download_cache[extra]
+
+
 def mmdc_footprint():
     """mermaid-cli with everything it installed under node_modules, plus the Chromium that puppeteer downloaded.
     Node.js itself is not counted."""
@@ -497,7 +532,14 @@ def main(argv=None):
 
     footprint = {}
     for r in renderers:
-        info = mmdc_footprint() if r["id"] == "mmdc" else mermaidx_footprint(r["id"].removeprefix("mermaidx-"))
+        if r["id"] == "mmdc":
+            info = mmdc_footprint()
+        else:
+            name = r["id"].removeprefix("mermaidx-")
+            info = mermaidx_footprint(name)
+            download = download_footprint(name)
+            if download:
+                info["download"] = download
         if info:
             footprint[r["id"]] = info
 

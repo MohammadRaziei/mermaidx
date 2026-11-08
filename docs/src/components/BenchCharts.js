@@ -242,10 +242,11 @@ const barOptions = (theme, { right = 170, scale = {} } = {}) => ({
   },
 });
 
-function FootprintChart({ rows, footprint }) {
+function FootprintChart({ rows, footprint, kind = 'disk' }) {
+  const pick = (id) => (kind === 'download' ? footprint[id].download : footprint[id]);
   const ref = useChart(
     (theme) => {
-      const values = rows.map((r) => footprint[r.id].bytes);
+      const values = rows.map((r) => pick(r.id).bytes);
       return {
         type: 'bar',
         data: {
@@ -263,9 +264,9 @@ function FootprintChart({ rows, footprint }) {
               callbacks: {
                 title: (items) => rows[items[0].dataIndex].label,
                 label: (item) => {
-                  const info = footprint[rows[item.dataIndex].id];
+                  const info = pick(rows[item.dataIndex].id);
                   const out = info.parts.map((part) => `${part.name}: ${fmtBytes(part.bytes)}`);
-                  if (info.js_bytes) out.push(`JavaScript one render loads: ${fmtBytes(info.js_bytes)}`);
+                  if (kind === 'disk' && info.js_bytes) out.push(`JavaScript one render loads: ${fmtBytes(info.js_bytes)}`);
                   return out;
                 },
               },
@@ -274,7 +275,7 @@ function FootprintChart({ rows, footprint }) {
         },
       };
     },
-    [rows, footprint],
+    [rows, footprint, kind],
   );
   return <canvas ref={ref} />;
 }
@@ -495,6 +496,7 @@ function withLabels(data, rows) {
 export default function BenchCharts({ data, rows, log, onLogChange }) {
   const ref = rows[0].reference;
   const footprintRows = data.footprint ? rows.filter((r) => data.footprint[r.id]) : [];
+  const downloadRows = footprintRows.filter((r) => data.footprint[r.id].download);
   const labelRows = withLabels(data, rows);
   const hasSizes = data.samples.some((s) => s.chars);
   return (
@@ -553,6 +555,18 @@ export default function BenchCharts({ data, rows, log, onLogChange }) {
             <div className={styles.canvasWrap} style={{ height: 36 + footprintRows.length * 48 }} role="img"
               aria-label={`Size on disk: ${footprintRows.map((r) => `${r.label} ${fmtBytes(data.footprint[r.id].bytes)}`).join(', ')}`}>
               <FootprintChart rows={footprintRows} footprint={data.footprint} />
+            </div>
+          </figure>
+        )}
+        {downloadRows.length > 0 && (
+          <figure className={styles.figure}>
+            <figcaption>
+              <strong>Download size</strong>
+              <span>What <code>pip install</code> downloads for each mermaidx renderer: the wheel built from this commit plus its dependencies, measured with pip-size. Compressed wheels, so smaller than the size on disk. mmdc is not on PyPI and has no bar. Shorter is lighter.</span>
+            </figcaption>
+            <div className={styles.canvasWrap} style={{ height: 36 + downloadRows.length * 48 }} role="img"
+              aria-label={`Download size: ${downloadRows.map((r) => `${r.label} ${fmtBytes(data.footprint[r.id].download.bytes)}`).join(', ')}`}>
+              <FootprintChart rows={downloadRows} footprint={data.footprint} kind="download" />
             </div>
           </figure>
         )}

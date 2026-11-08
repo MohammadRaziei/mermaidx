@@ -81,6 +81,8 @@ $(PY_STAMP): $(ROOT)/pyproject.toml
 	$(PYTHON) -m pip install --quiet -e "$(ROOT)[all]"
 	# pyoxipng recompresses the benchmark PNGs without loss (benchmarks/run.py: optimize_png); optional there, so a failure here is not fatal.
 	-$(PYTHON) -m pip install --quiet pyoxipng
+	# pip-size measures what each renderer costs to download (benchmarks/run.py: download_footprint); optional there too.
+	-$(PYTHON) -m pip install --quiet "pip-size>=0.4.0"
 ifeq ($(WITH_BYTECODE),1)
 	# The quickjs-ng on PyPI has no Context.compile / eval_bytecode; build the patched wheel (tools/quickjs_ng_bytecode)
 	# and put it over the stock one, so the published benchmark numbers include the bytecode cache.
