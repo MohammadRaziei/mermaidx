@@ -79,6 +79,8 @@ $(PY_STAMP): $(ROOT)/pyproject.toml
 	$(BASE_PYTHON) -m venv $(VENV)
 	$(PYTHON) -m pip install --quiet --upgrade pip
 	$(PYTHON) -m pip install --quiet -e "$(ROOT)[all]"
+	# pyoxipng recompresses the benchmark PNGs without loss (benchmarks/run.py: optimize_png); optional there, so a failure here is not fatal.
+	-$(PYTHON) -m pip install --quiet pyoxipng
 ifeq ($(WITH_BYTECODE),1)
 	# The quickjs-ng on PyPI has no Context.compile / eval_bytecode; build the patched wheel (tools/quickjs_ng_bytecode)
 	# and put it over the stock one, so the published benchmark numbers include the bytecode cache.

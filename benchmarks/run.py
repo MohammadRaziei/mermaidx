@@ -3,7 +3,7 @@
 
 Writes, under --out:
     results.json                      timings, status, versions, machine
-    png/<sample>/<renderer>.png       the rendered image
+    png/<sample>/<renderer>.png       the rendered image, recompressed without loss (see optimize_png)
     mmd/<sample>.mmd                  the Mermaid source, for the download button
 
 Samples come from tests/samples (each has a mermaid-cli reference .svg) and from benchmarks/samples (diagrams that
@@ -38,12 +38,37 @@ ROOT = Path(__file__).resolve().parent.parent
 WARMUP_SOURCE = "flowchart LR\n    A --> B"
 SAMPLE_DIRS = (ROOT / "tests" / "samples", ROOT / "benchmarks" / "samples")
 BACKGROUND = "#ffffff"
+# oxipng effort for the stored copy of every PNG: 2 takes about 0.2 s per image and halves a typical diagram, 4 gains
+# only ~2 points more for 7x the time. Settable with --png-level; lowered to None by --no-optimize-png.
+DEFAULT_PNG_LEVEL = 2
+PNG_LEVEL = DEFAULT_PNG_LEVEL
 
 
 def png_size(data: bytes):
     if data[:8] != b"\x89PNG\r\n\x1a\n":
         return None, None
     return struct.unpack(">II", data[16:24])
+
+
+def optimize_png(data: bytes, level=None) -> bytes:
+    """The PNG recompressed without loss (same pixels, same size), for the copy that goes on the web page.
+
+    novasvg's encoder has no compression setting, and mmdc's output is not tuned either, so the files the page
+    downloads are about twice what they need to be. This runs after the clock has stopped, and `bytes` in
+    results.json stays the size of what the renderer produced, so the numbers do not change. Needs `pyoxipng`;
+    without it (or with level None) the PNG is stored as it is."""
+    level = PNG_LEVEL if level is None else level
+    if level is None:
+        return data
+    try:
+        import oxipng
+    except ImportError:
+        return data
+    try:
+        smaller = oxipng.optimize_from_memory(data, level=level, strip=oxipng.StripChunks.safe())
+    except Exception:  # an optimizer failure must never cost the benchmark its image
+        return data
+    return smaller if len(smaller) < len(data) else data
 
 
 def diagram_type(source: str) -> str:
@@ -367,7 +392,8 @@ def label_recall(svg: str, reference_svg: str):
 def ok_result(sample_id, renderer_id, data, runs, out_dir):
     path = out_dir / "png" / sample_id / f"{renderer_id}.png"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(data)
+    stored = optimize_png(data)
+    path.write_bytes(stored)
     width, height = png_size(data)
     return {
         "status": "ok",
@@ -377,6 +403,7 @@ def ok_result(sample_id, renderer_id, data, runs, out_dir):
         "width": width,
         "height": height,
         "bytes": len(data),
+        "stored_bytes": len(stored),
     }
 
 
@@ -389,6 +416,9 @@ def main(argv=None):
     ap.add_argument("--mmdc-repeats", type=int, default=3, help="timed runs per sample for mmdc")
     ap.add_argument("--only", action="append", help="sample name (repeatable)")
     ap.add_argument("--skip-mmdc", action="store_true")
+    ap.add_argument("--png-level", type=int, default=DEFAULT_PNG_LEVEL, choices=range(0, 7), metavar="0-6",
+                    help="oxipng effort for the stored PNGs (default: %(default)s; needs pyoxipng)")
+    ap.add_argument("--no-optimize-png", action="store_true", help="store the PNGs exactly as rendered")
     ap.add_argument("--scaling-items", type=int, default=16,
                     help="diagrams for the render_many() measurement, 0 to skip it (default: 16)")
     ap.add_argument("--scaling-repeats", type=int, default=3, help="timed runs per worker count (default: 3)")
@@ -399,6 +429,9 @@ def main(argv=None):
                                       "(repeatable; default: all available)")
     ap.add_argument("--puppeteer-config", type=Path, help="JSON file passed to mmdc -p (e.g. --no-sandbox)")
     args = ap.parse_args(argv)
+
+    global PNG_LEVEL
+    PNG_LEVEL = None if args.no_optimize_png else args.png_level
 
     import mermaidx
 
