@@ -35,7 +35,7 @@ follows [Semantic Versioning](https://semver.org/) (while below 1.0, a minor bum
 
 ### Changed
 
-- **`render_many()` uses threads by default**, and takes `executor="process"` for the old behaviour. The old
+- **`render_many()` uses threads by default**, and takes `executor="process"` for the old behavior. The old
   reasoning, that threads cannot overlap rendering because of the GIL, does not hold: the QuickJS binding gives the
   GIL back while JavaScript runs (a Python thread kept 51% of its speed on one core while another thread ran
   JavaScript), and the V8 engine runs in a child process of its own. Each worker thread has an engine of its own, so
