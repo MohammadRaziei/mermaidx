@@ -45,7 +45,7 @@ d.save("diagram.png", scale=2.0)
 - **Many outputs.** SVG, PNG, JPG/JPEG, BMP, TGA, PDF, raw RGBA and NumPy arrays.
 - **One process.** Synchronous, in-process rendering, plus `render_many()` for parallel batches.
 - **Jupyter-ready.** A diagram displays itself as the last expression of a cell.
-- **Pluggable backends.** mermaid.js (default), pele, or native Rust (optional), on QuickJS-ng (default) or V8 (optional). pele is far faster than mermaid.js but draws its own layout: see the [benchmarks](https://mohammadraziei.github.io/mermaidx/benchmarks) before you choose.
+- **Pluggable backends.** mermaid.js (default), pele, or native Rust (optional), on QuickJS-ng (default) or V8 (optional). pele is far faster than mermaid.js, and faster than `rust:merman` too, but draws its own layout: see the [benchmarks](https://mohammadraziei.github.io/mermaidx/benchmarks) before you choose.
 
 ## Installation
 
@@ -100,63 +100,6 @@ In Jupyter there is nothing to call. A `Diagram` renders itself, like a DataFram
 mermaidx.render("flowchart LR; A-->B-->C")   # just shows up
 ```
 
-## How it works
-
-`mermaidx` has a deliberately narrow job: **turn Mermaid source into an SVG that matches `mermaid-cli`**. Everything after the SVG (PNG, JPG and friends) is [novasvg](https://github.com/mohammadraziei/novasvg)'s job.
-
-```mermaid
-flowchart TB
-    SRC["Mermaid source"] --> MX
-
-    subgraph MX ["mermaidx: Mermaid to SVG"]
-        direction LR
-        JS["JS engine<br/>QuickJS-ng, or V8 (optional)"] --> MJS["mermaid.js / pele.js<br/>bundled, unmodified"]
-        SHIM["DOM and SVG shims<br/>stand-ins for browser APIs"] -.-> MJS
-    end
-
-    MX --> SVG(["SVG<br/>same output as mermaid-cli"])
-    SVG --> RAS
-
-    subgraph NS ["novasvg: SVG to pixels"]
-        direction LR
-        RAS["Rasterizer<br/>paints foreignObject labels"] --> PNG["PNG"]
-        RAS --> OTHER["JPG, BMP, TGA, raw RGBA"]
-    end
-
-    RAS -.-> PDF["PDF<br/>tiny stdlib-only writer in mermaidx<br/>embeds the rendered pixels"]
-```
-
-| Stage | Who does it | Notes |
-| --- | --- | --- |
-| **Mermaid → SVG** | `mermaidx` | `mermaid.js` runs unmodified in QuickJS-ng (or V8) against a minimal fake DOM/SVG layer (the shims). Anything a real browser would answer, such as text size via `getBBox`, comes from novasvg's font stack and one bundled font. |
-| **SVG → PNG / JPG / BMP / TGA / raw** | [`novasvg`](https://github.com/mohammadraziei/novasvg) | Same bundled font as the layout step, so what Mermaid measured is exactly what gets painted. JPEG has no alpha, so it defaults to a white background. |
-| **SVG → PDF** | `mermaidx` | A small hand-written PDF writer (stdlib `zlib`/`struct`) embeds the rasterized pixels. No Pillow, no Cairo, no reportlab. |
-
-Every backend is a small subclass of one shared `DiagramBase` and only overrides the private `_svg()` hook. Everything downstream (`png()`, `pdf()`, `raw()`, `numpy()`, `save()`) is written once and behaves identically no matter which backend produced the SVG.
-
-### Why novasvg?
-
-Mermaid draws its labels as HTML inside `<foreignObject>`. Many SVG rasterizers skip that element, so the text silently disappears or the layout breaks. `mermaidx` originally used `resvg`, which cannot paint `<foreignObject>`, and had to force plain SVG text as a workaround. With novasvg the default HTML labels are used again, and their box sizes are computed by novasvg itself, so layout and paint cannot disagree.
-
-In [novasvg's own benchmark](https://mohammadraziei.github.io/novasvg/benchmarks/) (60 samples, 49 of them Mermaid diagrams, compared against Chromium as ground truth), it came out the most accurate renderer while staying among the fastest:
-
-| Renderer | Samples that look right (of 60) | Mean RMSE vs Chromium (lower is better) | Avg render time |
-| --- | :---: | :---: | :---: |
-| **novasvg** | **59** | **15.4** | 1.28 ms |
-| resvg | 7 | 19.2 | 3.38 ms |
-| lunasvg | 31 | 30.9 | 1.85 ms |
-| cairosvg | 19 | 46.0 | 42.92 ms |
-| nanosvg | 4 | 48.3 | 0.99 ms |
-| thorvg | 6 | 76.4 | 0.64 ms |
-
-thorvg and nanosvg are faster, but they get far more samples visibly wrong. See the [benchmark page](https://mohammadraziei.github.io/novasvg/benchmarks/) for the methodology and side-by-side renders.
-
-### Why not a browser?
-
-The official `@mermaid-js/mermaid-cli` drives a real headless Chrome through Puppeteer. That works, but a browser is slow to boot and heavy to install, which shows up directly in wall-clock time for CI jobs that render many diagrams. `mermaidx` removes the browser and nothing else: **same Mermaid library, no browser process, no page load, no DOM boot.**
-
-Every other Mermaid-to-image tool reachable from Python either drives a browser or shells out to Node.js. `mermaidx` is the one that renders current Mermaid with neither.
-
 ## Backends
 
 All backends share one API. A backend is named `<kind>:<name>`, and the `js:` backends also take an `engine`. List what is installed at runtime:
@@ -189,6 +132,21 @@ The `js:` backends run inside a JS engine, chosen with `engine=`. It is `None` u
 
 A `rust:` backend has no JS engine, so passing `engine=` with one raises `ValueError`.
 
+### Same Mermaid diagram, different outputs
+
+The source is the same, but the outputs are not. Six diagrams from the benchmark gallery, rendered by `mmdc` and by four mermaidx backends. `js:mermaid` is shown on QuickJS; V8 draws the same picture and only differs in time. `js:pele` and the two Rust backends draw their own layout.
+
+| Diagram | `mmdc` (reference) | `js:mermaid` | `js:pele` | `rust:merman` | `rust:mermaid-rs-renderer` |
+| --- | :---: | :---: | :---: | :---: | :---: |
+| [Pie chart](https://mohammadraziei.github.io/mermaidx/benchmarks#12_pie_chart) | <a href="https://mohammadraziei.github.io/mermaidx/benchmarks/png/12_pie_chart/mmdc.png" target="_blank" rel="noopener"><img src="https://mohammadraziei.github.io/mermaidx/benchmarks/png/12_pie_chart/mmdc.png" height="108" alt="Pie chart, mmdc"/></a> | <a href="https://mohammadraziei.github.io/mermaidx/benchmarks/png/12_pie_chart/mermaidx-quickjs.png" target="_blank" rel="noopener"><img src="https://mohammadraziei.github.io/mermaidx/benchmarks/png/12_pie_chart/mermaidx-quickjs.png" height="108" alt="Pie chart, mermaidx-quickjs"/></a> | <a href="https://mohammadraziei.github.io/mermaidx/benchmarks/png/12_pie_chart/mermaidx-pele-quickjs.png" target="_blank" rel="noopener"><img src="https://mohammadraziei.github.io/mermaidx/benchmarks/png/12_pie_chart/mermaidx-pele-quickjs.png" height="108" alt="Pie chart, mermaidx-pele-quickjs"/></a> | <a href="https://mohammadraziei.github.io/mermaidx/benchmarks/png/12_pie_chart/mermaidx-merman.png" target="_blank" rel="noopener"><img src="https://mohammadraziei.github.io/mermaidx/benchmarks/png/12_pie_chart/mermaidx-merman.png" height="108" alt="Pie chart, mermaidx-merman"/></a> | <a href="https://mohammadraziei.github.io/mermaidx/benchmarks/png/12_pie_chart/mermaidx-mermaid-rs-renderer.png" target="_blank" rel="noopener"><img src="https://mohammadraziei.github.io/mermaidx/benchmarks/png/12_pie_chart/mermaidx-mermaid-rs-renderer.png" height="108" alt="Pie chart, mermaidx-mermaid-rs-renderer"/></a> |
+| [Sequence](https://mohammadraziei.github.io/mermaidx/benchmarks#16_sequence_notes_activation) | <a href="https://mohammadraziei.github.io/mermaidx/benchmarks/png/16_sequence_notes_activation/mmdc.png" target="_blank" rel="noopener"><img src="https://mohammadraziei.github.io/mermaidx/benchmarks/png/16_sequence_notes_activation/mmdc.png" height="108" alt="Sequence, mmdc"/></a> | <a href="https://mohammadraziei.github.io/mermaidx/benchmarks/png/16_sequence_notes_activation/mermaidx-quickjs.png" target="_blank" rel="noopener"><img src="https://mohammadraziei.github.io/mermaidx/benchmarks/png/16_sequence_notes_activation/mermaidx-quickjs.png" height="108" alt="Sequence, mermaidx-quickjs"/></a> | <a href="https://mohammadraziei.github.io/mermaidx/benchmarks/png/16_sequence_notes_activation/mermaidx-pele-quickjs.png" target="_blank" rel="noopener"><img src="https://mohammadraziei.github.io/mermaidx/benchmarks/png/16_sequence_notes_activation/mermaidx-pele-quickjs.png" height="108" alt="Sequence, mermaidx-pele-quickjs"/></a> | <a href="https://mohammadraziei.github.io/mermaidx/benchmarks/png/16_sequence_notes_activation/mermaidx-merman.png" target="_blank" rel="noopener"><img src="https://mohammadraziei.github.io/mermaidx/benchmarks/png/16_sequence_notes_activation/mermaidx-merman.png" height="108" alt="Sequence, mermaidx-merman"/></a> | not supported |
+| [Git graph](https://mohammadraziei.github.io/mermaidx/benchmarks#19_gitgraph) | <a href="https://mohammadraziei.github.io/mermaidx/benchmarks/png/19_gitgraph/mmdc.png" target="_blank" rel="noopener"><img src="https://mohammadraziei.github.io/mermaidx/benchmarks/png/19_gitgraph/mmdc.png" height="78" alt="Git graph, mmdc"/></a> | <a href="https://mohammadraziei.github.io/mermaidx/benchmarks/png/19_gitgraph/mermaidx-quickjs.png" target="_blank" rel="noopener"><img src="https://mohammadraziei.github.io/mermaidx/benchmarks/png/19_gitgraph/mermaidx-quickjs.png" height="78" alt="Git graph, mermaidx-quickjs"/></a> | <a href="https://mohammadraziei.github.io/mermaidx/benchmarks/png/19_gitgraph/mermaidx-pele-quickjs.png" target="_blank" rel="noopener"><img src="https://mohammadraziei.github.io/mermaidx/benchmarks/png/19_gitgraph/mermaidx-pele-quickjs.png" height="78" alt="Git graph, mermaidx-pele-quickjs"/></a> | <a href="https://mohammadraziei.github.io/mermaidx/benchmarks/png/19_gitgraph/mermaidx-merman.png" target="_blank" rel="noopener"><img src="https://mohammadraziei.github.io/mermaidx/benchmarks/png/19_gitgraph/mermaidx-merman.png" height="78" alt="Git graph, mermaidx-merman"/></a> | <a href="https://mohammadraziei.github.io/mermaidx/benchmarks/png/19_gitgraph/mermaidx-mermaid-rs-renderer.png" target="_blank" rel="noopener"><img src="https://mohammadraziei.github.io/mermaidx/benchmarks/png/19_gitgraph/mermaidx-mermaid-rs-renderer.png" height="78" alt="Git graph, mermaidx-mermaid-rs-renderer"/></a> |
+| [ER diagram](https://mohammadraziei.github.io/mermaidx/benchmarks#37_erd_relations) | <a href="https://mohammadraziei.github.io/mermaidx/benchmarks/png/37_erd_relations/mmdc.png" target="_blank" rel="noopener"><img src="https://mohammadraziei.github.io/mermaidx/benchmarks/png/37_erd_relations/mmdc.png" height="124" alt="ER diagram, mmdc"/></a> | <a href="https://mohammadraziei.github.io/mermaidx/benchmarks/png/37_erd_relations/mermaidx-quickjs.png" target="_blank" rel="noopener"><img src="https://mohammadraziei.github.io/mermaidx/benchmarks/png/37_erd_relations/mermaidx-quickjs.png" height="124" alt="ER diagram, mermaidx-quickjs"/></a> | <a href="https://mohammadraziei.github.io/mermaidx/benchmarks/png/37_erd_relations/mermaidx-pele-quickjs.png" target="_blank" rel="noopener"><img src="https://mohammadraziei.github.io/mermaidx/benchmarks/png/37_erd_relations/mermaidx-pele-quickjs.png" height="124" alt="ER diagram, mermaidx-pele-quickjs"/></a> | <a href="https://mohammadraziei.github.io/mermaidx/benchmarks/png/37_erd_relations/mermaidx-merman.png" target="_blank" rel="noopener"><img src="https://mohammadraziei.github.io/mermaidx/benchmarks/png/37_erd_relations/mermaidx-merman.png" height="124" alt="ER diagram, mermaidx-merman"/></a> | <a href="https://mohammadraziei.github.io/mermaidx/benchmarks/png/37_erd_relations/mermaidx-mermaid-rs-renderer.png" target="_blank" rel="noopener"><img src="https://mohammadraziei.github.io/mermaidx/benchmarks/png/37_erd_relations/mermaidx-mermaid-rs-renderer.png" height="124" alt="ER diagram, mermaidx-mermaid-rs-renderer"/></a> |
+| [ELK dense graph](https://mohammadraziei.github.io/mermaidx/benchmarks#46_elk_dense_graph) | <a href="https://mohammadraziei.github.io/mermaidx/benchmarks/png/46_elk_dense_graph/mmdc.png" target="_blank" rel="noopener"><img src="https://mohammadraziei.github.io/mermaidx/benchmarks/png/46_elk_dense_graph/mmdc.png" height="98" alt="ELK dense graph, mmdc"/></a> | <a href="https://mohammadraziei.github.io/mermaidx/benchmarks/png/46_elk_dense_graph/mermaidx-quickjs.png" target="_blank" rel="noopener"><img src="https://mohammadraziei.github.io/mermaidx/benchmarks/png/46_elk_dense_graph/mermaidx-quickjs.png" height="98" alt="ELK dense graph, mermaidx-quickjs"/></a> | <a href="https://mohammadraziei.github.io/mermaidx/benchmarks/png/46_elk_dense_graph/mermaidx-pele-quickjs.png" target="_blank" rel="noopener"><img src="https://mohammadraziei.github.io/mermaidx/benchmarks/png/46_elk_dense_graph/mermaidx-pele-quickjs.png" height="98" alt="ELK dense graph, mermaidx-pele-quickjs"/></a> | <a href="https://mohammadraziei.github.io/mermaidx/benchmarks/png/46_elk_dense_graph/mermaidx-merman.png" target="_blank" rel="noopener"><img src="https://mohammadraziei.github.io/mermaidx/benchmarks/png/46_elk_dense_graph/mermaidx-merman.png" height="98" alt="ELK dense graph, mermaidx-merman"/></a> | <a href="https://mohammadraziei.github.io/mermaidx/benchmarks/png/46_elk_dense_graph/mermaidx-mermaid-rs-renderer.png" target="_blank" rel="noopener"><img src="https://mohammadraziei.github.io/mermaidx/benchmarks/png/46_elk_dense_graph/mermaidx-mermaid-rs-renderer.png" height="98" alt="ELK dense graph, mermaidx-mermaid-rs-renderer"/></a> |
+| [ZenUML](https://mohammadraziei.github.io/mermaidx/benchmarks#47_zenuml_messages) | <a href="https://mohammadraziei.github.io/mermaidx/benchmarks/png/47_zenuml_messages/mmdc.png" target="_blank" rel="noopener"><img src="https://mohammadraziei.github.io/mermaidx/benchmarks/png/47_zenuml_messages/mmdc.png" height="88" alt="ZenUML, mmdc"/></a> | <a href="https://mohammadraziei.github.io/mermaidx/benchmarks/png/47_zenuml_messages/mermaidx-quickjs.png" target="_blank" rel="noopener"><img src="https://mohammadraziei.github.io/mermaidx/benchmarks/png/47_zenuml_messages/mermaidx-quickjs.png" height="88" alt="ZenUML, mermaidx-quickjs"/></a> | not supported | <a href="https://mohammadraziei.github.io/mermaidx/benchmarks/png/47_zenuml_messages/mermaidx-merman.png" target="_blank" rel="noopener"><img src="https://mohammadraziei.github.io/mermaidx/benchmarks/png/47_zenuml_messages/mermaidx-merman.png" height="88" alt="ZenUML, mermaidx-merman"/></a> | <a href="https://mohammadraziei.github.io/mermaidx/benchmarks/png/47_zenuml_messages/mermaidx-mermaid-rs-renderer.png" target="_blank" rel="noopener"><img src="https://mohammadraziei.github.io/mermaidx/benchmarks/png/47_zenuml_messages/mermaidx-mermaid-rs-renderer.png" height="88" alt="ZenUML, mermaidx-mermaid-rs-renderer"/></a> |
+
+To see more diagrams, every renderer and the timings, open the [benchmark page](https://mohammadraziei.github.io/mermaidx/benchmarks).
+
 ```mermaid
 flowchart TB
     CALL["mermaidx.render(source, backend=..., engine=...)"] --> PICK{"backend"}
@@ -220,8 +178,8 @@ flowchart TB
 
 The API is the same for every backend: `render()` always returns a `Diagram`, and `.svg()`, `.png()`, `.pdf()` and `.save()` work identically whichever one you pick. What is **not** the same is how the SVG gets made, so **speed and the rendered result can differ** between backends:
 
-- **`js:mermaid` is the original mermaid.js.** Only the JavaScript engine differs between `quickjs` and `v8`: V8 is faster, QuickJS installs anywhere. The engine never changes the result. Text is measured with the bundled DejaVu Sans, not with the fonts of a browser, so a diagram can differ from your own `mmdc` run by a fraction of a pixel in text width (see *Known issues* in the docs).
-- **`js:pele` is a different implementation**, in JavaScript, and **much faster**: in our timings it renders a small diagram in a few milliseconds where `js:mermaid` takes about a second, over 100 times faster. The price is that its layout and styling differ from mermaid.js, so the output will not match it. The [**Benchmarks** page](https://mohammadraziei.github.io/mermaidx/benchmarks) shows the measured times and every sample rendered by every backend side by side; have a look before you pick one. It takes `config` and `css` but no `theme`: restyle it with its CSS variables, for example `css="svg{--pele-bg:#111;--pele-fg:#eee}"`.
+- **`js:mermaid` is the original mermaid.js.** It gives the expected output, the same as `mmdc`. Only the JavaScript engine differs between `quickjs` and `v8`: V8 is faster, QuickJS installs anywhere. The engine never changes the result. Text is measured with the bundled DejaVu Sans, not with the fonts of a browser, so a diagram can differ from your own `mmdc` run by a fraction of a pixel in text width (see *Known issues* in the docs).
+- **`js:pele` is a different implementation**, in JavaScript, and **very fast**: it is even faster than the native Rust `rust:merman`. In our timings (median `svg()` time over 20 samples of `tests/samples`, QuickJS) pele takes about 0.9 ms, `rust:merman` about 3.8 ms and `js:mermaid` about 890 ms, so pele is roughly 1000 times faster than `js:mermaid`. The price is that its layout and styling differ from mermaid.js, so the output will not match it. The [**Benchmarks** page](https://mohammadraziei.github.io/mermaidx/benchmarks) shows the measured times and every sample rendered by every backend side by side. It takes `config` and `css` but no `theme`: restyle it with its CSS variables, for example `css="svg{--pele-bg:#111;--pele-fg:#eee}"`.
 - **`rust:merman` and `rust:mermaid-rs-renderer` are different implementations**, written in Rust rather than JavaScript. Their layout can differ from mermaid.js, they may not support every diagram type, and they take different options (`theme`, `node_spacing`, `rank_spacing`, `aspect_ratio` instead of `config` and `css`).
 
 Whatever the backend, the SVG then goes through the same novasvg rasterizer, so the pixels are painted the same way. Only the SVG it receives differs. (pele paints with nested CSS variables, which novasvg resolves from 0.11.4 on.)
@@ -251,21 +209,6 @@ To see the differences yourself, render the same diagram with every backend you 
 for name in mermaidx.backends():
     mermaidx.render(source, backend=name).save(f"diagram-{name.replace(':', '-')}.png")
 ```
-
-### Same diagram, different backends
-
-Six diagrams from the benchmark gallery, rendered by `mmdc` and by four mermaidx backends. `js:mermaid` is shown on QuickJS; V8 draws the same picture and only differs in time. `js:pele` and the two Rust backends draw their own layout.
-
-| Diagram | `mmdc` (reference) | `js:mermaid` | `js:pele` | `rust:merman` | `rust:mermaid-rs-renderer` |
-| --- | :---: | :---: | :---: | :---: | :---: |
-| [Pie chart](https://mohammadraziei.github.io/mermaidx/benchmarks#12_pie_chart) | <a href="https://mohammadraziei.github.io/mermaidx/benchmarks/png/12_pie_chart/mmdc.png" target="_blank" rel="noopener"><img src="https://mohammadraziei.github.io/mermaidx/benchmarks/png/12_pie_chart/mmdc.png" height="108" alt="Pie chart, mmdc"/></a> | <a href="https://mohammadraziei.github.io/mermaidx/benchmarks/png/12_pie_chart/mermaidx-quickjs.png" target="_blank" rel="noopener"><img src="https://mohammadraziei.github.io/mermaidx/benchmarks/png/12_pie_chart/mermaidx-quickjs.png" height="108" alt="Pie chart, mermaidx-quickjs"/></a> | <a href="https://mohammadraziei.github.io/mermaidx/benchmarks/png/12_pie_chart/mermaidx-pele-quickjs.png" target="_blank" rel="noopener"><img src="https://mohammadraziei.github.io/mermaidx/benchmarks/png/12_pie_chart/mermaidx-pele-quickjs.png" height="108" alt="Pie chart, mermaidx-pele-quickjs"/></a> | <a href="https://mohammadraziei.github.io/mermaidx/benchmarks/png/12_pie_chart/mermaidx-merman.png" target="_blank" rel="noopener"><img src="https://mohammadraziei.github.io/mermaidx/benchmarks/png/12_pie_chart/mermaidx-merman.png" height="108" alt="Pie chart, mermaidx-merman"/></a> | <a href="https://mohammadraziei.github.io/mermaidx/benchmarks/png/12_pie_chart/mermaidx-mermaid-rs-renderer.png" target="_blank" rel="noopener"><img src="https://mohammadraziei.github.io/mermaidx/benchmarks/png/12_pie_chart/mermaidx-mermaid-rs-renderer.png" height="108" alt="Pie chart, mermaidx-mermaid-rs-renderer"/></a> |
-| [Sequence](https://mohammadraziei.github.io/mermaidx/benchmarks#16_sequence_notes_activation) | <a href="https://mohammadraziei.github.io/mermaidx/benchmarks/png/16_sequence_notes_activation/mmdc.png" target="_blank" rel="noopener"><img src="https://mohammadraziei.github.io/mermaidx/benchmarks/png/16_sequence_notes_activation/mmdc.png" height="108" alt="Sequence, mmdc"/></a> | <a href="https://mohammadraziei.github.io/mermaidx/benchmarks/png/16_sequence_notes_activation/mermaidx-quickjs.png" target="_blank" rel="noopener"><img src="https://mohammadraziei.github.io/mermaidx/benchmarks/png/16_sequence_notes_activation/mermaidx-quickjs.png" height="108" alt="Sequence, mermaidx-quickjs"/></a> | <a href="https://mohammadraziei.github.io/mermaidx/benchmarks/png/16_sequence_notes_activation/mermaidx-pele-quickjs.png" target="_blank" rel="noopener"><img src="https://mohammadraziei.github.io/mermaidx/benchmarks/png/16_sequence_notes_activation/mermaidx-pele-quickjs.png" height="108" alt="Sequence, mermaidx-pele-quickjs"/></a> | <a href="https://mohammadraziei.github.io/mermaidx/benchmarks/png/16_sequence_notes_activation/mermaidx-merman.png" target="_blank" rel="noopener"><img src="https://mohammadraziei.github.io/mermaidx/benchmarks/png/16_sequence_notes_activation/mermaidx-merman.png" height="108" alt="Sequence, mermaidx-merman"/></a> | not supported |
-| [Git graph](https://mohammadraziei.github.io/mermaidx/benchmarks#19_gitgraph) | <a href="https://mohammadraziei.github.io/mermaidx/benchmarks/png/19_gitgraph/mmdc.png" target="_blank" rel="noopener"><img src="https://mohammadraziei.github.io/mermaidx/benchmarks/png/19_gitgraph/mmdc.png" height="78" alt="Git graph, mmdc"/></a> | <a href="https://mohammadraziei.github.io/mermaidx/benchmarks/png/19_gitgraph/mermaidx-quickjs.png" target="_blank" rel="noopener"><img src="https://mohammadraziei.github.io/mermaidx/benchmarks/png/19_gitgraph/mermaidx-quickjs.png" height="78" alt="Git graph, mermaidx-quickjs"/></a> | <a href="https://mohammadraziei.github.io/mermaidx/benchmarks/png/19_gitgraph/mermaidx-pele-quickjs.png" target="_blank" rel="noopener"><img src="https://mohammadraziei.github.io/mermaidx/benchmarks/png/19_gitgraph/mermaidx-pele-quickjs.png" height="78" alt="Git graph, mermaidx-pele-quickjs"/></a> | <a href="https://mohammadraziei.github.io/mermaidx/benchmarks/png/19_gitgraph/mermaidx-merman.png" target="_blank" rel="noopener"><img src="https://mohammadraziei.github.io/mermaidx/benchmarks/png/19_gitgraph/mermaidx-merman.png" height="78" alt="Git graph, mermaidx-merman"/></a> | <a href="https://mohammadraziei.github.io/mermaidx/benchmarks/png/19_gitgraph/mermaidx-mermaid-rs-renderer.png" target="_blank" rel="noopener"><img src="https://mohammadraziei.github.io/mermaidx/benchmarks/png/19_gitgraph/mermaidx-mermaid-rs-renderer.png" height="78" alt="Git graph, mermaidx-mermaid-rs-renderer"/></a> |
-| [ER diagram](https://mohammadraziei.github.io/mermaidx/benchmarks#37_erd_relations) | <a href="https://mohammadraziei.github.io/mermaidx/benchmarks/png/37_erd_relations/mmdc.png" target="_blank" rel="noopener"><img src="https://mohammadraziei.github.io/mermaidx/benchmarks/png/37_erd_relations/mmdc.png" height="124" alt="ER diagram, mmdc"/></a> | <a href="https://mohammadraziei.github.io/mermaidx/benchmarks/png/37_erd_relations/mermaidx-quickjs.png" target="_blank" rel="noopener"><img src="https://mohammadraziei.github.io/mermaidx/benchmarks/png/37_erd_relations/mermaidx-quickjs.png" height="124" alt="ER diagram, mermaidx-quickjs"/></a> | <a href="https://mohammadraziei.github.io/mermaidx/benchmarks/png/37_erd_relations/mermaidx-pele-quickjs.png" target="_blank" rel="noopener"><img src="https://mohammadraziei.github.io/mermaidx/benchmarks/png/37_erd_relations/mermaidx-pele-quickjs.png" height="124" alt="ER diagram, mermaidx-pele-quickjs"/></a> | <a href="https://mohammadraziei.github.io/mermaidx/benchmarks/png/37_erd_relations/mermaidx-merman.png" target="_blank" rel="noopener"><img src="https://mohammadraziei.github.io/mermaidx/benchmarks/png/37_erd_relations/mermaidx-merman.png" height="124" alt="ER diagram, mermaidx-merman"/></a> | <a href="https://mohammadraziei.github.io/mermaidx/benchmarks/png/37_erd_relations/mermaidx-mermaid-rs-renderer.png" target="_blank" rel="noopener"><img src="https://mohammadraziei.github.io/mermaidx/benchmarks/png/37_erd_relations/mermaidx-mermaid-rs-renderer.png" height="124" alt="ER diagram, mermaidx-mermaid-rs-renderer"/></a> |
-| [ELK dense graph](https://mohammadraziei.github.io/mermaidx/benchmarks#46_elk_dense_graph) | <a href="https://mohammadraziei.github.io/mermaidx/benchmarks/png/46_elk_dense_graph/mmdc.png" target="_blank" rel="noopener"><img src="https://mohammadraziei.github.io/mermaidx/benchmarks/png/46_elk_dense_graph/mmdc.png" height="98" alt="ELK dense graph, mmdc"/></a> | <a href="https://mohammadraziei.github.io/mermaidx/benchmarks/png/46_elk_dense_graph/mermaidx-quickjs.png" target="_blank" rel="noopener"><img src="https://mohammadraziei.github.io/mermaidx/benchmarks/png/46_elk_dense_graph/mermaidx-quickjs.png" height="98" alt="ELK dense graph, mermaidx-quickjs"/></a> | <a href="https://mohammadraziei.github.io/mermaidx/benchmarks/png/46_elk_dense_graph/mermaidx-pele-quickjs.png" target="_blank" rel="noopener"><img src="https://mohammadraziei.github.io/mermaidx/benchmarks/png/46_elk_dense_graph/mermaidx-pele-quickjs.png" height="98" alt="ELK dense graph, mermaidx-pele-quickjs"/></a> | <a href="https://mohammadraziei.github.io/mermaidx/benchmarks/png/46_elk_dense_graph/mermaidx-merman.png" target="_blank" rel="noopener"><img src="https://mohammadraziei.github.io/mermaidx/benchmarks/png/46_elk_dense_graph/mermaidx-merman.png" height="98" alt="ELK dense graph, mermaidx-merman"/></a> | <a href="https://mohammadraziei.github.io/mermaidx/benchmarks/png/46_elk_dense_graph/mermaidx-mermaid-rs-renderer.png" target="_blank" rel="noopener"><img src="https://mohammadraziei.github.io/mermaidx/benchmarks/png/46_elk_dense_graph/mermaidx-mermaid-rs-renderer.png" height="98" alt="ELK dense graph, mermaidx-mermaid-rs-renderer"/></a> |
-| [ZenUML](https://mohammadraziei.github.io/mermaidx/benchmarks#47_zenuml_messages) | <a href="https://mohammadraziei.github.io/mermaidx/benchmarks/png/47_zenuml_messages/mmdc.png" target="_blank" rel="noopener"><img src="https://mohammadraziei.github.io/mermaidx/benchmarks/png/47_zenuml_messages/mmdc.png" height="88" alt="ZenUML, mmdc"/></a> | <a href="https://mohammadraziei.github.io/mermaidx/benchmarks/png/47_zenuml_messages/mermaidx-quickjs.png" target="_blank" rel="noopener"><img src="https://mohammadraziei.github.io/mermaidx/benchmarks/png/47_zenuml_messages/mermaidx-quickjs.png" height="88" alt="ZenUML, mermaidx-quickjs"/></a> | not supported | <a href="https://mohammadraziei.github.io/mermaidx/benchmarks/png/47_zenuml_messages/mermaidx-merman.png" target="_blank" rel="noopener"><img src="https://mohammadraziei.github.io/mermaidx/benchmarks/png/47_zenuml_messages/mermaidx-merman.png" height="88" alt="ZenUML, mermaidx-merman"/></a> | <a href="https://mohammadraziei.github.io/mermaidx/benchmarks/png/47_zenuml_messages/mermaidx-mermaid-rs-renderer.png" target="_blank" rel="noopener"><img src="https://mohammadraziei.github.io/mermaidx/benchmarks/png/47_zenuml_messages/mermaidx-mermaid-rs-renderer.png" height="88" alt="ZenUML, mermaidx-mermaid-rs-renderer"/></a> |
-
-To see more diagrams, every renderer and the timings, open the [benchmark page](https://mohammadraziei.github.io/mermaidx/benchmarks).
 
 Options depend on the backend:
 
@@ -355,6 +298,50 @@ mermaidx --version
 ```
 
 Use `-q` to silence the "saved to…" message and `--quality N` for JPEG quality. More in the [CLI docs](https://mohammadraziei.github.io/mermaidx/docs/cli).
+
+## How it works
+
+`mermaidx` has a deliberately narrow job: **turn Mermaid source into an SVG that matches `mermaid-cli`**. Everything after the SVG (PNG, JPG and friends) is [novasvg](https://github.com/mohammadraziei/novasvg)'s job.
+
+```mermaid
+flowchart TB
+    SRC["Mermaid source"] --> MX
+
+    subgraph MX ["mermaidx: Mermaid to SVG"]
+        direction LR
+        JS["JS engine<br/>QuickJS-ng, or V8 (optional)"] --> MJS["mermaid.js / pele.js<br/>bundled, unmodified"]
+        SHIM["DOM and SVG shims<br/>stand-ins for browser APIs"] -.-> MJS
+    end
+
+    MX --> SVG(["SVG<br/>same output as mermaid-cli"])
+    SVG --> RAS
+
+    subgraph NS ["novasvg: SVG to pixels"]
+        direction LR
+        RAS["Rasterizer<br/>paints foreignObject labels"] --> PNG["PNG"]
+        RAS --> OTHER["JPG, BMP, TGA, raw RGBA"]
+    end
+
+    RAS -.-> PDF["PDF<br/>tiny stdlib-only writer in mermaidx<br/>embeds the rendered pixels"]
+```
+
+| Stage | Who does it | Notes |
+| --- | --- | --- |
+| **Mermaid → SVG** | `mermaidx` | `mermaid.js` runs unmodified in QuickJS-ng (or V8) against a minimal fake DOM/SVG layer (the shims). Anything a real browser would answer, such as text size via `getBBox`, comes from novasvg's font stack and one bundled font. |
+| **SVG → PNG / JPG / BMP / TGA / raw** | [`novasvg`](https://github.com/mohammadraziei/novasvg) | Same bundled font as the layout step, so what Mermaid measured is exactly what gets painted. JPEG has no alpha, so it defaults to a white background. |
+| **SVG → PDF** | `mermaidx` | A small hand-written PDF writer (stdlib `zlib`/`struct`) embeds the rasterized pixels. No Pillow, no Cairo, no reportlab. |
+
+Every backend is a small subclass of one shared `DiagramBase` and only overrides the private `_svg()` hook. Everything downstream (`png()`, `pdf()`, `raw()`, `numpy()`, `save()`) is written once and behaves identically no matter which backend produced the SVG.
+
+### Why novasvg?
+
+It supports `<foreignObject>` (Mermaid's HTML labels) and gives the best result in its [benchmark](https://mohammadraziei.github.io/novasvg/benchmarks/).
+
+### Why not a browser?
+
+The official `@mermaid-js/mermaid-cli` drives a real headless Chrome through Puppeteer. That works, but a browser is slow to boot and heavy to install, which shows up directly in wall-clock time for CI jobs that render many diagrams. `mermaidx` removes the browser and nothing else: **same Mermaid library, no browser process, no page load, no DOM boot.**
+
+Every other Mermaid-to-image tool reachable from Python either drives a browser or shells out to Node.js. `mermaidx` is the one that renders current Mermaid with neither.
 
 ## Supported diagrams
 
