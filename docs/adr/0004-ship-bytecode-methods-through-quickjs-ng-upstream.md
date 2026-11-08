@@ -47,6 +47,6 @@ belongs in the binding.
 - Bytecode is valid only for the QuickJS build that wrote it; `eval_bytecode` raises `JSException` for anything else,
   and mermaidx keys its cache by the package version and the bytecode version byte.
 - **When to revisit:** once a `quickjs-ng` release has both methods, raise the minimum version in `pyproject.toml`,
-  delete `tools/quickjs_ng_bytecode/` and its licence entry if nothing else uses it, and drop the skip in
+  delete `tools/quickjs_ng_bytecode/` and its license entry if nothing else uses it, and drop the skip in
   `tests/test_bytecode.py`. If the pull request is rejected or stalls, choose between the renamed fork and the private
   extension with a new record.
