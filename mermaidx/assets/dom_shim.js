@@ -758,7 +758,9 @@ class Element extends Node {
       // zero width -- e.g. mermaid's empty edge labels. novasvg paints
       // nothing for it either (ForeignObjectSimple::render() returns early),
       // so 0x0 is also what paint agrees with.
-      const hasContent = /\S/.test(html.replace(/<[^>]*>/g, "")) || /<br\b/i.test(html);
+      // HTML whitespace only (space, tab, CR, LF, FF): JS `\s`/`\S` also count U+00A0, so a label made of
+      // &nbsp; (mermaid's block arrows use one) would be read as empty and sized 0x0, unlike in a browser.
+      const hasContent = /[^ \t\r\n\f]/.test(html.replace(/<[^>]*>/g, "")) || /<br\b/i.test(html);
       if (!hasContent) return { x: 0, y: 0, width: 0, height: 0, top: 0, left: 0, right: 0, bottom: 0 };
       // Browsers lay out in 1/64px LayoutUnits and round a shrink-to-fit
       // width UP to the next one.

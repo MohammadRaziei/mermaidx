@@ -165,6 +165,30 @@ def test_issue_23_block_diagram_with_composite_block():
     assert "DB" in svg
 
 
+def test_issue_23_block_arrow_with_nbsp_label_has_size():
+    """https://github.com/MohammadRaziei/mermaidx/issues/23 (the last comment: the block arrow came out smaller than
+    mmdc's). The arrow's label is `&nbsp;&nbsp;&nbsp;`. The shim decided "does this label have content?" with the JS
+    regex `\\S`, and JS counts U+00A0 as whitespace, so the label was sized 0x0 and the arrow got the minimum size.
+    A browser sizes a run of &nbsp; (it is not HTML whitespace), and so must the shim."""
+    code = 'block\n  columns 1\n  a["A"]\n  arrow<["&nbsp;&nbsp;&nbsp;"]>(down)\n  b["B"]\n'
+    svg = mermaidx.render(code).svg()
+    node = svg[svg.index('id="my-svg-arrow"'):]
+    node = node[: node.index("</g></g>") + len("</g></g>")]
+    fo = re.search(r'<foreignObject width="([\d.]+)" height="([\d.]+)"', node)
+    assert fo and float(fo.group(1)) > 0 and float(fo.group(2)) > 0
+    points = re.search(r'<polygon points="([^"]+)"', node).group(1)
+    xs = [float(pair.split(",")[0]) for pair in points.split()]
+    assert max(xs) - min(xs) > 24  # 24 is the arrow's size for an empty label
+
+
+def test_whitespace_only_label_is_still_empty():
+    """The counterpart of the test above: a label of plain spaces has no content in a browser either (HTML collapses
+    them), so mermaid's empty labels keep their 0x0 size."""
+    code = 'flowchart LR\n  A -->|" "| B\n'
+    svg = mermaidx.render(code).svg()
+    assert svg.startswith("<svg")
+
+
 def test_issue_26_yaml_frontmatter():
     """https://github.com/MohammadRaziei/mermaidx/issues/26
 

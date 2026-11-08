@@ -7,6 +7,12 @@ follows [Semantic Versioning](https://semver.org/) (while below 1.0, a minor bum
 
 ## [Unreleased]
 
+### Fixed
+- **A label made of `&nbsp;` was sized 0x0** (#23). The DOM shim decided whether a label has content with the JS
+  regex `\S`, and JS counts U+00A0 as whitespace. mermaid's block arrow, `blockArrowId<["&nbsp;&nbsp;&nbsp;"]>(down)`,
+  has such a label, so it came out at the minimum size and was smaller than in `mmdc`. Only HTML whitespace (space,
+  tab, CR, LF, FF) counts as empty now, as in a browser.
+
 ## [0.11.2] - 2026-11-07
 
 ### Added
