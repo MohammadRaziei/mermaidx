@@ -49,10 +49,6 @@ export function fmtBytes(b) {
 }
 
 // 0.973 -> "97%"
-export function fmtPercent(x) {
-  return x == null ? '–' : `${Math.round(x * 100)}%`;
-}
-
 // What mermaid.js itself does not draw. A sample that uses one of these is marked in the gallery and can be filtered.
 export const FEATURES = {
   elk: { label: 'Flowchart, ELK layout', short: 'ELK layout' },

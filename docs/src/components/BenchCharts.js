@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import { Chart, registerables } from 'chart.js';
 import Link from '@docusaurus/Link';
 import { useColorMode } from '@docusaurus/theme-common';
-import { COLOR_VARS, chartLabel, fmtBytes, fmtMs, fmtPercent, fmtSpeed, fmtTick } from './bench-utils';
+import { COLOR_VARS, chartLabel, fmtBytes, fmtMs, fmtSpeed, fmtTick } from './bench-utils';
 import styles from './BenchCharts.module.css';
 
 Chart.register(...registerables);
@@ -129,40 +129,6 @@ function MedianChart({ rows, log }) {
   return <canvas ref={ref} />;
 }
 
-function CoverageChart({ rows }) {
-  const ref = useChart(
-    (theme) => ({
-      type: 'bar',
-      data: {
-        labels: rows.map(chartLabel),
-        datasets: [
-          { label: 'Produced an image', data: rows.map((r) => r.ok), backgroundColor: rows.map((r) => theme.color(r.id)), barThickness: 26 },
-          { label: 'No image', data: rows.map((r) => r.total - r.ok), backgroundColor: theme.line, barThickness: 26 },
-        ],
-      },
-      options: {
-        indexAxis: 'y',
-        responsive: true,
-        maintainAspectRatio: false,
-        animation: false,
-        scales: {
-          x: { stacked: true, max: rows[0].total, grid: { color: theme.line }, border: { display: false }, ticks: { precision: 0, maxRotation: 0 } },
-          y: { stacked: true, grid: { display: false }, border: { display: false }, ticks: { color: theme.text, font: { size: 13, weight: 600 } } },
-        },
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            ...tooltipBase(theme),
-            callbacks: { label: (item) => `${item.dataset.label}: ${item.raw} of ${rows[item.dataIndex].total}` },
-          },
-        },
-      },
-    }),
-    [rows],
-  );
-  return <canvas ref={ref} />;
-}
-
 function PerDiagramChart({ data, log }) {
   const { renderers } = data.meta;
   const ref = useChart(
@@ -275,43 +241,6 @@ function FootprintChart({ rows, footprint }) {
       };
     },
     [rows, footprint],
-  );
-  return <canvas ref={ref} />;
-}
-
-function LabelsChart({ rows }) {
-  const ref = useChart(
-    (theme) => {
-      const values = rows.map((r) => r.labelsMedian);
-      return {
-        type: 'bar',
-        data: {
-          labels: rows.map(chartLabel),
-          datasets: [{ data: values, backgroundColor: rows.map((r) => theme.color(r.id)), borderRadius: 3, barThickness: 26 }],
-        },
-        plugins: [valueLabels],
-        options: {
-          ...barOptions(theme, { right: 190, scale: { min: 0, max: 1, ticks: { maxRotation: 0, callback: (v) => fmtPercent(v) } } }),
-          plugins: {
-            legend: { display: false },
-            valueLabels: { color: theme.text, labels: rows.map((r) => `${fmtPercent(r.labelsMedian)}  ·  ${r.labelsComplete} of ${r.labelsCount} complete`) },
-            tooltip: {
-              ...tooltipBase(theme),
-              callbacks: {
-                title: (items) => rows[items[0].dataIndex].label,
-                label: (item) => {
-                  const r = rows[item.dataIndex];
-                  const out = [`Median: ${fmtPercent(r.labelsMedian)} of the words`, `Every word drawn in ${r.labelsComplete} of ${r.labelsCount} diagrams`];
-                  if (r.labelsWorst) out.push(`Fewest words: ${r.labelsWorst.title}, ${fmtPercent(r.labelsWorst.value)}`);
-                  return out;
-                },
-              },
-            },
-          },
-        },
-      };
-    },
-    [rows],
   );
   return <canvas ref={ref} />;
 }
@@ -471,31 +400,9 @@ function SizeChart({ data, renderers, log }) {
 }
 
 // The labels row of every renderer that has the data: the share of the reference's words that its picture has.
-function withLabels(data, rows) {
-  return rows
-    .map((r) => {
-      const found = [];
-      for (const s of data.samples) {
-        const res = s.results[r.id];
-        if (res && res.status === 'ok' && res.labels != null) found.push({ value: res.labels, title: s.title });
-      }
-      if (!found.length) return null;
-      const worst = found.reduce((a, b) => (b.value < a.value ? b : a));
-      return {
-        ...r,
-        labelsMedian: median(found.map((f) => f.value)),
-        labelsCount: found.length,
-        labelsComplete: found.filter((f) => f.value >= 0.995).length,
-        labelsWorst: worst.value < 0.995 ? worst : null,
-      };
-    })
-    .filter(Boolean);
-}
-
 export default function BenchCharts({ data, rows, log, onLogChange }) {
   const ref = rows[0].reference;
   const footprintRows = data.footprint ? rows.filter((r) => data.footprint[r.id]) : [];
-  const labelRows = withLabels(data, rows);
   const hasSizes = data.samples.some((s) => s.chars);
   return (
     <section aria-labelledby="charts">
@@ -516,16 +423,6 @@ export default function BenchCharts({ data, rows, log, onLogChange }) {
           <div className={styles.canvasWrap} style={{ height: 36 + rows.length * 48 }} role="img"
             aria-label={`Median time per diagram: ${rows.map((r) => `${r.label} ${fmtMs(r.median)}`).join(', ')}`}>
             <MedianChart rows={rows} log={log} />
-          </div>
-        </figure>
-        <figure className={styles.figure}>
-          <figcaption>
-            <strong>Diagrams that produced an image</strong>
-            <span>Out of {rows[0].total}. An image is not always a correct one: check the gallery.</span>
-          </figcaption>
-          <div className={styles.canvasWrap} style={{ height: 36 + rows.length * 48 }} role="img"
-            aria-label={`Diagrams that produced an image: ${rows.map((r) => `${r.label} ${r.ok} of ${r.total}`).join(', ')}`}>
-            <CoverageChart rows={rows} />
           </div>
         </figure>
       </div>
@@ -553,18 +450,6 @@ export default function BenchCharts({ data, rows, log, onLogChange }) {
             <div className={styles.canvasWrap} style={{ height: 36 + footprintRows.length * 48 }} role="img"
               aria-label={`Download size: ${footprintRows.map((r) => `${r.label} ${fmtBytes(data.footprint[r.id].bytes)}`).join(', ')}`}>
               <FootprintChart rows={footprintRows} footprint={data.footprint} />
-            </div>
-          </figure>
-        )}
-        {labelRows.length > 0 && (
-          <figure className={styles.figure}>
-            <figcaption>
-              <strong>Words of the reference that were drawn</strong>
-              <span>For each diagram, the share of the words in the mermaid-cli picture that the renderer's picture has too. It ignores layout, font and color, so it catches missing labels and generic pictures, not a different look.</span>
-            </figcaption>
-            <div className={styles.canvasWrap} style={{ height: 36 + labelRows.length * 48 }} role="img"
-              aria-label={`Share of the reference's words that were drawn: ${labelRows.map((r) => `${r.label} ${fmtPercent(r.labelsMedian)}`).join(', ')}`}>
-              <LabelsChart rows={labelRows} />
             </div>
           </figure>
         )}

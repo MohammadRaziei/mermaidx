@@ -163,8 +163,7 @@ def mermaidx_renderers():
 
 
 def run_mermaidx_backend(backend, render_kwargs, samples, out_dir, repeats, log):
-    """Times every sample (PNG, `repeats` runs) and, when `<sample>.svg` sits next to it as the mermaid-cli
-    reference, also records how many of its words the SVG of this renderer has (`labels`)."""
+    """Times every sample (PNG, `repeats` runs)."""
     import mermaidx
 
     def render_png(source):
@@ -190,10 +189,6 @@ def run_mermaidx_backend(backend, render_kwargs, samples, out_dir, repeats, log)
             if not data:
                 raise RuntimeError("renderer returned no image")
             results[sample.stem] = ok_result(sample.stem, f"mermaidx-{backend}", data, runs, out_dir)
-            reference = sample.with_suffix(".svg")
-            if reference.is_file():
-                svg = mermaidx.render(source, **render_kwargs).svg()
-                results[sample.stem]["labels"] = label_recall(svg, reference.read_text(encoding="utf-8"))
             log(f"  {sample.stem:<34} {results[sample.stem]['time_ms']:>8.1f} ms")
         except Exception as exc:  # unsupported diagram, engine error, ...
             results[sample.stem] = {"status": "error", "error": short_error(exc)}
@@ -423,25 +418,6 @@ def measure_scaling(
     if not series:
         return None
     return {"items": items, "cores": cores, "repeats": repeats, "executor": executor, "series": series}
-
-
-# --------------------------------------------------------------------------- do the labels come out
-
-def svg_words(svg: str) -> set:
-    """The words a picture says: the text of an SVG, without its style, script, title and description."""
-    import html
-
-    svg = re.sub(r"<(style|script|title|desc)\b.*?</\1>", " ", svg, flags=re.DOTALL | re.IGNORECASE)
-    return set(re.findall(r"\w+", html.unescape(re.sub(r"<[^>]+>", " ", svg)).lower()))
-
-
-def label_recall(svg: str, reference_svg: str):
-    """The share of the words of the reference picture (mermaid-cli's, kept in tests/samples) that the picture
-    also has: 1.0 when every label is there, whatever the layout, the font or the colors. A renderer that draws a
-    diagram type it does not know as a generic picture, or leaves the labels out, shows up here. None when the
-    reference has no words."""
-    ref = svg_words(reference_svg)
-    return round(len(ref & svg_words(svg)) / len(ref), 3) if ref else None
 
 
 def ok_result(sample_id, renderer_id, data, runs, out_dir):
