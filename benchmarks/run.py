@@ -320,18 +320,25 @@ def remote_size(url, *, allow_download):
 CFT_PLATFORM = {"linux": "linux64", "mac": "mac-x64", "mac_arm": "mac-arm64", "win32": "win32", "win64": "win64"}
 
 
-def chrome_downloads():
-    """[(name, url)] of the browser archives puppeteer fetched for mmdc, found from its cache folders."""
-    cache = Path(os.environ.get("PUPPETEER_CACHE_DIR") or Path.home() / ".cache" / "puppeteer")
-    out = []
-    for product in ("chrome", "chrome-headless-shell"):
-        for folder in sorted((cache / product).glob("*")) if (cache / product).is_dir() else []:
-            platform_name, _, version = folder.name.partition("-")
-            cft = CFT_PLATFORM.get(platform_name)
-            if cft and version:
-                out.append((f"{product} {version} (puppeteer download)",
-                            f"https://storage.googleapis.com/chrome-for-testing-public/{version}/{cft}/{product}-{cft}.zip"))
-    return out
+def chrome_downloads(root):
+    """[(name, url)] of the browser archive mmdc runs on: chrome-headless-shell, because mermaid-cli launches puppeteer
+    with `headless: "shell"`, in the revision pinned by the puppeteer that is installed under `root` (older versions
+    left in the cache by earlier installs are not counted, and neither is the regular Chrome puppeteer also fetches
+    but mmdc never starts). Empty when that revision is not in the puppeteer cache."""
+    revisions = next(root.glob("puppeteer-core/lib/**/revisions.js"), None)
+    pinned = r"'chrome-headless-shell':\s*'([\d.]+)'"
+    found = re.search(pinned, revisions.read_text(encoding="utf-8")) if revisions else None
+    cache = Path(os.environ.get("PUPPETEER_CACHE_DIR") or Path.home() / ".cache" / "puppeteer") / "chrome-headless-shell"
+    if not found or not cache.is_dir():
+        return []
+    version = found.group(1)
+    for folder in sorted(cache.glob(f"*-{version}")):
+        cft = CFT_PLATFORM.get(folder.name.removesuffix(f"-{version}"))
+        if cft:
+            host = "https://storage.googleapis.com/chrome-for-testing-public"
+            url = f"{host}/{version}/{cft}/chrome-headless-shell-{cft}.zip"
+            return [(f"chrome-headless-shell {version} (puppeteer download)", url)]
+    return []
 
 
 def mmdc_download():
@@ -351,7 +358,7 @@ def mmdc_download():
     try:
         with ThreadPoolExecutor(16) as pool:
             sizes = list(pool.map(lambda item: remote_size(item[1], allow_download=True), packages))
-            browsers = chrome_downloads()
+            browsers = chrome_downloads(root)
             browser_sizes = list(pool.map(lambda item: remote_size(item[1], allow_download=False), browsers))
     except Exception as exc:
         _warn(f"mmdc: {short_error(exc)}")
@@ -360,7 +367,7 @@ def mmdc_download():
         _warn("mmdc: the size of the browser download is not known")
         return None
     if not browsers:
-        _warn("mmdc: no browser found in the puppeteer cache, and the total would be without it")
+        _warn("mmdc: the browser puppeteer downloaded was not found in its cache, and the total would be without it")
         return None
     parts = [{"name": f"npm: {len(packages)} packages", "bytes": sum(sizes)}]
     parts += [{"name": name, "bytes": size} for (name, _), size in zip(browsers, browser_sizes)]

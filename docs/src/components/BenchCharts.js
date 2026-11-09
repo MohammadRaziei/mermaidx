@@ -548,7 +548,7 @@ export default function BenchCharts({ data, rows, log, onLogChange }) {
           <figure className={styles.figure}>
             <figcaption>
               <strong>Download size</strong>
-              <span>What installing each renderer downloads, compressed. mermaidx: the wheel built from this commit and the wheels of its dependencies, measured with pip-size. mmdc: the npm tarballs of mermaid-cli and everything it installed, plus the Chrome that puppeteer fetches. Shorter is lighter.</span>
+              <span>What installing each renderer downloads, compressed. mermaidx: the wheel built from this commit and the wheels of its dependencies, measured with pip-size. mmdc: the npm tarballs of mermaid-cli and everything it installed, plus the headless Chrome that puppeteer fetches. Shorter is lighter.</span>
             </figcaption>
             <div className={styles.canvasWrap} style={{ height: 36 + footprintRows.length * 48 }} role="img"
               aria-label={`Download size: ${footprintRows.map((r) => `${r.label} ${fmtBytes(data.footprint[r.id].bytes)}`).join(', ')}`}>
