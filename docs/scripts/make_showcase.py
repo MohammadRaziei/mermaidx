@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Render the landing-page showcase with mermaidx itself.
 
-Reads a few diagrams from tests/samples and writes
-    docs/static/img/showcase/<id>.png
-    docs/src/data/showcase.json   (label, Python code, image size)
+Reads a few diagrams from tests/samples and renders each one with every backend, so the page can switch the
+backend of a diagram. Writes
+    docs/static/img/showcase/<id>.<backend>.png      (a backend that cannot draw the diagram gets no image)
+    docs/src/data/showcase.json                      (backends, and for each diagram: label, source, one entry
+                                                      per backend with the image size or the error)
 
 Run it again whenever you want to change the showcase or after a mermaidx upgrade:
     python docs/scripts/make_showcase.py
@@ -28,17 +30,33 @@ SLIDES = [
     ("19_gitgraph", "Git graph"),
 ]
 
+# The order of the switch on the page; the first one is the default and is shown without `backend=` in the code.
+BACKENDS = ["js:mermaid", "js:pele", "rust:merman", "rust:mermaid-rs-renderer"]
+
+available = [b for b in BACKENDS if b in mermaidx.backends()]
 IMG_DIR.mkdir(parents=True, exist_ok=True)
 DATA.parent.mkdir(parents=True, exist_ok=True)  # absent on a fresh checkout: git does not keep empty folders
-out = []
+for old in IMG_DIR.glob("*.png"):  # the images of an earlier run, whatever their name
+    old.unlink()
+
+slides = []
 for sample_id, label in SLIDES:
     source = (SAMPLES / f"{sample_id}.mmd").read_text(encoding="utf-8").strip("\n")
-    png = mermaidx.render(source).png(scale=2.0, background="#ffffff")
-    (IMG_DIR / f"{sample_id}.png").write_bytes(png)
-    width, height = struct.unpack(">II", png[16:24])
-    # What the visitor sees on the left: the Python call, with the diagram inside it.
-    code = f'import mermaidx\n\ndiagram = mermaidx.render("""\n{source}\n""")\ndiagram.save("diagram.png")'
-    out.append({"id": sample_id, "label": label, "code": code, "image": f"img/showcase/{sample_id}.png",
-                "width": width, "height": height})
-    print(f"{label:<12} {width}x{height}  {len(png) // 1024} KB")
-DATA.write_text(json.dumps(out, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
+    variants = []
+    for backend in available:
+        try:
+            png = mermaidx.render(source, backend=backend).png(scale=2.0, background="#ffffff")
+        except Exception as exc:  # a backend that does not know this diagram type: the page says so
+            message = (str(exc).strip().splitlines() or [type(exc).__name__])[0][:160]
+            variants.append({"backend": backend, "error": message})
+            print(f"{label:<14} {backend:<26} not drawn: {message}")  # noqa: T201
+            continue
+        name = f"{sample_id}.{backend.replace(':', '-')}.png"
+        (IMG_DIR / name).write_bytes(png)
+        width, height = struct.unpack(">II", png[16:24])
+        variants.append({"backend": backend, "image": f"img/showcase/{name}", "width": width, "height": height})
+        print(f"{label:<14} {backend:<26} {width}x{height}  {len(png) // 1024} KB")  # noqa: T201
+    slides.append({"id": sample_id, "label": label, "source": source, "variants": variants})
+
+DATA.write_text(json.dumps({"backends": available, "slides": slides}, indent=1, ensure_ascii=False) + "\n",
+                encoding="utf-8")

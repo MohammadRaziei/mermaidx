@@ -8,6 +8,7 @@ follows [Semantic Versioning](https://semver.org/) (while below 1.0, a minor bum
 ## [Unreleased]
 
 ### Changed
+- **The landing-page slideshow has two axes.** The tabs pick the diagram, a new row of pills picks the backend, and the Python on the left shows the `backend=` argument that produces the picture on the right. A backend that cannot draw the diagram is marked. `docs/scripts/make_showcase.py` renders every diagram with every backend (see `BACKENDS`).
 - **The benchmark measures download size, not size on disk.** mermaidx is sized with pip-size (a wheel built from the checkout plus its dependencies' wheels), `mmdc` with the npm tarballs it installed plus the headless Chrome that puppeteer downloads. `benchmarks/run.py` needs pip-size 0.4.0 or newer for the mermaidx bars; without it they are left out. `results.json` `footprint` entries now hold wheel and tarball sizes.
 
 ## [0.11.3] - 2026-11-08

@@ -80,8 +80,10 @@ Run `make serve` to see it. The pages `architecture` and `changelog` are copies:
 
 **Change the examples on the landing page.** Edit the `SLIDES` list at the top of `docs/scripts/make_showcase.py`.
 Each entry is a sample name from `tests/samples` and a tab label. Pick diagrams that are roughly as wide as they are
-tall, because very wide or very tall ones become small in the fixed-size panel. Then run `make showcase`, or just
-`make serve`, which does it when the script has changed.
+tall, because very wide or very tall ones become small in the fixed-size panel. The landing page is a two-axis slideshow:
+the tabs pick the diagram and the pills pick the backend, so every diagram is rendered with each backend in the
+`BACKENDS` list of the same script (a backend that cannot draw a diagram is marked on the page). Then run `make showcase`,
+or just `make serve`, which does it when the script has changed.
 
 **Run the benchmark.**
 
