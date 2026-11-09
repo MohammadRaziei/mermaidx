@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import useBaseUrl from '@docusaurus/useBaseUrl';
 import CodeBlock from '@theme/CodeBlock';
 import data from '../data/showcase.json';
@@ -6,7 +6,18 @@ import styles from './Showcase.module.css';
 
 const { slides, backends } = data;
 const DEFAULT_BACKEND = backends[0];
-const SLIDE_SECONDS = 7;
+
+// How long each backend stays on screen. A diagram stays for the sum of the times of the backends that drew it,
+// and that sum is also what fills the progress line under its tab.
+const SECONDS = { 'js:mermaid': 3, 'js:pele': 3, 'rust:merman': 3, 'rust:mermaid-rs-renderer': 3 };
+const secondsOf = (backend) => SECONDS[backend] ?? 3;
+
+const imageOf = (slide, backend) => slide.variants.find((v) => v.backend === backend);
+// For each diagram: the backends that drew it, in the order of the rail, and how long they take together.
+const plan = slides.map((slide) => {
+  const drawn = backends.filter((b) => imageOf(slide, b)?.image);
+  return { drawn, seconds: drawn.reduce((sum, b) => sum + secondsOf(b), 0) };
+});
 
 // The colors of the benchmark charts, so a backend looks the same on both pages.
 const BACKEND_COLOR = {
@@ -23,72 +34,24 @@ function pythonFor(source, backend) {
   return `import mermaidx\n\ndiagram = mermaidx.render("""\n${source}\n${call})\ndiagram.save("diagram.png")`;
 }
 
-function Variant({ slide, variant, active, eager }) {
-  const src = useBaseUrl(`/${variant.image || ''}`);
-  const className = active ? `${styles.variant} ${styles.variantActive}` : styles.variant;
-  return (
-    <div className={className} aria-hidden={!active}>
-      {variant.image ? (
-        <img
-          src={src}
-          width={variant.width}
-          height={variant.height}
-          alt={`${slide.label} diagram rendered by ${variant.backend}`}
-          loading={eager ? 'eager' : 'lazy'}
-        />
-      ) : (
-        <div className={styles.missing} title={variant.error}>
-          <strong>{variant.backend}</strong>
-          <span>could not render this diagram.</span>
-        </div>
-      )}
-    </div>
-  );
+// What comes after the backend on screen: the next one that drew this diagram, else the next diagram.
+function after({ s, b }) {
+  const { drawn } = plan[s];
+  const i = drawn.indexOf(b);
+  if (i >= 0 && i < drawn.length - 1) return { s, b: drawn[i + 1] };
+  const nextSlide = (s + 1) % slides.length;
+  return { s: nextSlide, b: plan[nextSlide].drawn[0] ?? DEFAULT_BACKEND };
 }
 
-function Slide({ slide, active, backend }) {
-  // A slide that is not on screen keeps the backend it last showed, so switching the backend does not redo
-  // the syntax highlighting of the slides nobody sees.
-  const shown = useRef(backend);
-  if (active) shown.current = backend;
-  const shownBackend = shown.current;
-  const code = useMemo(() => pythonFor(slide.source, shownBackend), [slide.source, shownBackend]);
-  const block = useMemo(() => <CodeBlock language="python">{code}</CodeBlock>, [code]);
-  return (
-    <div
-      id={`slide-${slide.id}`}
-      role="tabpanel"
-      aria-labelledby={`tab-${slide.id}`}
-      aria-hidden={!active}
-      className={active ? `${styles.slide} ${styles.slideActive}` : styles.slide}>
-      <div className={styles.source}>{block}</div>
-      <div className={styles.image}>
-        <span className={styles.chip} style={{ '--chip': colorOf(shownBackend) }}>
-          {shownBackend}
-        </span>
-        {slide.variants.map((variant) => (
-          <Variant
-            key={variant.backend}
-            slide={slide}
-            variant={variant}
-            active={variant.backend === shownBackend}
-            eager={active}
-          />
-        ))}
-      </div>
-    </div>
-  );
-}
+const start = (s) => ({ s, b: plan[s].drawn[0] ?? DEFAULT_BACKEND });
 
 export default function Showcase() {
-  const [index, setIndex] = useState(0);
-  const [backendIndex, setBackendIndex] = useState(0);
+  const base = useBaseUrl('/');
+  const [pos, setPos] = useState(() => start(0));
   const [playing, setPlaying] = useState(true);
   const [reducedMotion, setReducedMotion] = useState(false);
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
-  const tabRefs = useRef([]);
-  const pillRefs = useRef([]);
 
   useEffect(() => {
     const query = window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -101,48 +64,64 @@ export default function Showcase() {
     return () => query.removeEventListener('change', update);
   }, []);
 
-  const backend = backends[backendIndex];
-  const auto = playing && !reducedMotion;
-  const paused = hovered || focused;
-  const next = () => setIndex((i) => (i + 1) % slides.length);
+  // Fetch the pictures of this diagram and of the next one ahead of time, so the switch never waits for a download.
+  useEffect(() => {
+    [slides[pos.s], slides[(pos.s + 1) % slides.length]].forEach((slide) =>
+      slide.variants.forEach((v) => {
+        if (v.image) new Image().src = `${base}${v.image}`;
+      }),
+    );
+  }, [pos.s, base]);
 
-  const chooseSlide = (i) => {
-    setIndex(i);
-    setPlaying(false); // choosing a slide yourself stops the rotation
-  };
-  const chooseBackend = (i) => {
-    setBackendIndex(i);
+  const slide = slides[pos.s];
+  const variant = imageOf(slide, pos.b);
+  const auto = playing && !reducedMotion;
+  const running = auto && !hovered && !focused;
+  const code = useMemo(() => pythonFor(slide.source, pos.b), [slide.source, pos.b]);
+  const block = useMemo(() => <CodeBlock language="python">{code}</CodeBlock>, [code]);
+  const playState = running ? 'running' : 'paused';
+
+  // Choosing a diagram or a backend yourself stops the rotation.
+  const chooseSlide = (s) => {
+    setPos(start(s));
     setPlaying(false);
+  };
+  const chooseBackend = (b) => {
+    setPos({ s: pos.s, b });
+    setPlaying(false);
+  };
+  // Play starts the diagram on screen again from its first backend, so its two progress lines begin together.
+  const togglePlay = () => {
+    if (!playing) setPos(start(pos.s));
+    setPlaying(!playing);
   };
 
   const onTabKeyDown = (e) => {
     const last = slides.length - 1;
     let target = null;
-    if (e.key === 'ArrowRight') target = index === last ? 0 : index + 1;
-    if (e.key === 'ArrowLeft') target = index === 0 ? last : index - 1;
+    if (e.key === 'ArrowRight') target = pos.s === last ? 0 : pos.s + 1;
+    if (e.key === 'ArrowLeft') target = pos.s === 0 ? last : pos.s - 1;
     if (e.key === 'Home') target = 0;
     if (e.key === 'End') target = last;
     if (target === null) return;
     e.preventDefault();
     chooseSlide(target);
-    tabRefs.current[target]?.focus();
+    document.getElementById(`tab-${slides[target].id}`)?.focus();
   };
 
-  const onPillKeyDown = (e) => {
+  const onRailKeyDown = (e) => {
+    const at = backends.indexOf(pos.b);
     const last = backends.length - 1;
     let target = null;
-    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') target = backendIndex === last ? 0 : backendIndex + 1;
-    if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') target = backendIndex === 0 ? last : backendIndex - 1;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowRight') target = at === last ? 0 : at + 1;
+    if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') target = at === 0 ? last : at - 1;
     if (e.key === 'Home') target = 0;
     if (e.key === 'End') target = last;
     if (target === null) return;
     e.preventDefault();
-    chooseBackend(target);
-    pillRefs.current[target]?.focus();
+    chooseBackend(backends[target]);
+    document.getElementById(`backend-${backends[target].replace(/\W+/g, '-')}`)?.focus();
   };
-
-  const current = slides[index];
-  const drawn = (slide, name) => slide.variants.find((v) => v.backend === name)?.image;
 
   return (
     <div
@@ -152,29 +131,26 @@ export default function Showcase() {
       onFocus={() => setFocused(true)}
       onBlur={() => setFocused(false)}>
       <div className={styles.bar}>
-        <span className={styles.axis} aria-hidden="true">Diagram</span>
         <div role="tablist" aria-label="Example diagrams" className={styles.tabs} onKeyDown={onTabKeyDown}>
-          {slides.map((slide, i) => {
-            const selected = i === index;
+          {slides.map((s, i) => {
+            const selected = i === pos.s;
             return (
               <button
-                key={slide.id}
-                ref={(el) => (tabRefs.current[i] = el)}
-                id={`tab-${slide.id}`}
+                key={s.id}
+                id={`tab-${s.id}`}
                 role="tab"
                 type="button"
                 aria-selected={selected}
-                aria-controls={`slide-${slide.id}`}
+                aria-controls="showcase-panel"
                 tabIndex={selected ? 0 : -1}
                 className={selected ? `${styles.tab} ${styles.tabActive}` : styles.tab}
                 onClick={() => chooseSlide(i)}>
-                {slide.label}
+                {s.label}
                 {selected && auto && (
                   <span
-                    key={index}
-                    className={styles.progress}
-                    style={{ animationDuration: `${SLIDE_SECONDS}s`, animationPlayState: paused ? 'paused' : 'running' }}
-                    onAnimationEnd={next}
+                    key={pos.s}
+                    className={styles.tabProgress}
+                    style={{ animationDuration: `${plan[pos.s].seconds}s`, animationPlayState: playState }}
                     aria-hidden="true"
                   />
                 )}
@@ -183,45 +159,73 @@ export default function Showcase() {
           })}
         </div>
         {!reducedMotion && (
-          <button type="button" className={styles.toggle} onClick={() => setPlaying((p) => !p)} aria-pressed={!playing}>
+          <button type="button" className={styles.toggle} onClick={togglePlay} aria-pressed={!playing}>
             {playing ? 'Pause' : 'Play'}
           </button>
         )}
       </div>
-      <div className={styles.bar}>
-        <span className={styles.axis} aria-hidden="true">Backend</span>
-        <div role="radiogroup" aria-label="Backend" className={styles.pills} onKeyDown={onPillKeyDown}>
-          {backends.map((name, i) => {
-            const selected = i === backendIndex;
-            const missing = !drawn(current, name);
-            const classes = [styles.pill, selected && styles.pillActive, missing && styles.pillMissing].filter(Boolean);
+
+      <div className={styles.body}>
+        <div role="radiogroup" aria-label="Backend" className={styles.rail} onKeyDown={onRailKeyDown}>
+          {backends.map((name) => {
+            const selected = name === pos.b;
+            const drawn = Boolean(imageOf(slide, name)?.image);
+            const [kind, ...rest] = name.split(':');
+            const classes = [styles.railItem, selected && styles.railItemActive, !drawn && styles.railItemMissing];
             return (
               <button
                 key={name}
-                ref={(el) => (pillRefs.current[i] = el)}
+                id={`backend-${name.replace(/\W+/g, '-')}`}
                 role="radio"
                 type="button"
                 aria-checked={selected}
                 tabIndex={selected ? 0 : -1}
-                title={missing ? `${name} could not render this diagram` : undefined}
-                className={classes.join(' ')}
+                className={classes.filter(Boolean).join(' ')}
                 style={{ '--chip': colorOf(name) }}
-                onClick={() => chooseBackend(i)}>
-                <span className={styles.dot} aria-hidden="true" />
-                {name}
+                onClick={() => chooseBackend(name)}>
+                <span className={styles.railName}>{rest.join(':')}</span>
+                <span className={styles.railKind}>{drawn ? kind : 'not drawn'}</span>
+                {selected && auto && (
+                  <span
+                    key={`${pos.s}-${pos.b}`}
+                    className={styles.railProgress}
+                    style={{ animationDuration: `${secondsOf(name)}s`, animationPlayState: playState }}
+                    onAnimationEnd={() => setPos(after)}
+                    aria-hidden="true"
+                  />
+                )}
               </button>
             );
           })}
         </div>
-      </div>
-      <div className={styles.stage}>
-        {slides.map((slide, i) => (
-          <Slide key={slide.id} slide={slide} active={i === index} backend={backend} />
-        ))}
+
+        <div id="showcase-panel" role="tabpanel" aria-labelledby={`tab-${slide.id}`} className={styles.content}>
+          <div className={styles.source}>{block}</div>
+          <div className={styles.image}>
+            <span className={styles.chip} style={{ '--chip': colorOf(pos.b) }}>
+              {pos.b}
+            </span>
+            {variant?.image ? (
+              <img
+                key={variant.image}
+                className={styles.picture}
+                src={`${base}${variant.image}`}
+                width={variant.width}
+                height={variant.height}
+                alt={`${slide.label} diagram rendered by ${pos.b}`}
+              />
+            ) : (
+              <div className={styles.missing} title={variant?.error}>
+                <strong>{pos.b}</strong>
+                <span>could not render this diagram.</span>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
       <p className={styles.caption}>
-        Left: the Python you write, where the backend is one argument. Right: the diagram.png it produces, with no
-        browser involved. Pick another diagram or another backend: every picture is rendered by mermaidx.
+        Top: the diagram. Left: the backend, which is one argument in the Python. Right: the diagram.png it produces,
+        with no browser involved.
       </p>
     </div>
   );
