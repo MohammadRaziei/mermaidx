@@ -9,9 +9,10 @@ some of it is the way it is.
 | [0001](0001-record-architecture-decisions.md) | Record architecture decisions | Accepted |
 | [0002](0002-fresh-javascript-context-per-render.md) | Every `js:mermaid` render gets a fresh JavaScript context | Accepted |
 | [0003](0003-load-large-scripts-from-quickjs-bytecode.md) | Load the large scripts from cached QuickJS bytecode | Accepted |
-| [0004](0004-ship-bytecode-methods-through-quickjs-ng-upstream.md) | Get `compile` / `eval_bytecode` into `quickjs-ng` upstream; keep a patched build meanwhile | Accepted (interim) |
-| [0005](0005-ci-and-benchmarks-run-the-bytecode-path.md) | CI and the published benchmarks run the bytecode path | Accepted |
+| [0004](0004-ship-bytecode-methods-through-quickjs-ng-upstream.md) | Get `compile` / `eval_bytecode` into `quickjs-ng` upstream; keep a patched build meanwhile | Superseded by 0007 |
+| [0005](0005-ci-and-benchmarks-run-the-bytecode-path.md) | CI and the published benchmarks run the bytecode path | Accepted (build step replaced by 0007) |
 | [0006](0006-v8-backend-loads-scripts-from-source.md) | The V8 backend loads its scripts from source | Open |
+| [0007](0007-depend-on-quickjs-ng-with-bytecode-methods.md) | Depend on a `quickjs-ng` that has the bytecode methods | Accepted |
 
 ## Writing one
 

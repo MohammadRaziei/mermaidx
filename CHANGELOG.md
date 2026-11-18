@@ -8,8 +8,15 @@ follows [Semantic Versioning](https://semver.org/) (while below 1.0, a minor bum
 ## [Unreleased]
 
 ### Changed
+- **mermaidx depends on `quickjs-ng>=0.18.0.2` on Python 3.10 and newer** (`>=0.15.1` stays on 3.9). That release has
+  `Context.compile()` and `Context.eval_bytecode()` (checked on its manylinux x86_64 wheel), so `pip install mermaidx` now uses the bytecode
+  cache without the patched build. On 3.9 the output is the same and loading is slower. See ADR 0007.
+- **CI and `docs/Makefile` no longer build a patched `quickjs-ng`.** `WITH_BYTECODE` is removed; `MERMAIDX_REQUIRE_BYTECODE=1` stays in CI.
 - **The landing-page slideshow has two axes and plays by itself.** The tabs on top pick the diagram and a rail on the left picks the backend; each backend gets its own time (`SECONDS` in `Showcase.js`) and a diagram stays for the sum of its backends. The Python on the left shows the `backend=` argument that produces the picture on the right, and a backend that cannot draw the diagram is marked and skipped. `docs/scripts/make_showcase.py` renders every diagram with every backend (see `BACKENDS`).
 - **The benchmark measures download size, not size on disk.** mermaidx is sized with pip-size (a wheel built from the checkout plus its dependencies' wheels), `mmdc` with the npm tarballs it installed plus the headless Chrome that puppeteer downloads. `benchmarks/run.py` needs pip-size 0.4.0 or newer for the mermaidx bars; without it they are left out. `results.json` `footprint` entries now hold wheel and tarball sizes.
+
+### Removed
+- `tools/quickjs_ng_bytecode/` (the patched `quickjs-ng` build), its licence file and its `NOTICES.md` entry.
 
 ## [0.11.3] - 2026-11-08
 

@@ -22,7 +22,10 @@ classifiers = [
   "Programming Language :: Python :: Implementation :: CPython",
 ]
 dependencies = [
-    "quickjs-ng>=0.15.1",
+    # 0.18.0.2 has Context.compile / eval_bytecode (mermaidx/engines/_bytecode.py); it needs Python 3.10, so on 3.9
+    # the older release stays and mermaidx loads its scripts from source (docs/adr/0007).
+    "quickjs-ng>=0.18.0.2; python_version >= '3.10'",
+    "quickjs-ng>=0.15.1; python_version < '3.10'",
     # novasvg is the sole SVG->PNG/JPEG/BMP/TGA rasterizer (mermaidx.raster)
     # and text/HTML-label measurer (mermaidx.font_metrics); resvg_py has
     # been retired (it couldn't paint <foreignObject> HTML labels, which

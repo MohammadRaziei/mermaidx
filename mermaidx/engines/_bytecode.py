@@ -6,8 +6,8 @@ evaluate, of which running its top level is a few. Loading the same script as by
 
 The bytecode is made once, by the first context that needs it, and kept in memory and in a file in the user's cache
 directory (so the next process, a command line call for one diagram, starts with it). It needs `Context.compile`
-and `Context.eval_bytecode`, which the `quickjs-ng` package does not have yet (see tools/quickjs_ng_bytecode);
-without them every function here does what `ctx.eval(source)` does, just as before.
+and `Context.eval_bytecode`, which `quickjs-ng` has from 0.18.0.2 on (Python 3.10 and newer); without them
+every function here does what `ctx.eval(source)` does, just as before.
 
 A file in the cache is trusted only when it has the header of this module, the checksum of its own bytes, and was
 made by the same QuickJS (its bytecode version) from the same source: anything else is made again, never run.

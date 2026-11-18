@@ -1,6 +1,6 @@
 # 5. CI and the published benchmarks run the bytecode path
 
-- Status: Accepted
+- Status: Accepted; the patched build it uses is replaced by [0007](0007-depend-on-quickjs-ng-with-bytecode-methods.md)
 - Date: 2026-11-07
 
 ## Context

@@ -8,13 +8,13 @@ import quickjs
 from mermaidx.engines import _bytecode, _common
 from mermaidx.engines.quickjs_engine import Engine
 
-# CI sets MERMAIDX_REQUIRE_BYTECODE=1 after installing the patched quickjs-ng, so a missing binding fails there
-# instead of silently skipping the bytecode tests.
+# CI (Python 3.11) sets MERMAIDX_REQUIRE_BYTECODE=1, so a quickjs-ng without the binding fails there instead of
+# silently skipping the bytecode tests. On Python 3.9 (quickjs-ng before 0.18.0.2) they skip.
 REQUIRED = bool(os.environ.get("MERMAIDX_REQUIRE_BYTECODE"))
 HAS_BINDING = _bytecode.supported(quickjs.Context())
 needs_binding = pytest.mark.skipif(
     not HAS_BINDING and not REQUIRED,
-    reason="the installed quickjs-ng has no Context.compile / eval_bytecode (see tools/quickjs_ng_bytecode)",
+    reason="the installed quickjs-ng has no Context.compile / eval_bytecode (it needs 0.18.0.2, which needs Python 3.10)",
 )
 
 

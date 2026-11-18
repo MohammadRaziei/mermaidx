@@ -34,9 +34,3 @@ Each of them has its own license, which is the one in its npm package. mermaidx 
 minified. Its source code is available at https://github.com/kieler/elkjs and from the `elkjs` package on npm. The EPL-2.0
 license text is in [`licenses/elkjs-EPL-2.0.md`](licenses/elkjs-EPL-2.0.md). To get the exact
 file mermaidx ships, run `tools/build_layout_elk.sh`.
-
-## quickjs-ng (MIT)
-
-`tools/quickjs_ng_bytecode/module.c` is the `module.c` of the `quickjs-ng` Python package 0.18.0.1 with two methods added
-to `Context` (see the README in that directory). It is not part of the wheel. The license of the package is in
-[`licenses/quickjs-ng-MIT.txt`](licenses/quickjs-ng-MIT.txt).

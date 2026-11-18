@@ -1,6 +1,6 @@
 # 4. Get `compile` / `eval_bytecode` into `quickjs-ng` upstream; keep a patched build meanwhile
 
-- Status: Accepted (interim)
+- Status: Superseded by [0007](0007-depend-on-quickjs-ng-with-bytecode-methods.md)
 - Date: 2026-11-07
 
 ## Context
