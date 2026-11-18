@@ -52,3 +52,57 @@ def select(selector):
 ])
 def test_selector(selector, expected):
     assert select(selector) == expected
+
+
+# __resolveCssProp narrows the rules to test by the element's tag, id and class before matching them. That has to give
+# what testing every rule in the stylesheet gives, whatever the selectors look like and after the markup changed.
+STYLE = (
+    ".a{font-size:10px} #x{font-size:20px} g text{font-size:12px} g > .b{font-size:14px}"
+    "text.a.b{font-weight:bold} rect:first-child{font-size:30px} [id=\"r2\"]{font-size:31px} *{font-family:Foo}"
+    "g .a, #sib{font-family:Bar} .a:not(.b){font-weight:600} svg{font-size:9px} foreignobject div{font-size:8px}"
+    "rect + rect{font-weight:700} .a.b{font-size:15px} text:nth-child(2){font-size:99px} .unused{font-size:77px}"
+)
+STYLED_MARKUP = (
+    '<svg id="s"><g id="g1" class="a"><rect id="r1" class="a b"/><rect id="r2"/>'
+    '<text id="t1" class="a b"/><text id="t2" class="b"/></g>'
+    '<foreignObject id="fo"><div id="x" class="a"><div id="inner"/></div><span id="sib"/></foreignObject></svg>'
+)
+RESOLVE_ALL = """
+(() => {
+  const rules = __getCssRules();
+  const props = ["font-size", "font-family", "font-weight", "fill"];
+  const out = [];
+  for (const el of document.body.querySelectorAll("*")) {
+    for (const prop of props) {
+      let all = null;                                    // every rule tested, the way it was done before the index
+      for (const rule of rules) if (prop in rule.decls && __matches(el, rule.selectors)) all = rule.decls[prop];
+      out.push([el.getAttribute("id"), prop, all, __resolveCssProp(el, prop)]);
+    }
+  }
+  return JSON.stringify(out);
+})()
+"""
+
+
+def test_css_lookup_by_index_equals_testing_every_rule():
+    ctx = _make_ctx()
+    ctx.set("__markup", STYLED_MARKUP)
+    ctx.set("__style", STYLE)
+    ctx.eval(
+        "const st = document.createElement('style'); st.textContent = __style; document.body.appendChild(st);"
+        "const host = document.createElement('div'); host.innerHTML = __markup; document.body.appendChild(host);"
+    )
+    before = json.loads(ctx.eval(RESOLVE_ALL))
+    assert all(tested == indexed for _, _, tested, indexed in before)
+    assert len({tested for _, _, tested, _ in before if tested}) > 5  # the stylesheet does reach the elements
+
+    # the markup changes: an id, a class and a position move, and the lookup has to follow
+    ctx.eval(
+        "document.getElementById('r2').setAttribute('class', 'a');"
+        "document.getElementById('t2').classList.add('a');"
+        "const g = document.getElementById('g1'); g.insertBefore(document.getElementById('t1'), g.childNodes[0]);"
+        "document.getElementById('sib').setAttribute('id', 'x');"
+    )
+    after = json.loads(ctx.eval(RESOLVE_ALL))
+    assert all(tested == indexed for _, _, tested, indexed in after)
+    assert after != before

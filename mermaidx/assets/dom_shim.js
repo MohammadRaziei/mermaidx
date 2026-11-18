@@ -1001,11 +1001,65 @@ function __resolveCssProp(el, prop, rules) {
     if (prop in per) return per[prop];
   }
   let value = null;
-  for (const rule of rules || __getCssRules()) {
-    if (prop in rule.decls && __matches(el, rule.selectors)) value = rule.decls[prop];
+  for (const rule of __cssRulesFor(el, prop, rules || __getCssRules())) {
+    if (__matches(el, rule.selectors)) value = rule.decls[prop];
   }
   if (per) per[prop] = value;
   return value;
+}
+
+// Which rules can apply to an element: how a browser avoids testing every rule against every element. Each selector is
+// filed under one thing its right-hand compound requires (an id, a class or a tag name), and an element is only tested
+// against the rules filed under its own id, classes and tag, plus those that require none of the three. This only
+// narrows the candidates: each one still goes through __matches, in source order, so the result is what testing every
+// rule gave. The narrowing depends on the rules and on the element's tag, id and class alone, so nothing needs
+// invalidating when the document changes; a new stylesheet is a new rules array, hence a new index.
+const __ruleIndexes = new WeakMap();
+function __ruleIndexOf(rules) {
+  let idx = __ruleIndexes.get(rules);
+  if (idx !== undefined) return idx;
+  idx = { byId: new Map(), byClass: new Map(), byTag: new Map(), any: [], sigs: new Map() };
+  const file = (map, key, i) => { const l = map.get(key); if (l) l.push(i); else map.set(key, [i]); };
+  rules.forEach((rule, i) => {
+    for (const chain of __chainsOf(rule.selectors)) {
+      // Every token of a compound has to match, so any one of them is a necessary condition; take an id, else a class,
+      // else a tag. Pseudo-classes, attribute selectors and :not() are left to __matches.
+      let id = null, cls = null, tag = null;
+      for (const { t } of __parseCompound(chain[chain.length - 1].compound).tokens) {
+        if (t[0] === "#") { if (id === null) id = t.slice(1); }
+        else if (t[0] === ".") { if (cls === null) cls = t.slice(1); }
+        else if (t[0] !== ":" && t[0] !== "[") { if (tag === null) tag = t.toLowerCase(); }
+      }
+      if (id !== null) file(idx.byId, id, i);
+      else if (cls !== null) file(idx.byClass, cls, i);
+      else if (tag !== null) file(idx.byTag, tag, i);
+      else idx.any.push(i);
+    }
+  });
+  __ruleIndexes.set(rules, idx);
+  return idx;
+}
+function __cssRulesFor(el, prop, rules) {
+  const idx = __ruleIndexOf(rules);
+  const tag = el.tagName || "", id = el.getAttribute("id") || "", cls = el.getAttribute("class") || "";
+  const sig = tag + "\u0001" + id + "\u0001" + cls;
+  let entry = idx.sigs.get(sig);
+  if (entry === undefined) {
+    const picked = new Set(idx.any);
+    const add = (l) => { if (l) for (const i of l) picked.add(i); };
+    add(idx.byTag.get(tag.toLowerCase()));
+    if (id) add(idx.byId.get(id));
+    for (const c of cls.split(/\s+/)) if (c) add(idx.byClass.get(c));
+    entry = { all: Array.from(picked).sort((a, b) => a - b).map((i) => rules[i]), byProp: new Map() };
+    if (idx.sigs.size > 5000) idx.sigs.clear();
+    idx.sigs.set(sig, entry);
+  }
+  let list = entry.byProp.get(prop);
+  if (list === undefined) {
+    list = entry.all.filter((rule) => prop in rule.decls);
+    entry.byProp.set(prop, list);
+  }
+  return list;
 }
 
 function __resolveElementSizePx(el, dim) {

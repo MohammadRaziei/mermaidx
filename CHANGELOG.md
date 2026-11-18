@@ -11,6 +11,12 @@ follows [Semantic Versioning](https://semver.org/) (while below 1.0, a minor bum
 - **mermaidx depends on `quickjs-ng>=0.18.0.2` on Python 3.10 and newer** (`>=0.15.1` stays on 3.9). That release has
   `Context.compile()` and `Context.eval_bytecode()` (checked on its manylinux x86_64 wheel), so `pip install mermaidx` now uses the bytecode
   cache without the patched build. On 3.9 the output is the same and loading is slower. See ADR 0007.
+- **Faster font lookup in the DOM shim (`dom_shim.js`).** `__resolveCssProp` tested every stylesheet rule against every
+  element and ancestor, and `classList.contains()` built a `Set` on each test. A rule is now tested only against elements
+  whose tag, id or class it can match, the way browsers index rules; each candidate still goes through `__matches`, in source order.
+  `C4Context` diagrams (text wrapped word by word) render about 2.3 times faster on QuickJS (the `24_c4_context` sample:
+  about 3.4 s to 1.45 s, one Linux machine, Python 3.12). With `Math.random` fixed, 49 of the 50 sample SVGs came out
+  byte for byte the same as before (`27_architecture` differs between two runs of the old code as well).
 - **CI and `docs/Makefile` no longer build a patched `quickjs-ng`.** `WITH_BYTECODE` is removed; `MERMAIDX_REQUIRE_BYTECODE=1` stays in CI.
 - **The landing-page slideshow has two axes and plays by itself.** The tabs on top pick the diagram and a rail on the left picks the backend; each backend gets its own time (`SECONDS` in `Showcase.js`) and a diagram stays for the sum of its backends. The Python on the left shows the `backend=` argument that produces the picture on the right, and a backend that cannot draw the diagram is marked and skipped. `docs/scripts/make_showcase.py` renders every diagram with every backend (see `BACKENDS`).
 - **The benchmark measures download size, not size on disk.** mermaidx is sized with pip-size (a wheel built from the checkout plus its dependencies' wheels), `mmdc` with the npm tarballs it installed plus the headless Chrome that puppeteer downloads. `benchmarks/run.py` needs pip-size 0.4.0 or newer for the mermaidx bars; without it they are left out. `results.json` `footprint` entries now hold wheel and tarball sizes.
