@@ -14,8 +14,9 @@ follows [Semantic Versioning](https://semver.org/) (while below 1.0, a minor bum
 - **Faster font lookup in the DOM shim (`dom_shim.js`).** `__resolveCssProp` tested every stylesheet rule against every
   element and ancestor, and `classList.contains()` built a `Set` on each test. A rule is now tested only against elements
   whose tag, id or class it can match, the way browsers index rules; each candidate still goes through `__matches`, in source order.
-  `C4Context` diagrams (text wrapped word by word) render about 2.3 times faster on QuickJS (the `24_c4_context` sample:
-  about 3.4 s to 1.45 s, one Linux machine, Python 3.12). With `Math.random` fixed, 49 of the 50 sample SVGs came out
+  `C4Context` diagrams (text wrapped word by word) render about 1.9 times faster on QuickJS and about 1.4 times
+  faster on V8 (the `24_c4_context` sample, warm, old and new shim run alternately: QuickJS 2.3 s to 1.2 s, V8 0.96 s to
+  0.69 s; one Linux machine, Python 3.12). The other samples did not change by more than the run-to-run noise. With `Math.random` fixed, 49 of the 50 sample SVGs came out
   byte for byte the same as before (`27_architecture` differs between two runs of the old code as well).
 - **CI and `docs/Makefile` no longer build a patched `quickjs-ng`.** `WITH_BYTECODE` is removed; `MERMAIDX_REQUIRE_BYTECODE=1` stays in CI.
 - **The landing-page slideshow has two axes and plays by itself.** The tabs on top pick the diagram and a rail on the left picks the backend; each backend gets its own time (`SECONDS` in `Showcase.js`) and a diagram stays for the sum of its backends. The Python on the left shows the `backend=` argument that produces the picture on the right, and a backend that cannot draw the diagram is marked and skipped. `docs/scripts/make_showcase.py` renders every diagram with every backend (see `BACKENDS`).
