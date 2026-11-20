@@ -3,7 +3,7 @@ import Layout from '@theme/Layout';
 import Link from '@docusaurus/Link';
 import useBaseUrl from '@docusaurus/useBaseUrl';
 import BenchCharts from '../components/BenchCharts';
-import { colorOf, fmtMs, FEATURES, ignoresElk } from '../components/bench-utils';
+import { colorOf, fmtMs, firstRunMs, FEATURES, ignoresElk } from '../components/bench-utils';
 import styles from './benchmarks.module.css';
 
 // One broken section (a chart that does not like some value in results.json) must not take the whole page down. The
@@ -89,6 +89,7 @@ function Cell({ renderer, res, fastest, onOpen, sample }) {
       </div>
     );
   }
+  const t0 = firstRunMs(res);
   return (
     <div className={styles.cell}>
       <button
@@ -106,6 +107,14 @@ function Cell({ renderer, res, fastest, onOpen, sample }) {
         <span className={fastest ? styles.fastest : undefined}>{fmtMs(res.time_ms)}</span>
         {res.width ? ` · ${res.width}×${res.height}` : ''}
       </div>
+      {t0 !== null && (
+        <div
+          className={styles.cellRuns}
+          title="t0: the first render of this diagram. t_med: the median of all the runs of it. They differ where a renderer keeps work from one run to the next.">
+          <div>t0 = {fmtMs(t0)}</div>
+          <div>t_med = {fmtMs(res.time_ms)}</div>
+        </div>
+      )}
     </div>
   );
 }
@@ -278,8 +287,10 @@ function Meta({ meta }) {
         </dd>
         <dt>Runs</dt>
         <dd>
-          Median of {meta.repeats} runs per diagram for mermaidx and {meta.mmdc_repeats} for mmdc. White background. The
-          medians and speed-ups at the top are for the diagrams of core Mermaid; ELK and ZenUML are in their own rows.
+          Median of {meta.repeats} runs per diagram for mermaidx and {meta.mmdc_repeats} for mmdc (<code>t_med</code>);{' '}
+          <code>t0</code> is the first of those runs. They differ where a renderer keeps work from one run to the next, as
+          mermaidx does for ZenUML. White background. The medians and speed-ups at the top are for the diagrams of core
+          Mermaid; ELK and ZenUML are in their own rows.
         </dd>
       </dl>
       <p><a href={useBaseUrl('/benchmarks/results.json')}>Download the raw results (JSON)</a></p>

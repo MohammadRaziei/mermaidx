@@ -207,6 +207,13 @@
   overflow-wrap: anywhere;
 }
 
+.cellRuns {
+  font-size: 0.8rem;
+  line-height: 1.35;
+  color: var(--mx-muted);
+  font-variant-numeric: tabular-nums;
+}
+
 .fastest {
   font-weight: 700;
   color: var(--ifm-font-color-base);

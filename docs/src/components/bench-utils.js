@@ -19,6 +19,11 @@ export function fmtMs(ms) {
   return `${ms < 100 ? ms.toFixed(1) : Math.round(ms)} ms`;
 }
 
+// The first run of a diagram, from the list of every run that results.json keeps. null where the list is missing.
+export function firstRunMs(res) {
+  return res && Array.isArray(res.runs_ms) && res.runs_ms.length > 0 ? res.runs_ms[0] : null;
+}
+
 export function fmtTimes(x) {
   return `${x.toFixed(x >= 10 ? 0 : 1)}×`;
 }
