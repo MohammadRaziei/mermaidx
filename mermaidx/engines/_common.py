@@ -35,6 +35,15 @@ LIBRARIES = ("mermaid", "pele")
 # a long-running process might accumulate in it stays bounded.
 CONTEXT_REUSE_LIMIT = 1000
 
+# A ZenUML diagram is drawn by zenuml.js alone (see zenuml_render_script): it does not go through mermaid.js, so none
+# of the state above is involved, and renderToSvg() keeps nothing of its own that reaches the next diagram. What it does
+# keep is what makes the next one cheap: the first call in a context takes over a second on QuickJS, a later one with
+# another diagram about 10 ms. Measured on diagram 48 with an unminified, instrumented build of zenuml.js: nine tenths of
+# the first call is ANTLR building the prediction DFA of the grammar while it parses (SLL pass, no LL retry), laying out
+# and drawing take a few ms. So the QuickJS and the V8 engine keep the context of a
+# ZenUML render for the next ZenUML diagram, with the same limit as above. tests/test_engine_common.py checks that
+# diagrams drawn one after the other in one context come out byte for byte as they do in a context of their own.
+
 
 def reuses_context(library: str, renders_so_far: int) -> bool:
     """True when a context that has rendered `renders_so_far` diagrams may render the next one as it is."""
@@ -83,6 +92,13 @@ def context_scripts(library: str = "mermaid") -> tuple[str, ...]:
         " || globalThis.__esbuild_esm_mermaid_nm.mermaid);",
         read("mmdc_driver.js"),
     )
+
+
+def zenuml_context_scripts() -> tuple[str, ...]:
+    """What a context needs to draw a ZenUML diagram: the path geometry and the DOM shim, whose canvas measures the
+    text. Not mermaid.js (5.5 MB, nine tenths of a context), which ZenUML never calls. These are the first two scripts of
+    context_scripts() and so get the same names in the bytecode cache (see quickjs_engine._build_context)."""
+    return (PATH_BBOX_JS, (_ASSETS_DIR / "dom_shim.js").read_text(encoding="utf-8"))
 
 
 def mermaid_config(theme: Optional[str], config: Optional[dict]) -> dict:

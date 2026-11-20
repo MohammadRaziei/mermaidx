@@ -98,6 +98,8 @@ from mermaidx.engines._common import (
     TextMeasurer,
     collect_svg,
     context_scripts,
+    library_scripts,
+    needs_zenuml,
     render_script,
     reuses_context,
     run_event_loop,
@@ -236,6 +238,17 @@ def _measure_text_js() -> str:
 """
 
 
+def _render_zenuml(ctx, loaded: bool, code: str, theme: str, config: Optional[dict], css: Optional[str], library: str):
+    """A ZenUML diagram in `ctx`, which has either rendered a ZenUML diagram before (`loaded`) or is a fresh one. The
+    first render in a context sets zenuml.js up (over half a second); a later one does not, see CONTEXT_REUSE_LIMIT in
+    _common.py. ZenUML has no <foreignObject> labels, so the passes of _render do not apply."""
+    if not loaded:
+        for _name, source in library_scripts(code, config, library):
+            ctx.eval(source)
+    ctx.eval(render_script(code, theme, config, css, library, with_libraries=False))  # synchronous: done on return
+    return collect_svg(ctx.eval)
+
+
 def _build_context(library: str = "mermaid"):
     """Boots one V8 isolate with the JS library loaded and ready to render.
     Only ever called *inside* the child process (see _child_main)."""
@@ -291,6 +304,9 @@ def _child_main(conn, library: str = "mermaid") -> None:
     known: dict = {}
     measurer = TextMeasurer()
     ctx_renders = 0  # renders the current context has done
+    zen_ctx = None  # the context of the last ZenUML render, kept for the next ZenUML diagram
+    zen_loaded = False
+    zen_renders = 0
     try:
         ctx = _build_context(library)
         conn.send(("ready", None))
@@ -307,6 +323,30 @@ def _child_main(conn, library: str = "mermaid") -> None:
             return
 
         code, theme, config, css = msg
+        if library == "mermaid" and needs_zenuml(code):
+            if zen_ctx is None or zen_renders >= CONTEXT_REUSE_LIMIT:
+                # ZenUML never calls mermaid.js, so the context that is ready for the next diagram does as well as a
+                # new one, and nothing has to be built before replying. Its successor is built after the reply.
+                zen_ctx, zen_loaded, zen_renders, ctx = ctx, False, 0, None
+            working, zen_ctx = zen_ctx, None  # put back only after a render that went well
+            try:
+                svg = _render_zenuml(working, zen_loaded, code, theme, config, css, library)
+                zen_ctx, zen_loaded, zen_renders = working, True, zen_renders + 1
+                conn.send(("ok", svg))
+            except MermaidRenderError as exc:
+                zen_renders = 0
+                conn.send(("render_error", str(exc)))
+            except Exception as exc:  # noqa: BLE001 -- report *any* other failure to the parent
+                zen_renders = 0
+                conn.send(("render_error", f"{type(exc).__name__}: {exc}"))
+            if ctx is None:
+                try:
+                    ctx = _build_context(library)
+                    ctx_renders = 0
+                except Exception as exc:  # noqa: BLE001
+                    conn.send(("boot_error", f"{type(exc).__name__}: {exc}"))
+                    return
+            continue
         ctx_renders += 1
         try:
             svg = _render(ctx, code, theme, config, css, known, measurer.foreign_object,

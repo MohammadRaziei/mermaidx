@@ -41,9 +41,11 @@ from mermaidx.engines._common import (
     collect_svg,
     context_scripts,
     library_scripts,
+    needs_zenuml,
     render_script,
     reuses_context,
     run_event_loop,
+    zenuml_context_scripts,
     CONTEXT_REUSE_LIMIT,
 )
 
@@ -85,6 +87,10 @@ class Engine:
         self._scripts: tuple[str, ...] | None = None
         self._ctx_used = False
         self._lock = threading.Lock()
+        # the context of the last ZenUML render, kept for the next ZenUML diagram (see _render_zenuml_sync)
+        self._zen_ctx: Optional[quickjs.Context] = None
+        self._zen_renders = 0
+        self._zen_scripts: tuple[str, ...] | None = None
 
     # -- lifecycle ------------------------------------------------------------
 
@@ -110,6 +116,7 @@ class Engine:
             self._executor.shutdown(wait=True)
             self._executor = None
             self._ctx = None
+            self._zen_ctx = None
             self._measurer = None
 
     @property
@@ -137,7 +144,7 @@ class Engine:
         self._ctx_used = False
         self._ctx_renders = 0
 
-    def _build_context(self):
+    def _build_context(self, scripts: tuple[str, ...] | None = None):
         ctx = quickjs.Context()
         ctx.set_memory_limit(512 * 1024 * 1024)
         ctx.set_max_stack_size(_JS_STACK_LIMIT_BYTES)
@@ -172,9 +179,13 @@ class Engine:
             "globalThis.__measureGlyphs = (t,s,f,w,st) => JSON.parse(__measureGlyphs_raw(__flat(t),__flat(s),__flat(f),__flat(w),__flat(st)));\n"
             "globalThis.__measureForeignObject = (h,s,f,w,st) => JSON.parse(__measureForeignObject_raw(__flat(h),__flat(s),__flat(f),__flat(w),__flat(st)));\n"
         )
-        if self._scripts is None:  # read from disk once per engine, not once per context
-            self._scripts = context_scripts(self._library)
-        for index, script in enumerate(self._scripts):
+        if scripts is None:
+            if self._scripts is None:  # read from disk once per engine, not once per context
+                self._scripts = context_scripts(self._library)
+            scripts = self._scripts
+        # `scripts` other than the library's own must start with the same ones, so the bytecode cache files they share
+        # are not written over by each other (it keeps one file per name)
+        for index, script in enumerate(scripts):
             _bytecode.run(ctx, script, f"{self._library}-{index}")
         return ctx
 
@@ -185,7 +196,29 @@ class Engine:
         except StopIteration:
             return False
 
+    def _render_zenuml_sync(self, code: str, theme: str, config: Optional[dict], css: Optional[str]) -> str:
+        """A ZenUML diagram, in a context of its own that the next ZenUML diagram reuses, see CONTEXT_REUSE_LIMIT in
+        _common.py: the first render in a context pays for setting zenuml.js up, the following ones do not. The context
+        has the DOM shim and zenuml.js but not mermaid.js, so keeping it costs a few MB, not the 35 of a full one."""
+        self._render_count += 1
+        ctx, self._zen_ctx = self._zen_ctx, None  # put back only after a render that went well
+        if ctx is None or self._zen_renders >= CONTEXT_REUSE_LIMIT:
+            if self._zen_scripts is None:
+                self._zen_scripts = zenuml_context_scripts()
+            ctx = self._build_context(self._zen_scripts)
+            for name, source in library_scripts(code, config, self._library):
+                _bytecode.run(ctx, source, name)
+            self._zen_renders = 0
+        self._zen_renders += 1
+        # renderToSvg() is synchronous: the result, or the error, is set when the script returns
+        ctx.eval(render_script(code, theme, config, css, self._library, with_libraries=False))
+        svg = collect_svg(lambda js: ctx.eval(f"__flat({js})"))
+        self._zen_ctx = ctx
+        return svg
+
     def _render_svg_sync(self, code: str, theme: str, config: Optional[dict], css: Optional[str]) -> str:
+        if self._library == "mermaid" and needs_zenuml(code):
+            return self._render_zenuml_sync(code, theme, config, css)
         self._ensure_fresh_context()
         ctx = self._ctx
         self._ctx_used = True
