@@ -52,6 +52,13 @@ for _alias in _ALIASES:
     _fonts.add_font_face_from_file(_alias, False, False, str(_FONTS_DIR / "DejaVuSans.ttf"))
     _fonts.add_font_face_from_file(_alias, True, False, str(_FONTS_DIR / "DejaVuSans-Bold.ttf"))
 
+# <code> (and `font-family: monospace`) inside a label is drawn by novasvg in the generic `monospace` family. Registering
+# the bundled DejaVu Sans Mono under that name makes it the same face on every host, as for the proportional text above;
+# mermaidx.font_metrics registers it the same way for the layout.
+_MONO_FAMILIES = ("monospace", "DejaVu Sans Mono")
+for _mono in _MONO_FAMILIES:
+    _fonts.add_font_face_from_file(_mono, False, False, str(_FONTS_DIR / "DejaVuSansMono.ttf"))
+
 
 def _parse_background(background: Optional[str]) -> int:
     """A CSS-ish color -> packed 0xRRGGBBAA for render_to_bitmap(); None

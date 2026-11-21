@@ -771,9 +771,15 @@ class Element extends Node {
       // clamped to `max-width`. That clamp is what mermaid keys off: it sets
       // max-width:<wrappingWidth> on the label, and only when the measured width
       // comes back EQUAL to it does it switch the label into wrap mode.
+      // A `display:table` box (mermaid's wrap mode) is the exception: its `width` is only a minimum, it never gets
+      // narrower than its longest unbreakable word (min-content), and neither does `max-width` shrink it below that.
+      // So `promise.get_return_object()` in a 120px label widens the label instead of overflowing it.
       const declW = __pxValue(__inlineStyleProp(this, "width")), maxW = __pxValue(__inlineStyleProp(this, "max-width"));
+      const isTable = /^\s*table\s*$/.test(__inlineStyleProp(this, "display") || "");
+      const minContent = isTable ? Math.ceil(m.width * 64) / 64 : 0;
       if (declW !== null) w = declW;
       if (maxW !== null && w > maxW) w = maxW;
+      if (isTable && w < minContent) w = minContent;
       return { x: 0, y: 0, width: w, height: m.height, top: 0, left: 0, right: w, bottom: m.height };
     }
     if (this.nodeType === 1 && (this.tagName === "text" || this.tagName === "tspan")) {

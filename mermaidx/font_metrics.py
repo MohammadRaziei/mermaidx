@@ -40,6 +40,9 @@ _FAMILY = "DejaVu Sans"
 # installed on the host.
 _fonts.add_font_face_from_file(_FAMILY, False, False, str(_ASSETS_FONTS / "DejaVuSans.ttf"))
 _fonts.add_font_face_from_file(_FAMILY, True, False, str(_ASSETS_FONTS / "DejaVuSans-Bold.ttf"))
+# The monospace face novasvg uses for <code> in a label (see the same block in raster.py).
+for _mono in ("monospace", "DejaVu Sans Mono"):
+    _fonts.add_font_face_from_file(_mono, False, False, str(_ASSETS_FONTS / "DejaVuSansMono.ttf"))
 
 
 # The f-ligatures novasvg looks for (font_face_init_ligatures() in its render/font.h), longest first.
