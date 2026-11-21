@@ -4,6 +4,7 @@ import Link from '@docusaurus/Link';
 import useBaseUrl from '@docusaurus/useBaseUrl';
 import BenchCharts from '../components/BenchCharts';
 import { colorOf, fmtMs, firstRunMs, FEATURES, ignoresElk } from '../components/bench-utils';
+import Tex, { T0, T_MED } from '../components/Tex';
 import styles from './benchmarks.module.css';
 
 // One broken section (a chart that does not like some value in results.json) must not take the whole page down. The
@@ -104,15 +105,21 @@ function Cell({ renderer, res, fastest, onOpen, sample }) {
         {renderer.label}
       </div>
       <div className={styles.cellMeta}>
-        <span className={fastest ? styles.fastest : undefined}>{fmtMs(res.time_ms)}</span>
-        {res.width ? ` · ${res.width}×${res.height}` : ''}
+        {res.width ? <div>{res.width}×{res.height}</div> : null}
+        <div title="t_med: the median of all the runs of this diagram. t_0: the first of them. They differ where a renderer keeps work from one run to the next.">
+          <span className={fastest ? styles.fastest : undefined}>
+            {t0 !== null && (
+              <>
+                <Tex>{T_MED}</Tex> ={' '}
+              </>
+            )}
+            {fmtMs(res.time_ms)}
+          </span>
+        </div>
       </div>
       {t0 !== null && (
-        <div
-          className={styles.cellRuns}
-          title="t0: the first render of this diagram. t_med: the median of all the runs of it. They differ where a renderer keeps work from one run to the next.">
-          <div>t0 = {fmtMs(t0)}</div>
-          <div>t_med = {fmtMs(res.time_ms)}</div>
+        <div className={styles.cellRuns}>
+          <Tex>{T0}</Tex> = {fmtMs(t0)}
         </div>
       )}
     </div>
@@ -287,8 +294,8 @@ function Meta({ meta }) {
         </dd>
         <dt>Runs</dt>
         <dd>
-          Median of {meta.repeats} runs per diagram for mermaidx and {meta.mmdc_repeats} for mmdc (<code>t_med</code>);{' '}
-          <code>t0</code> is the first of those runs. They differ where a renderer keeps work from one run to the next, as
+          Median of {meta.repeats} runs per diagram for mermaidx and {meta.mmdc_repeats} for mmdc (<Tex>{T_MED}</Tex>);{' '}
+          <Tex>{T0}</Tex> is the first of those runs. They differ where a renderer keeps work from one run to the next, as
           mermaidx does for ZenUML. White background. The medians and speed-ups at the top are for the diagrams of core
           Mermaid; ELK and ZenUML are in their own rows.
         </dd>

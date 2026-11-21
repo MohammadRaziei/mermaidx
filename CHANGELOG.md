@@ -28,10 +28,12 @@ follows [Semantic Versioning](https://semver.org/) (while below 1.0, a minor bum
   0.7 s (one Linux machine, Python 3.12); the first ZenUML diagram in a process takes as long as before on both.
   Diagrams drawn one after the other in one context come out as in a context of their own
   (`tests/test_zenuml.py`; all 50 samples, with `Math.random` fixed, except `27_architecture`, which differs between two runs of the old code too; on V8 six diagrams, ZenUML and mermaid mixed, against engines of their own).
-- **The benchmark page writes `t0` and `t_med` under the time on every card.** `t_med` is the median of the runs (the
-  number that was there), `t0` the first run of that diagram, read from `runs_ms` in `results.json`. They are close for
-  most diagrams and far apart for ZenUML, whose later runs are warm repeats (the engine keeps the context, ZenUML keeps the
-  parse of a text it has seen). The page and `benchmarks-method.md` say so. Not run: the site build.
+- **The benchmark page names the time on every card and adds the first run.** The time that was there is the median of
+  the runs and now reads `t_med = …`; under it, `t_0 = …` is the first run of that diagram, read from `runs_ms` in
+  `results.json`. The names are set in LaTeX by KaTeX (`docs/src/components/Tex.js`; `katex`, already in the lockfile
+  through the Mermaid theme, is now a direct dependency of the docs). The two are close for most diagrams and far apart
+  for ZenUML, whose later runs are warm repeats (the engine keeps the context, ZenUML keeps the parse of a text it has
+  seen). The page and `benchmarks-method.md` say so. Not run: the site build.
 - **CI and `docs/Makefile` no longer build a patched `quickjs-ng`.** `WITH_BYTECODE` is removed; `MERMAIDX_REQUIRE_BYTECODE=1` stays in CI.
 - **The landing-page slideshow has two axes and plays by itself.** The tabs on top pick the diagram and a rail on the left picks the backend; each backend gets its own time (`SECONDS` in `Showcase.js`) and a diagram stays for the sum of its backends. The Python on the left shows the `backend=` argument that produces the picture on the right, and a backend that cannot draw the diagram is marked and skipped. `docs/scripts/make_showcase.py` renders every diagram with every backend (see `BACKENDS`).
 - **The benchmark measures download size, not size on disk.** mermaidx is sized with pip-size (a wheel built from the checkout plus its dependencies' wheels), `mmdc` with the npm tarballs it installed plus the headless Chrome that puppeteer downloads. `benchmarks/run.py` needs pip-size 0.4.0 or newer for the mermaidx bars; without it they are left out. `results.json` `footprint` entries now hold wheel and tarball sizes.

@@ -208,10 +208,14 @@
 }
 
 .cellRuns {
-  font-size: 0.8rem;
-  line-height: 1.35;
+  font-size: 0.85rem;
   color: var(--mx-muted);
   font-variant-numeric: tabular-nums;
+}
+
+.cellMeta :global(.katex),
+.cellRuns :global(.katex) {
+  font-size: 1em;
 }
 
 .fastest {
