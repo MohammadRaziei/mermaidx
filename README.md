@@ -21,6 +21,7 @@ No browser. No Node.js. No system packages. Just `pip install mermaidx`.
 [Quick start](#quick-start) ·
 [Python API](#python-api) ·
 [CLI](#cli) ·
+[AI agents & CI/CD](#ai-agents-and-cicd) ·
 [Backends](#backends) ·
 [How it works](#how-it-works) ·
 [Changelog](https://github.com/MohammadRaziei/mermaidx/blob/master/CHANGELOG.md)
@@ -42,6 +43,7 @@ d.save("diagram.png", scale=2.0)
 ## Highlights
 
 - **Browserless.** No Chromium (~170 MB), no Puppeteer, no Node.js, no compiler. Prebuilt wheels only.
+- **Light enough for AI agents and CI/CD.** About 7 MB to download, with its main dependencies (check it with `uvx pip-size mermaidx`), against about 170 MB of Chromium for `mermaid-cli`.
 - **The real Mermaid.** Not a reimplementation and not a subset: every diagram type of the Mermaid 12 core, with the ELK layout (`flowchart-elk`, `layout: elk`) and ZenUML.
 - **Many outputs.** SVG, PNG, JPG/JPEG, BMP, TGA, PDF, raw RGBA and NumPy arrays.
 - **One process.** Synchronous, in-process rendering, plus `render_many()` for parallel batches.
@@ -301,6 +303,21 @@ mermaidx.render(source, backend="js:pele", css="svg{--pele-surface:#202020}")
 # Rust backends: spacing and aspect ratio
 mermaidx.render(source, backend="rust:merman", theme="dark", node_spacing=60, rank_spacing=80)
 ```
+
+## AI agents and CI/CD
+
+The two places where "just start Chrome" fails most are the throwaway sandbox of an AI agent and the clean runner of a CI/CD pipeline: no display, nothing installed, and every megabyte is downloaded again. `mermaidx` needs none of that. An agent or a job runs `pip install mermaidx` (about 7 MB to download, Python 3.9+, no browser, no Node.js, no compiler) and then renders in one command or one call, in the same process.
+
+```bash
+mermaidx -i flow.mmd -o flow.png                      # file to file
+cat flow.mmd | mermaidx -i - -f png -o - > flow.png   # text in, image out, through pipes
+mermaidx -i flow.mmd -f png --data-uri                # the image as text, for JSON, Markdown or HTML
+mermaidx -i docs/architecture.mmd -o docs/architecture.svg -q   # in a pipeline: no "saved to" message
+```
+
+Standard output carries only the diagram (the `saved to ...` message goes to standard error), and `mermaid.js`, `pele.js`, ELK, ZenUML and the font ship inside the wheel. `mermaidx`'s own pipelines run this way: the docs workflow renders on `ubuntu-latest`, and the test job runs on Ubuntu, macOS and Windows.
+
+**Check the size yourself:** `uvx pip-size mermaidx` (about 7 MB with its main dependencies). More in the [AI agents and CI/CD docs](https://mohammadraziei.github.io/mermaidx/docs/ai-and-ci).
 
 ## How it works
 

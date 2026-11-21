@@ -41,6 +41,10 @@ follows [Semantic Versioning](https://semver.org/) (while below 1.0, a minor bum
 ### Removed
 - `tools/quickjs_ng_bytecode/` (the patched `quickjs-ng` build), its licence file and its `NOTICES.md` entry.
 
+### Docs
+- **New page "AI agents and CI/CD"** (`docs/docs/ai-and-ci.md`), with a matching README section and landing-page block. It says the install is about 7 MB to download.
+
+
 ## [0.11.3] - 2026-11-08
 
 ### Fixed

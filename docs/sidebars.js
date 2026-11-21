@@ -4,6 +4,7 @@ module.exports = {
     'installation',
     'quickstart',
     'cli',
+    'ai-and-ci',
     'backends',
     'api',
     'benchmarks-method',

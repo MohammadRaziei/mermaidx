@@ -42,6 +42,15 @@ export default function Home() {
           </p>
         </section>
         <section>
+          <h2>Light enough for AI agents and CI/CD</h2>
+          <p>
+            An agent&apos;s sandbox and a CI runner both start clean, so what you install is what you wait for. The
+            whole of <code>pip install mermaidx</code> is about 7 MB to download, with no browser and no Node.js, and
+            it renders in the same process. The <Link to="/docs/ai-and-ci">AI agents and CI/CD page</Link> has the
+            measured sizes and says what was not measured.
+          </p>
+        </section>
+        <section>
           <h2>Several backends, one API</h2>
           <p>
             <code>js:mermaid</code> is the default and runs on <code>quickjs</code>, which has no dependencies; pass{' '}
