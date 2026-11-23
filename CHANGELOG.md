@@ -7,9 +7,11 @@ follows [Semantic Versioning](https://semver.org/) (while below 1.0, a minor bum
 
 ## [Unreleased]
 
+## [0.11.4] - 2026-11-22
+
 ### Added
 - **DejaVu Sans Mono is bundled** (`assets/fonts/DejaVuSansMono.ttf`, about 0.2 MB more to download) and registered as `monospace` for both the layout and the PNG,
-  so `<code>` in a label is drawn in a monospace face, as in a browser, on every host. Needs a novasvg that draws `<code>` in
+  so `<code>` in a label is drawn in a monospace face, as in a browser, on every host. Needs novasvg 0.11.6, which draws `<code>` in
   the `monospace` family.
 
 ### Changed
@@ -42,17 +44,20 @@ follows [Semantic Versioning](https://semver.org/) (while below 1.0, a minor bum
 - **CI and `docs/Makefile` no longer build a patched `quickjs-ng`.** `WITH_BYTECODE` is removed; `MERMAIDX_REQUIRE_BYTECODE=1` stays in CI.
 - **The landing-page slideshow has two axes and plays by itself.** The tabs on top pick the diagram and a rail on the left picks the backend; each backend gets its own time (`SECONDS` in `Showcase.js`) and a diagram stays for the sum of its backends. The Python on the left shows the `backend=` argument that produces the picture on the right, and a backend that cannot draw the diagram is marked and skipped. `docs/scripts/make_showcase.py` renders every diagram with every backend (see `BACKENDS`).
 - **The benchmark measures download size, not size on disk.** mermaidx is sized with pip-size (a wheel built from the checkout plus its dependencies' wheels), `mmdc` with the npm tarballs it installed plus the headless Chrome that puppeteer downloads. `benchmarks/run.py` needs pip-size 0.4.0 or newer for the mermaidx bars; without it they are left out. `results.json` `footprint` entries now hold wheel and tarball sizes.
-- **`novasvg` is now `>=0.11.5,<0.12.0`** (was `==0.11.5`), so patch releases of novasvg are picked up without a new mermaidx release.
+- **`novasvg` is now `>=0.11.6,<0.12.0`** (was `==0.11.5`). 0.11.6 is the release with the hyphen-break, `<code>` monospace and line-opacity fixes below; the range lets patch releases of novasvg in without a new mermaidx release.
 
 ### Removed
 - `tools/quickjs_ng_bytecode/` (the patched `quickjs-ng` build), its licence file and its `NOTICES.md` entry.
 
 ### Fixed
+- **The `37_erd_relations` sample now matches `mmdc`.** It was a known mismatch (entity widths differed) and its `xfail` test started to pass with the novasvg and shim changes above; which of them did it was not isolated. Its two `xfail` entries in `tests/test_mmdc_structural.py` are removed; only the QuickJS one was run, the V8 one was not.
 - **A `display:table` label no longer gets narrower than its longest unbreakable word** (`dom_shim.js`). Mermaid's
   wrap mode is `display:table; width:120px`; in a browser that width is only a minimum, so a label such as
-  `<code>promise.get_return_object()</code>` widens the label (and the node around it). The shim reported
-  exactly 120, so the text overflowed or got truncated (issue #56). Needs a novasvg that measures `<code>` in a
-  monospace face.
+  `<code>promise.get_return_object()</code>` widens the label (and the node around it), and its text wraps again at
+  the new width, so the box is as tall as a browser makes it. The shim reported exactly 120, so the text overflowed
+  or got truncated (issue #56). Compared with `mmdc` 12.2.0 on the issue's second diagram, node sizes are within
+  5% in width and 4% in height; the rest is the monospace face (`mmdc` drew it with whatever Chromium found). Needs a
+  novasvg that measures `<code>` in a monospace face.
 
 ### Docs
 - **New page "AI agents and CI/CD"** (`docs/docs/ai-and-ci.md`), with a matching README section and landing-page block. It says the install is about 7 MB to download.

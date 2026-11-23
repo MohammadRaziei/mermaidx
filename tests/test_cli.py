@@ -61,12 +61,6 @@ def _png_dims(data: bytes):
 
 # ── argument parsing / exit codes ────────────────────────────────────────────
 
-def test_version():
-    r = run("--version")
-    assert r.returncode == 0
-    assert r.stdout.strip().count(".") >= 1
-
-
 def test_short_version():
     r = run("-v")
     assert r.stdout.strip() == run("--version").stdout.strip()

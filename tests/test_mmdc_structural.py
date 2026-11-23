@@ -30,12 +30,6 @@ KNOWN_DIFFERENT = {
     ("v8", "24_c4_context"): (
         "Chrome text layout, see above: a c4 label wraps onto two lines here and stays on one line in mmdc (node 216 px wide instead of 236.7 px)"
     ),
-    ("quickjs", "37_erd_relations"): (
-        "Chrome text layout, see above: entity widths differ (viewBox 673 px wide instead of 695 px), so the edges are routed differently"
-    ),
-    ("v8", "37_erd_relations"): (
-        "Chrome text layout, see above: entity widths differ (viewBox 673 px wide instead of 695 px), so the edges are routed differently"
-    ),
     ("quickjs", "38_class_advanced"): (
         "Chrome text layout, see above: class box heights differ (viewBox 394.5 px high instead of 389 px), so the edges are routed differently"
     ),

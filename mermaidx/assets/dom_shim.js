@@ -752,8 +752,9 @@ class Element extends Node {
       // height silently falls back to font.height()*1.2 (22.35 vs the 24 a
       // browser gives).
       const html = __serialize(this, false);
-      const m = globalThis.__measureForeignObject(html, fontSize, "DejaVu Sans",
+      const measureHtml = (h) => globalThis.__measureForeignObject(h, fontSize, "DejaVu Sans",
         __resolveHtmlFontWeight(this), __resolveHtmlFontStyle(this));
+      let m = measureHtml(html);
       // A browser gives a block with no text (and no <br>) zero height and
       // zero width -- e.g. mermaid's empty edge labels. novasvg paints
       // nothing for it either (ForeignObjectSimple::render() returns early),
@@ -775,11 +776,23 @@ class Element extends Node {
       // narrower than its longest unbreakable word (min-content), and neither does `max-width` shrink it below that.
       // So `promise.get_return_object()` in a 120px label widens the label instead of overflowing it.
       const declW = __pxValue(__inlineStyleProp(this, "width")), maxW = __pxValue(__inlineStyleProp(this, "max-width"));
-      const isTable = /^\s*table\s*$/.test(__inlineStyleProp(this, "display") || "");
+      const isTable = (__ownCssProp(this, "display") || "").trim() === "table";
       const minContent = isTable ? Math.ceil(m.width * 64) / 64 : 0;
       if (declW !== null) w = declW;
       if (maxW !== null && w > maxW) w = maxW;
-      if (isTable && w < minContent) w = minContent;
+      if (isTable && w < minContent) {
+        w = minContent;
+        // The table grew past the width it was first wrapped at, so its text wraps again at the new width (lines that
+        // needed breaking at 120px may fit at 190px, and the box gets shorter): measure the height at that width.
+        const st = this.style, prevW = st.getPropertyValue("width"), prevMax = st.getPropertyValue("max-width");
+        st.setProperty("width", w + "px");
+        st.setProperty("max-width", w + "px");
+        try { m = measureHtml(__serialize(this, false)); }
+        finally {
+          if (prevW) st.setProperty("width", prevW); else st.removeProperty("width");
+          if (prevMax) st.setProperty("max-width", prevMax); else st.removeProperty("max-width");
+        }
+      }
       return { x: 0, y: 0, width: w, height: m.height, top: 0, left: 0, right: w, bottom: m.height };
     }
     if (this.nodeType === 1 && (this.tagName === "text" || this.tagName === "tspan")) {
@@ -1090,6 +1103,14 @@ function __inlineStyleProp(el, prop) {
 function __pxValue(v) {
   const m = v && __LENGTH_RE.exec(v);
   return m && (m[2] || "").toLowerCase() === "px" && parseFloat(m[1]) >= 0 ? parseFloat(m[1]) : null;
+}
+// A property that does not inherit (display, width, ...) as this element has it: its own style="" outranks a stylesheet
+// rule that matches it. null when neither declares it.
+function __ownCssProp(el, prop) {
+  const inline = __inlineStyleProp(el, prop);
+  if (inline !== null) return inline;
+  const rule = __resolveCssProp(el, prop);
+  return rule ? rule.trim() : null;
 }
 function __resolveHtmlFontSizePx(el) {
   // font-size inherits, so the NEAREST ancestor that declares one wins; on a
