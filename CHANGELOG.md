@@ -47,7 +47,7 @@ follows [Semantic Versioning](https://semver.org/) (while below 1.0, a minor bum
 - **`novasvg` is now `>=0.11.6,<0.12.0`** (was `==0.11.5`). 0.11.6 is the release with the hyphen-break, `<code>` monospace and line-opacity fixes below; the range lets patch releases of novasvg in without a new mermaidx release.
 
 ### Removed
-- `tools/quickjs_ng_bytecode/` (the patched `quickjs-ng` build), its licence file and its `NOTICES.md` entry.
+- `tools/quickjs_ng_bytecode/` (the patched `quickjs-ng` build), its license file and its `NOTICES.md` entry.
 
 ### Fixed
 - **The `37_erd_relations` sample now matches `mmdc`.** It was a known mismatch (entity widths differed) and its `xfail` test started to pass with the novasvg and shim changes above; which of them did it was not isolated. Its two `xfail` entries in `tests/test_mmdc_structural.py` are removed; only the QuickJS one was run, the V8 one was not.
